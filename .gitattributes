@@ -1,0 +1,5 @@
+# LF everywhere, Windows checkouts included: src/thin.sh is run by sh, and tests compare text byte for byte.
+* text=auto eol=lf
+*.png binary
+*.woff2 binary
+*.icns binary

@@ -54,7 +54,9 @@ With `dibs guard install`, an agent that forgets gets turned away with the exact
 
 ## Details
 
-**Install.** `install.sh` downloads the release from dibs.cc and checks its sha256 before installing anything, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and installs nothing. Each release is at `https://dibs.cc/releases/dibs-v<version>.tar.gz`, with its `.sha256` beside it. A pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.179/install.sh | sh`. From a clone: `DIBS_SOURCE=<the clone> sh install.sh`.
+**Install.** `install.sh` downloads the release from dibs.cc and checks its sha256 before installing anything, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and installs nothing. Each release is at `https://dibs.cc/releases/dibs-v<version>.tar.gz`, with its `.sha256` beside it. A pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.180/install.sh | sh`. From a clone: `DIBS_SOURCE=<the clone> sh install.sh`.
+
+**Windows.** From PowerShell, no admin rights needed: `irm https://dibs.cc/install.ps1 | iex`. It checks the sha256 the same way, puts dibs in `~\.dibs-cli`, and makes `dibs.cmd` (PowerShell and cmd) and `dibs` (Git Bash, where Claude Code runs its commands on Windows) in `~\.local\bin`.
 
 **Node.** 22.23.4, 24.22.1, 26.12.1 or newer. Older builds of those lines have the Brotli decoder hole (CVE-2026-111497), and dibs's services refuse to install on them.
 
@@ -75,7 +77,7 @@ rm -rf ~/.dibs-cli ~/.local/bin/dibs ~/.dibs     # ~/.dibs is the queue, history
 
 **Words dibs uses.** A *resource* is something agents take turns on: `test`, `sim`, `xcode-build`, `playwright`, `deploy`, `heavy`, or a name you make up. A *turn* lasts exactly as long as the command. A *hold* (`dibs hold sim --for 20m`) keeps a turn across several commands. A *lease* on files (`dibs hold 'files:src/auth/**'`) keeps other agents' edits off them.
 
-**Platforms.** macOS and Linux run the full suite in CI on every push. Windows support exists and is untested.
+**Platforms.** macOS and Linux run the full suite in CI on every push. Windows works, with gaps (no pausing or measuring yet): [the list](docs/windows.md).
 
 ## License
 
