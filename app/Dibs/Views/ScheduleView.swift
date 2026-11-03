@@ -450,7 +450,29 @@ struct ScheduleView: View {
     }
     // A program: who and a line under it. On now is solid, coming up is a
     // wash with a dashed edge when its length is a guess, already ran is grey.
+    @ViewBuilder
     private func program(_ p: Program, res: String, selected: Bool, now: Date) -> some View {
+        if p.kind == .past && p.runs == 1 && p.end.timeIntervalSince(p.start) < Channel.tickUnder {
+            Rectangle()
+                .fill(p.failed > 0 ? Palette.accent : Tint.ink(res).opacity(0.6))
+                .frame(width: 2, height: Self.laneHeight - 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .help(tip(p, now: now))
+        } else {
+            bar(p, res: res, selected: selected, now: now)
+        }
+    }
+
+    // Who, which job, what, when, how long and how it ended or where it waits: on hover.
+    private func tip(_ p: Program, now: Date) -> String {
+        let job = p.row?.leaseID ?? Int(p.id.replacingOccurrences(of: "past-", with: ""))
+        let head = "\(store.displayName(p.who)) (\(p.who))\(job.map { ", #\($0)" } ?? "")\(p.what.isEmpty ? "" : ": \(p.what)")"
+        let when = "\(Format.clock(p.start)) to \(Format.clock(p.end)), \(Span.of(p.end.timeIntervalSince(p.start)))"
+        return [head, when, p.line(now: now)].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    private func bar(_ p: Program, res: String, selected: Bool, now: Date) -> some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         let fill: Color = switch p.kind {
         case .running: p.paused ? Palette.sunken : Tint.of(res)
@@ -491,7 +513,7 @@ struct ScheduleView: View {
         }
         .padding(.horizontal, 1.5)
         .contentShape(shape)
-        .help("\(store.displayName(p.who)) (\(p.who))\(p.what.isEmpty ? "" : ": \(p.what)")")
+        .help(tip(p, now: now))
     }
 
     private func share(_ date: Date, _ start: Date, _ span: TimeInterval) -> Double {
@@ -666,12 +688,16 @@ struct Channel: Identifiable {
     }
 
     // More rows than this and a channel stops reading as one line of the guide.
-    static let maxLanes = 3
-    // Runs by one agent closer together than this read as one sitting.
-    static let sitting: TimeInterval = 120
+    // Four: deploys run one per project at once (0.0.178).
+    static let maxLanes = 4
+    // Runs by one agent closer together than this read as one sitting: back to
+    // back, not two minutes apart, which joined separate tries into one bar.
+    static let sitting: TimeInterval = 30
+    // A single run shorter than this is a tick, not a pill that reads as a broken bar.
+    static let tickUnder: TimeInterval = 60
 
     // One program per sitting: an agent's runs on a channel with less than
-    // two minutes between them, so a test loop is one block, not fifty slivers.
+    // 30 seconds between them, so a test loop is one block, not fifty slivers.
     static func sittings(_ runs: [PastRun]) -> [Program] {
         var out: [Program] = []
         for (who, mine) in Dictionary(grouping: runs, by: \.who) {

@@ -746,8 +746,12 @@ button.lrow:hover { background: var(--hover); }
 .g-name { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .g-track { position: relative; height: 100%; min-height: 40px; }
 .g-head .g-track { min-height: 30px; }
-.prog { position: absolute; top: 50%; height: 22px; margin-top: -11px; border: 0; border-radius: 6px; padding: 0 6px; font: inherit; font-size: 11.5px; font-weight: 600; line-height: 22px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 4px; }
+.prog { position: absolute; height: 22px; border: 0; border-radius: 6px; padding: 0 6px; font: inherit; font-size: 11.5px; font-weight: 600; line-height: 22px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 4px; }
 button.prog { cursor: pointer; }
+/* Under a minute of history: a thin tick, not a pill that reads as a broken bar. */
+.prog.tick { width: 2px; min-width: 2px; padding: 0; border-radius: 1px; box-shadow: none; background: var(--ink-3); opacity: 0.6; }
+.prog.k-failed.tick { background: var(--red); opacity: 0.8; }
+.g-more { margin-left: 8px; border: 0; background: var(--sunken); color: var(--ink-2); border-radius: 99px; padding: 1px 7px; font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; }
 .prog.k-ran { background: var(--sunken); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--hairline); }
 .prog.k-failed { background: var(--red-wash); color: var(--red-ink); }
 .prog.k-run { background: var(--red); color: #fff; }

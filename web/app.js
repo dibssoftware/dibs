@@ -986,13 +986,13 @@
     for (const e of evs) {
       if (e.kind !== 'end' || e.at < lo) continue;
       const from = starts.get(`${e.id}`)?.at ?? e.at - (e.ms || 0);
-      for (const r of e.res || []) chan(r).progs.push({ kind: e.code && e.code !== 0 ? 'failed' : 'ran', who: e.who || 'dibs', from: Math.max(lo, from), to: e.at, tip: `${e.who || 'dibs'}: ran ${span(e.at - from)}${e.code != null ? `, exit ${e.code}` : ''}` });
+      for (const r of e.res || []) chan(r).progs.push({ kind: e.code && e.code !== 0 ? 'failed' : 'ran', who: e.who || 'dibs', from: Math.max(lo, from), to: e.at, start: from, id: e.id, what: e.purpose || e.cmd || '', code: e.code ?? null });
     }
     for (const j of data.jobs) for (const r of j.res) {
       if (j.state === 'waiting') {
         const from = j.startsAt && j.startsAt > now ? j.startsAt : now;
-        chan(r).progs.push({ kind: 'wait', who: j.who, from, to: from + (j.est || 10 * 6e4), job: j, tip: `${j.who}: #${j.place} in line` });
-      } else chan(r).progs.push({ kind: j.state === 'paused' ? 'paused' : 'run', who: j.who, from: Math.max(lo, j.started || now), to: j.endsAt || now + 5 * 6e4, open: !j.endsAt, job: j, tip: `${j.who}: ${j.purpose || j.cmd || 'on now'}` });
+        chan(r).progs.push({ kind: 'wait', who: j.who, from, to: from + (j.est || 10 * 6e4), job: j });
+      } else chan(r).progs.push({ kind: j.state === 'paused' ? 'paused' : 'run', who: j.who, from: Math.max(lo, j.started || now), to: j.endsAt || now + 5 * 6e4, open: !j.endsAt, job: j });
     }
     const list = [...chans.values()].sort((a, b) => resName(a.res).localeCompare(resName(b.res)));
     $('summary').textContent = list.length ? `What ran in the last two hours, what's on now, and what's waiting. ${press()} a job to change it.` : '';
@@ -1018,15 +1018,32 @@
       name.append(resDot(c.res), resName(c.res));
       const track = el('div', 'g-track');
       for (let t = Math.ceil(from / step) * step; t < hi; t += step) { const g = el('i', 's-grid'); g.style.left = `${at(t)}%`; track.append(g); }
-      for (const p of c.progs) {
-        if (p.to < from) continue;
-        // A name only where it fits; the rest say who on hover.
-        const b = el(p.job ? 'button' : 'span', `prog k-${p.kind}${p.open ? ' open' : ''}`, at(p.to) - at(p.from) > 5 ? p.who : '');
-        b.style.left = `${at(p.from)}%`;
-        b.style.width = `${Math.max(0.6, at(p.to) - at(p.from))}%`;
-        b.title = p.tip;
-        if (p.job) { b.type = 'button'; b.addEventListener('click', () => jobSheet(p.job.id)); }
-        track.append(b);
+      // Jobs at once each get a row of their own (deploys run one per project), never one bar over another.
+      const lanes = packLanes(sittings(c.progs.filter(p => p.to >= from)));
+      const shown = lanes.slice(0, MAX_LANES), rest = lanes.slice(MAX_LANES).flat();
+      track.style.height = `${Math.max(1, shown.length) * LANE_H + 12}px`;
+      shown.forEach((lane, i) => {
+        for (const p of lane) {
+          // Under a minute of history is a thin tick, not a pill that reads as a broken bar.
+          const tick = !p.job && p.to - p.start < TICK_UNDER && p.runs.length === 1;
+          const b = el('button', `prog k-${p.kind}${p.open ? ' open' : ''}${tick ? ' tick' : ''}`, tick ? '' : p.runs.length > 1 ? `${p.who} \u00d7${p.runs.length}` : p.who);
+          b.type = 'button';
+          b.style.left = `${at(p.from)}%`;
+          b.style.width = tick ? '' : `${Math.max(0.6, at(p.to) - at(p.from))}%`;
+          b.style.top = `${i * LANE_H + 6}px`;
+          b.title = progTip(p);
+          b.setAttribute('aria-label', progTip(p).replace(/\n/g, '. '));
+          // A job of now opens its sheet; one that ran says what it was (a tap has no hover).
+          b.addEventListener('click', () => (p.job ? jobSheet(p.job.id) : toast(progTip(p).replace(/\n/g, '. '))));
+          track.append(b);
+        }
+      });
+      if (rest.length) {
+        const more = el('button', 'g-more', `+${rest.length}`);
+        more.type = 'button';
+        more.title = rest.map(p => progTip(p).split('\n')[0]).join('\n');
+        more.addEventListener('click', () => toast(`${rest.length} more on ${resName(c.res)}: ${rest.map(p => progTip(p).split('\n')[0]).join('; ')}`));
+        name.append(more);
       }
       const nowLine = el('i', 's-now');
       nowLine.style.left = `${at(now)}%`;
@@ -1037,6 +1054,60 @@
     const legend = el('div', 'legend');
     legend.append(el('i', 'key k-ran'), 'Ran', el('i', 'key k-run'), 'On now', el('i', 'key k-wait'), 'Waiting', el('i', 'key k-failed'), 'Failed');
     box.replaceChildren(section('Channels', legend, guide));
+    // A name only where it fits with room to spare; a bar too narrow for it says who on hover or tap.
+    for (const b of guide.querySelectorAll('.prog:not(.tick)')) if (b.clientWidth < LABEL_MIN) b.textContent = '';
+    // The axis's times never run into each other or into Now: on a phone, every other one goes.
+    let right = -Infinity;
+    const nowBox = tag.getBoundingClientRect();
+    for (const k of axis.querySelectorAll('.s-tick')) {
+      const r = k.getBoundingClientRect();
+      if (r.left < right + 8 || (r.right > nowBox.left - 6 && r.left < nowBox.right + 6)) k.hidden = true;
+      else right = r.right;
+    }
+  }
+
+  // The Mac app's guide's rules (app/Dibs/Views/ScheduleView.swift Channel):
+  // runs by one agent less than SITTING apart are one bar, each bar takes the
+  // first row free at its start, and past MAX_LANES rows the rest are a +N.
+  const SITTING = 30e3, MAX_LANES = 4, LANE_H = 30, TICK_UNDER = 6e4, LABEL_MIN = 48;
+  function sittings(progs) {
+    const out = [], cur = new Map();
+    for (const p of [...progs].sort((a, b) => a.from - b.from)) {
+      const past = p.kind === 'ran' || p.kind === 'failed';
+      const c = past && cur.get(p.who);
+      if (c && p.from - c.to < SITTING) {
+        c.to = Math.max(c.to, p.to);
+        c.runs.push(p);
+        if (p.kind === 'failed') c.kind = 'failed';
+        continue;
+      }
+      const bar = { ...p, start: p.start ?? p.from, runs: [p] };
+      if (past) cur.set(p.who, bar);
+      out.push(bar);
+    }
+    return out;
+  }
+  function packLanes(bars) {
+    const lanes = [];
+    for (const b of [...bars].sort((x, y) => x.from - y.from)) {
+      const lane = lanes.find(l => l.at(-1).to <= b.from);
+      if (lane) lane.push(b); else lanes.push([b]);
+    }
+    return lanes;
+  }
+  // Agent, job, what it was, when, how long, and how it ended or where it waits.
+  function progTip(p) {
+    const j = p.job;
+    if (j) {
+      const what = j.purpose || j.cmd || '';
+      const when = j.state === 'waiting' ? `waiting, #${j.place} in line${j.startsAt ? `, starts ~${clock(j.startsAt)}` : ''}`
+        : `started ${clock(j.started || p.from)}${j.endsAt ? `, ends ~${clock(j.endsAt)}` : ''}, ${inFor(data.now - (j.started || p.from))} so far${j.state === 'paused' ? ', paused' : ''}`;
+      return `${j.who}: #${j.id}${what ? ` ${what}` : ''}\n${when}`;
+    }
+    const n = p.runs.length, failed = p.runs.filter(x => x.kind === 'failed').length;
+    const first = p.runs[0], what = first.what ? ` ${first.what}` : '';
+    const ended = n > 1 ? `${n} runs${failed ? `, ${failed} failed` : ''}` : first.code != null ? `exit ${first.code}` : 'ended';
+    return `${p.who}: ${n > 1 ? `#${first.id} to #${p.runs.at(-1).id}` : `#${first.id}`}${what}\n${clock(p.start)} to ${clock(p.to)}, ${span(p.to - p.start)}, ${ended}`;
   }
 
   // ---- A job's sheet: what it is, and boost, pause, resume, stop ----------
