@@ -289,8 +289,8 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
       g.n++; g.at = Math.max(g.at, x.at); g.code = x.code;
       failed.set(k, g);
     } else if (x.kind === 'stopped') {
-      const other = x.by && x.by !== x.who;
-      out.push({ id: `stopped:#${x.id}`, cause: 'ended', level: 'note', at: x.at, job: x.id, who: x.who, ...(!other && !matters(x) && { quiet: true }),
+      // Stopped on purpose (exit 143 or 137, or dibs stop): on record in dibs alerts --all, nowhere louder.
+      out.push({ id: `stopped:#${x.id}`, cause: 'ended', level: 'note', at: x.at, job: x.id, who: x.who, quiet: true,
         title: `${job(x)} was stopped${x.by ? ` by ${x.by}` : ''} at ${stamp(x.at, t)}${x.code != null ? ` (exit ${x.code})` : ''}`,
         fix: `If it should finish, ${x.who} runs it again; nothing else waits on it.` });
     } else if (x.kind === 'lost') {
@@ -490,7 +490,7 @@ export function alerts(args, cfg) {
   if (args.includes('--all')) list = shown(load(), t, true);
   if (args.includes('--json')) return console.log(JSON.stringify(list, null, 1));
   const quiet = args.includes('--all') ? 0 : Object.values(load().open).filter(a => a.quiet).length;
-  const more = quiet ? dim(`${quiet} more not worth your attention (agents' own test runs failing, jobs they stopped themselves): dibs alerts --all`) : '';
+  const more = quiet ? dim(`${quiet} more not worth your attention (agents' own test runs failing, jobs stopped on purpose): dibs alerts --all`) : '';
   if (!list.length) return console.log(['Nothing is wrong that dibs can see. Open problems and what fixes them show here, and on the board.', more].filter(Boolean).join('\n'));
   console.log(alertLines(list, t).join('\n'));
   if (more) console.log(`\n${more}`);

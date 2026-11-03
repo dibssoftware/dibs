@@ -79,6 +79,7 @@ test("a session whose own scratch folder is big hears it's low on disk, though i
   fs.writeFileSync(path.join(HOME, 'state.json'), JSON.stringify({ seq: 1, leases: [], queue: [] }));
   await hogsOnce(cfg, { diskFree: 8 * G }, Date.now());
   assert.deepEqual(notes().map(m => m.session), ['sess-f']);
+  assert.doesNotMatch(notes()[0].text, /Free what you can of your own/, 'its files hold still: no telling it to free them again and again (e4)');
 });
 
 test("with the throttle watcher down, the coordinator sends the low-disk notes itself", async t => {

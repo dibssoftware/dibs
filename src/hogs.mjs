@@ -193,13 +193,16 @@ function readings(folders, size, m, was, t) {
   for (const [label, p] of Object.entries(places())) if (size[p] != null) now[label] = size[p];
   if (m.swapUsed != null) now.swap = m.swapUsed;
   let writer = null;
+  // Every folder that grew, not only the fastest: a session whose files hold still has nothing new to free (src/diskwarn.mjs).
+  const grew = [];
   if (was?.readings && t - was.readAt <= 3 * REMEASURE) {
     for (const [label, b] of Object.entries(now)) {
       const by = b - (was.readings[label] ?? b);
+      if (by >= GROW_MIN) grew.push(label);
       if (by >= GROW_MIN && (!writer || by > writer.by)) writer = { label, by, ms: t - was.readAt };
     }
   }
-  return { readings: now, readAt: t, writer };
+  return { readings: now, readAt: t, writer, grew };
 }
 
 // For a disk wait: what's growing and the biggest folder and whose it is, as words to add, or ''.

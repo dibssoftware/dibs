@@ -97,9 +97,10 @@ export const cleanDue = (was, t, critical) => !(t - (was?.cleaned?.at || 0) < (c
 // ATE_MIN of disk. Their jobs, for the note.
 function sessions(s, was) {
   const out = new Map();
-  const add = (session, who, agentId) => { if (session && !out.has(session)) out.set(session, { session, who, agentId: agentId || null, running: [], waiting: [] }); return out.get(session); };
-  for (const h of was?.folders || []) add(h.session, h.who, h.agentId);
-  for (const l of s.leases || []) if (l.kind === 'run' && l.sessionId && (l.ate || 0) >= ATE_MIN) add(l.sessionId, l.who, l.agentId);
+  const add = (session, who, agentId) => { if (session && !out.has(session)) out.set(session, { session, who, agentId: agentId || null, running: [], waiting: [], growing: false }); return out.get(session); };
+  // Growing: its folder grew since the last reading (hogs.mjs), or its jobs are writing.
+  for (const h of was?.folders || []) add(h.session, h.who, h.agentId).growing ||= !!was.grew?.includes(`session ${h.session}'s scratch folder`);
+  for (const l of s.leases || []) if (l.kind === 'run' && l.sessionId && (l.ate || 0) >= ATE_MIN) add(l.sessionId, l.who, l.agentId).growing = true;
   for (const l of s.leases || []) if (l.kind === 'run' && out.has(l.sessionId)) out.get(l.sessionId).running.push(l);
   for (const q of s.queue || []) if (q.pid && out.has(q.sessionId)) out.get(q.sessionId).waiting.push(q);
   return [...out.values()];
@@ -117,7 +118,8 @@ export function noteText(x, m, floor, hint, cleaned) {
   if (critical && x.running.length) lines.push(`Your running dibs ${x.running.length === 1 ? 'job' : 'jobs'} ${x.running.map(job).join(', ')} may fail writing: save what it has done if you can`);
   // Over the floor a waiter is held by something else, not the disk.
   if (critical && x.waiting.length) lines.push(`Your waiting ${x.waiting.length === 1 ? 'job' : 'jobs'} ${x.waiting.map(job).join(', ')} won't start until there's room`);
-  lines.push('Free what you can of your own: build output, scratch folders and merged worktrees your session made (only exact paths you made; others of your session may still use the rest)');
+  // Files holding still were there before the disk got low: telling their session to free them each time taught agents to skip the note (e4, 2026-11-03).
+  if (x.growing) lines.push('Free what you can of your own: build output, scratch folders and merged worktrees your session made (only exact paths you made; others of your session may still use the rest)');
   return lines.join('. ') + '.';
 }
 

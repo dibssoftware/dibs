@@ -70,7 +70,7 @@ function branch(dir) {
   return { root: null, branch: null };
 }
 
-export function post(args) {
+export async function post(args) {
   const o = parse(args);
   if (!o.text) return list(o);
   if (o.text.length > MAX_TEXT) die(`that's ${o.text.length} characters; keep a post under ${MAX_TEXT} and post again as you go. Nothing was posted.`);
@@ -86,8 +86,13 @@ export function post(args) {
   const id = identity(o);
   const session = process.env.CLAUDE_CODE_SESSION_ID || sessionFiles().find(f => f.pid === id.spid)?.sessionId || null;
   const where = branch(process.cwd());
+  // Which subagent of the session posts, as the hook saw it ask (src/files.mjs):
+  // its task is its own, and so is the nudge when it goes quiet. On 2026-11-03 a
+  // lead got overdue notices for its teammates' tasks.
+  const by = session ? (await import('./files.mjs')).takeAgent('progress', [], (await import('./files.mjs')).talkKey('progress', args)) : null;
   const p = {
-    at: now(), who: id.who, ...(id.label && { label: id.label }), ...(session && { session }),
+    at: now(), who: id.who, ...((id.label || by?.agentType) && { label: id.label || by.agentType }), ...(session && { session }),
+    ...(by?.agentId && by.agentId !== 'main' && { agentId: by.agentId }),
     project: path.basename(where.root || process.cwd()), ...(where.branch && { branch: where.branch }),
     ...(o.task && { task: o.task }), state: o.state || 'doing', ...(eta && { eta }), text: o.text,
   };
@@ -127,9 +132,10 @@ export function read({ since = 0, agent = null, limit = Infinity } = {}) {
 export function tasks(posts, at = now()) {
   const by = new Map();
   for (const p of posts) {
-    const key = `${p.who}\0${p.task || ''}\0${p.task ? '' : p.project || ''}`;
+    // A subagent's task is its own, apart from its lead's of the same name.
+    const key = `${p.who}\0${p.agentId || ''}\0${p.task || ''}\0${p.task ? '' : p.project || ''}`;
     let t = by.get(key);
-    if (!t) by.set(key, t = { who: p.who, label: p.label || null, task: p.task || null, project: p.project || null, branch: p.branch || null, started: p.at, posts: 0 });
+    if (!t) by.set(key, t = { who: p.who, label: p.label || null, ...(p.agentId && { agentId: p.agentId }), task: p.task || null, project: p.project || null, branch: p.branch || null, started: p.at, posts: 0 });
     Object.assign(t, { last: p.at, state: p.state, text: p.text, branch: p.branch || t.branch, project: p.project || t.project, session: p.session || t.session || null });
     if (p.eta) t.eta = p.eta;
     if (p.state === 'doing' && t.state === 'doing' && t.doneAt) delete t.doneAt;

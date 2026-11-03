@@ -947,12 +947,13 @@ const READ_VERBS = new Set(['status', 'why', 'mine', 'who', 'when', 'yield']);
 const ACT_VERBS = new Set(['boost', 'pause', 'resume', 'stop']);
 const ALIASES = { done: 'release', renew: 'hold', ls: 'status', board: 'status' };
 // dibs say and dibs question go in the asking agent's own thread (src/talk.mjs),
-// and dibs later tells that thread how the job ended (src/later.mjs). Their
+// dibs later tells that thread how the job ended (src/later.mjs), and a dibs
+// progress task belongs to the subagent that posts it (src/progress.mjs). Their
 // note is keyed by the words, so subagents saying "done" at once each get
 // their own. A word the hook can't read ($VAR) matches any one word.
 // Every other call is keyed the same way, by all its words, so two subagents
 // running `dibs run sim -- ...` at once each claim their own note.
-const TALK_VERBS = new Set(['say', 'question', 'later']);
+const TALK_VERBS = new Set(['say', 'question', 'later', 'progress']);
 export const talkKey = (verb, words) => `${verb}|${words.join('\0')}`;
 // A word the hook can't read ("files:$R/a.ts", $(...)) stands for any one word.
 const WILD = '\u0001';

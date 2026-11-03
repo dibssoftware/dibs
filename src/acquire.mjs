@@ -587,11 +587,10 @@ export async function acquire(o, kind, cfg) {
   if (!nested) capToMachine(cfg, size);
   const { mem, cpu, disk, asked, askedCpu, usual } = size;
   const grew = grewPlain({ mem, cpu, asked, askedCpu, usual }, key.split('|')[1]);
-  // Booked at what it really used, not at its ask: dibs's own bookkeeping. It's
-  // said on the run's own output and kept in the history, not sent through the
-  // hook: on 2026-11-03 these were 6 of 35 notices, and agents called them noise.
+  // Booked at what it really used, not at its ask: dibs's own bookkeeping, kept
+  // in the history and said to nobody. On 2026-11-03 these were 6 of 35 notices,
+  // and "typecheck used up to 4 cores, pass --cpu 4" came on every merge.
   if (grew) {
-    say(grew);
     event({ kind: 'sized', key, who: id.who, mem, cpu, ...(asked != null && { asked }), ...(askedCpu != null && { askedCpu }), ...(usual != null && { usual }) });
   }
   // Running the same request again soon after a timed-out wait keeps your place.

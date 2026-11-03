@@ -127,12 +127,11 @@ test("only failures the person cares about are loud: a deploy, a job they wait o
   assert.match(titles, /web-app's npm test failed 3 times in a row, last at .* \(exit 1\)/);
   assert.match(titles, /ios's #6 \(\.\/ship\.sh\) failed at /, 'a deploy, once');
   assert.match(titles, /api's #9 \(npm run e2e\) failed at .*, and it was high/);
-  assert.match(titles, /ios's #7 \(\.\/ship\.sh\) was stopped by the person/);
-  assert.ok(!/npm run lint|npm run dev/.test(titles), "twice in a row, and a job its own agent stopped, aren't the person's business");
+  assert.ok(!/npm run lint|npm run dev|was stopped/.test(titles), "twice in a row, and jobs stopped on purpose, aren't the person's business");
   const all = JSON.parse(sync(home, ['alerts', '--all', '--json']).out).map(a => a.title).join('\n');
   assert.match(all, /web-app's npm run lint failed 2 times in a row/);
   assert.match(all, /npm run dev\) was stopped at .* \(exit 130\)/);
-  assert.match(sync(home, ['alerts']).out, /2 more not worth your attention .*: dibs alerts --all/);
+  assert.match(sync(home, ['alerts']).out, /3 more not worth your attention .*: dibs alerts --all/);
   const lost = list.find(a => a.id.startsWith('lost:'));
   assert.equal(lost.level, 'urgent');
   assert.match(lost.fix, /never ran, so it's safe to run again/);
@@ -222,14 +221,22 @@ test("dibs's own trouble is loud: a service launchd had to restart, the hook fai
   assert.match(find(found, `crash:${T - MIN}`).title, /^dibs crashed at .* running dibs run for web-app$/);
 });
 
-test('a failure is on the plain board for 30 minutes, then only in dibs alerts, the page and the app', t => {
+test("a failure is on the plain board for 30 minutes after its last time, a stop never; both stay in dibs alerts", t => {
   const home = tmp(t, 'aging');
   fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ minDisk: '0' }));
   const now = Date.now();
-  const deploy = (id, ago) => ({ at: now - ago * MIN, kind: 'end', type: 'run', id, who: 'ios', res: ['deploy'], key: `k${id}`, cmd: `./ship.sh ${id}`, code: 1, prio: 'normal' });
-  fs.writeFileSync(path.join(home, 'events.jsonl'), [deploy(1, 40), deploy(2, 10)].map(e => JSON.stringify(e)).join('\n') + '\n');
+  const end = (id, ago, o) => ({ at: now - ago * MIN, kind: 'end', type: 'run', id, who: 'ios', res: ['deploy'], key: `k${id}`, cmd: `./ship.sh ${id}`, code: 1, prio: 'normal', ...o });
+  const lint = (id, ago) => end(id, ago, { who: 'web', res: ['test'], key: 'lint', cmd: 'npm run lint' });
+  fs.writeFileSync(path.join(home, 'events.jsonl'), [end(1, 40), end(2, 10), lint(3, 70), lint(4, 60), lint(5, 50), lint(6, 5),
+    { at: now - 3 * MIN, kind: 'override', act: 'stop', id: 7, by: 'the person' }, end(7, 3, { key: 'k7', cmd: './ship.sh 7', code: 143 })]
+    .map(e => JSON.stringify(e)).join('\n') + '\n');
   const board = sync(home, []).out;
   assert.match(board, /ios's #2 \(\.\/ship\.sh 2\) failed/);
   assert.doesNotMatch(board, /#1 \(\.\/ship\.sh 1\)/, 'forty minutes old: off the board');
-  assert.match(sync(home, ['alerts']).out, /ios's #1 \(\.\/ship\.sh 1\) failed/, 'still an alert for the person');
+  assert.match(board, /web's npm run lint failed 4 times in a row/, 'a repeat stays while it keeps failing: its last was 5 minutes ago');
+  assert.doesNotMatch(board, /stopped/, 'a stop is never on the plain board, even by the person');
+  const alerts = sync(home, ['alerts']).out;
+  assert.match(alerts, /ios's #1 \(\.\/ship\.sh 1\) failed/, 'still an alert for the person');
+  assert.doesNotMatch(alerts, /was stopped/, 'stopped on purpose: not an alert');
+  assert.match(sync(home, ['alerts', '--all']).out, /ios's #7 \(\.\/ship\.sh 7\) was stopped by the person/, 'on record in --all');
 });

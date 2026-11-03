@@ -69,7 +69,7 @@ dibs tell web-app/Explore "check the tests"  # a subagent's thread is <session n
 How a message reaches the agent, with `dibs guard install` (or the plugin):
 
 - On the agent's next Bash, edit or Agent tool call, the hook adds it next to the call as `additionalContext` ("Message from the person: ..."). The call itself goes through unchanged, through the normal permission checks. If the guard turns that call away (a heavy command outside dibs, a file another agent leased), the message waits for the next one.
-- If the agent is ending its turn instead, the Stop hook (SubagentStop for a subagent) answers with `decision: "block"` and the message as the reason, so it keeps going and reads it. Each message is handed over once, and a stop that's already a stop hook's continuation (`stop_hook_active`) is never blocked again, so this can't loop.
+- If the agent is ending its turn instead, the Stop hook (SubagentStop for a subagent) answers with the message as `additionalContext`, so it keeps going and reads it as hook feedback (a `decision: "block"` would read as a hook error). Each message is handed over once, and a stop that's already a stop hook's continuation (`stop_hook_active`) never gets another, so this can't loop.
 - An agent that's idle, waiting for its person to type, gets it on its next tool call. A session that has ended keeps the message queued, shown as not delivered, in case it's resumed.
 - Without the guard, the agent gets queued messages the next time it runs `dibs say`.
 

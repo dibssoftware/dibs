@@ -98,8 +98,9 @@ test('an agent about to stop is kept going to read the message, once, and never 
   assert.equal(hook(w, stopping('sess-a', { stop_hook_active: true })), null, 'already kept going by a stop hook: not again');
 
   const out = hook(w, stopping('sess-a'));
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /\nMessage from the person: one more thing: bump the build number\n/);
+  assert.equal(out.decision, undefined, "not a block: Claude Code shows a block's reason as a hook error");
+  assert.equal(out.hookSpecificOutput.hookEventName, 'Stop');
+  assert.match(out.hookSpecificOutput.additionalContext, /\nMessage from the person: one more thing: bump the build number\n/);
   assert.equal(hook(w, stopping('sess-a', { stop_hook_active: true })), null, 'the next stop goes through: no loop');
   assert.equal(hook(w, stopping('sess-a')), null);
   const m = threads(w)[0].messages;
@@ -126,8 +127,8 @@ test("a subagent's thread is its own: a message to it skips the main agent and r
 
   assert.equal(tell(w, 'web-app/Explore', 'and the docs').code, 0);
   const out = hook(w, { session_id: 'sess-a', hook_event_name: 'SubagentStop', stop_hook_active: false, ...sub });
-  assert.deepEqual(out.decision, 'block');
-  assert.match(out.reason, /and the docs/);
+  assert.equal(out.hookSpecificOutput.hookEventName, 'SubagentStop');
+  assert.match(out.hookSpecificOutput.additionalContext, /and the docs/);
   assert.equal(hook(w, { session_id: 'sess-a', hook_event_name: 'SubagentStop', stop_hook_active: true, ...sub }), null);
   assert.equal(threads(w).find(th => th.agentId !== 'main').alive, false, 'a finished subagent shows as not running');
 });

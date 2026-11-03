@@ -104,13 +104,13 @@ test('a job running far past its booking while swap fills the disk is stopped, a
   assert.ok(hist.some(h => h.key.startsWith('test|sh') && h.mem === 12 * G));
 });
 
-test('a command that used more than it asks for is booked at what it used: said on its own output and kept in the history, never sent as a notice', t => {
+test('a command that used more than it asks for is booked at what it used, silently: in the history, never said to the agent', t => {
   const home = tmp(t);
   fs.writeFileSync(path.join(home, 'history.jsonl'), JSON.stringify({ key: 'test|true', dur: 1000, who: 'me', at: Date.now(), fit: true, mem: 6 * G, cpu: 6 }) + '\n');
   const opts = { agent: 'me', env: { CLAUDE_CODE_SESSION_ID: 'sess-1' } };
   const r = spawnSync(process.execPath, [BIN, 'run', 'test', '--mem', '3G', '--cpu', '3', '--', 'true'], { env: env(home, opts), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /used up to 6\.0 GB of memory \(it asks for 3\.0 GB\) and 6 cores \(it asks for 3\)/);
+  assert.doesNotMatch(r.stderr, /used up to|pass --cpu|pass --mem/, 'came on every merge (2e, 2026-11-03)');
   let msgs = [];
   try { msgs = JSON.parse(fs.readFileSync(path.join(home, 'messages.json'), 'utf8')).messages.filter(m => m.kind === 'notice'); } catch {}
   assert.deepEqual(msgs, [], "dibs's bookkeeping, not the agent's business (6 of 35 notices on 2026-11-03)");

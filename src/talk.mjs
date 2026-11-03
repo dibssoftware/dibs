@@ -353,7 +353,10 @@ export function deliver(input, out) {
     return mine;
   }, HOOK_LOCK_WAIT));
   if (!text) return out;
-  if (stop) return { decision: 'block', reason: text };
+  // additionalContext keeps the agent going with the message as hook feedback.
+  // decision: 'block' did too, but Claude Code shows its reason as a "Stop hook
+  // blocking error", and agents read the person's message as a failure (2026-11-03).
+  if (stop) return { hookSpecificOutput: { hookEventName: input.hook_event_name, additionalContext: text } };
   if (!out) return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text } };
   const h = out.hookSpecificOutput;
   return { ...out, hookSpecificOutput: { ...h, additionalContext: [h.additionalContext, text].filter(Boolean).join('\n\n') } };
