@@ -37,7 +37,7 @@ export const off = () => !!process.env.DIBS_NO_AGENT_NOTES && process.env.DIBS_N
 export function dibsMd(root = ROOT) {
   let skill = '';
   try { skill = fs.readFileSync(path.join(root, 'skills', 'dibs', 'SKILL.md'), 'utf8'); } catch {}
-  const body = skill.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/^\s*# dibs\s*\n/, '').trim();
+  const body = skill.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/^\s*# dibs\s*\n/, '').replace(/<!-- dibs:rules:(start|end) -->\n/g, '').trim();
   return [
     '# dibs: instructions for coding agents',
     '',

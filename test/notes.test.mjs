@@ -33,7 +33,7 @@ test('dibs init writes dibs.md from the skill and adds one note to CLAUDE.md, Co
   assert.equal(r.code, 0, r.err);
   for (const f of [MD, p.claude, p.codex, path.join(p.repo, 'CLAUDE.md')]) assert.match(r.out, new RegExp(`wrote ${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(read(MD), /^# dibs: instructions for coding agents/);
-  assert.match(read(MD), /## The five you need/, 'the skill\'s own text');
+  assert.match(read(MD), /## When you need it/, 'the skill\'s own text');
   assert.doesNotMatch(read(MD), /^name: dibs/m, 'without its front matter');
   assert.ok(read(p.claude).startsWith('# my rules\nbe terse\n\n<!-- dibs:start -->\n## dibs\n'));
   assert.match(read(p.claude), new RegExp(`Read ${MD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} before running builds`));

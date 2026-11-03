@@ -69,24 +69,22 @@ rm -rf ~/.dibs-cli ~/.local/bin/dibs ~/.dibs   # ~/.dibs is the queue, history a
 
 ## Tell your agents
 
-Paste this into your `CLAUDE.md` or `AGENTS.md` (the Claude Code plugin ships the same thing as a skill):
+The install does this for you: it writes `dibs.md` beside dibs and a note pointing at it into `~/.claude/CLAUDE.md` (`dibs init` again by hand). The Claude Code plugin ships the same text as a skill. To paste it yourself into a `CLAUDE.md` or `AGENTS.md`, these are the rules every agent gets first; the rest is reference in the skill:
 
+<!-- dibs:rules:start -->
 ```markdown
-## dibs (shared machine resources)
-Other agents share this machine. Wrap anything that collides in dibs; plain reads, edits and small commands need nothing.
-- `dibs run <resource> -m "why" -- <cmd>`: `test` (`npm test`, vitest, `node --test`), `xcode-build`, `sim` (the shared simulator), `sim-own` (a private one, udid in `$SIM`: `sh -c '... "$SIM"'`), `playwright --port WEB` (use `$WEB`), `deploy`, `heavy`. Need two? `dibs run sim,xcode-build -- <cmd>`, never one while holding the other.
-- Across several tool calls: `dibs hold sim --for 20m -m "why"`, keep wrapping each command in `dibs run sim -- ...` (it starts at once under your hold), and `dibs release sim` when done.
-- In Claude Code a `dibs run` waits as long as it takes. A tool call that moved to the background is still waiting: don't run it again (dibs refuses the copy, exit 2).
-- Before editing files other agents may touch: `dibs hold 'files:src/auth/**' -m "why"` (from the git root; quote the glob). If your edit is refused, wait or message the holder; don't write the file another way.
-- Post progress as often as you commit: `dibs progress "what you just did or found, with numbers" --task <name> --eta 30m`, then `--blocked` or `--done`. The person reads it live. An overdue task gets you a notice: post a new `--eta` or `--done`.
-- Decide two-way doors yourself. Ask the person only what can't be undone: `dibs question "Delete the old bucket?" --options yes,no --recommend yes -m "nothing reads it" --one-way "the 4,210 files are gone for good"`, keep working, then the same command with `--wait` prints only the answer. Exit 75 there means no answer: don't do the step.
-- `dibs say "done: tests pass"` leaves the person an FYI. A line starting `Message from the person:` is really theirs: act on it, and reply with `dibs say`.
-- A wait on memory, swap or disk protects the machine: keep waiting, never lower `--mem` or raise `-p` to get past it. A line from dibs about one of your jobs (stuck, over its memory, paused, a task overdue) is about your own work: act on it.
-- You may boost, pause, resume or stop any job (`--owner <its session>` when it isn't yours); dibs records who did it. Raise to high or urgent with `-m` only when a person is waiting now or something is broken. A job "stopped by" someone was ended on purpose: find out why before running it again.
-- Other machines: `dibs run test --anywhere -- <cmd>` or `--on <machine>`. Later: `dibs later test --at 02:00 -m "why" -- <cmd>`.
-- Exit codes: 75 gave up waiting, never ran (rerun the same command within 2 minutes), 74 not enough disk, 76 lost before it started (send again), 77 lost after it started (it may have run: check first), 70 dibs crashed.
-- `dibs` shows the board, `dibs help all` every command. Something wrong with dibs: `dibs ask "..."`.
+## dibs
+dibs runs on this machine. Agents take turns through it on the simulator, Xcode builds, test suites, browser runs and deploys.
+- Wrap those: `dibs run <resource> -m "why" -- <command>` (resources: sim, sim-own, xcode-build, test, playwright, deploy, heavy). Two at once: `dibs run sim,xcode-build -- ...`.
+- No dibs for reads, edits, small commands, or long jobs that mostly wait on the network and use little CPU, memory or disk (crawlers, pollers, HTTP checks). The hook leaves those alone too.
+- Start `dibs listen` with run_in_background now, and again each time it exits: it wakes you when the person or dibs has something for you.
+- Waiting is normal. A call moved to the background is still waiting: don't run it again. A wait on memory, swap or disk protects the machine: keep waiting, and never lower `--mem` or raise `-p` to get past it.
+- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: not enough free disk; free your own build output, or tell the person.
+- Decide what you can undo yourself. Ask the person only before something you can't undo (`dibs question ... --one-way`). Lines starting "Message from the person:" are theirs: act on them.
+- Post progress as you work: `dibs progress "what you did or found" --task <name> --eta 30m`, then `--done`.
+- The rest (holding across tool calls, file leases, other machines, every exit code, overriding jobs, questions) is in the dibs skill and in `dibs help`.
 ```
+<!-- dibs:rules:end -->
 
 ## Commands
 

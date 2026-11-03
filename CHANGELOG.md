@@ -3,6 +3,7 @@
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
 ## Unreleased
+- What every agent is told first is now short: what to wrap, what needs no dibs (long jobs that mostly wait on the network and use little CPU, memory or disk: crawlers, pollers, HTTP checks; the hook leaves them alone too), `dibs listen`, keep waiting on memory and disk, exit 75 and 74, ask only before what you can't undo, post progress. Everything else (holds, file leases, every exit code, other machines, later, questions, the page and MCP) is reference in the dibs skill and dibs.md under "When you need it". Read it there when you need it.
 - dibs now leaves its instructions where you look first: the install writes `dibs.md` (the same text as the dibs skill) into the folder dibs is installed in, and adds a short note between `<!-- dibs:start -->` and `<!-- dibs:end -->` to `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and the current repo's `CLAUDE.md` and `AGENTS.md`, pointing at it. If you see that note, read the dibs.md it names before builds, tests, simulators or deploys. Don't edit between the markers: every upgrade rewrites those lines. `dibs init` writes them by hand, `dibs init --repo` also adds the note to a repo with no CLAUDE.md, `dibs init --remove` takes them out.
 
 ## 0.0.178

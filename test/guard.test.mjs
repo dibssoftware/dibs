@@ -175,6 +175,13 @@ test('leaves reads, mentions, heredocs and wrapped commands alone', () => {
   for (const cmd of LEFT_ALONE) assert.equal(check(cmd), null, cmd);
 });
 
+// What the rules tell agents needs no dibs: long jobs that mostly wait on the network (d7's crawlers, 2026-11-03).
+test('long network-bound jobs (crawlers, pollers, HTTP checks) pass the hook untouched', () => {
+  for (const cmd of ['nohup python3 crawl.py --forever > crawl.log 2>&1 &', 'node poll.mjs --every 60s', 'while true; do curl -fsS https://example.org/health; sleep 60; done',
+    'python3 known_answers.py --prod', 'wget -r -np https://example.com/docs/', 'npx tsx scripts/scrape-listings.ts'])
+    assert.equal(check(cmd), null, cmd);
+});
+
 test('config can add rules and switch built-ins off', () => {
   const rules = rulesFrom({ rules: { pytest: { match: ['pytest', 'python -m pytest'], res: 'test' }, vercel: false, npm: { match: 'cf deploy', res: 'deploy' } } });
   assert.equal(check('python -m pytest -x', { rules })?.command, w('test', 'guard: python -m pytest', 'python -m pytest -x'));
@@ -454,20 +461,18 @@ test('a new session starts with the rules in a few lines, and each subagent hear
   const out = JSON.parse(start.out).hookSpecificOutput;
   assert.equal(out.hookEventName, 'SessionStart');
   const lines = out.additionalContext.split('\n');
-  assert.ok(lines.length >= 5 && lines.length <= 8, `${lines.length} lines`);
-  assert.match(out.additionalContext, /Post progress as often as you commit: dibs progress/);
-  // 1500 since the docs rewrite: every line is something a fresh agent got wrong without it.
-  assert.ok(out.additionalContext.length < 1500, 'short enough to cost nothing');
-  assert.match(out.additionalContext, /dibs run <resource> -m "why" -- <command> \(resources: sim, .*heavy, playwright:web\)/);
-  assert.match(out.additionalContext, /keep waiting\. Never lower --mem or raise -p for it/);
-  assert.match(out.additionalContext, /dibs hold sim --for 20m .*keep wrapping each command/);
-  assert.match(out.additionalContext, /then --blocked or --done/);
-  assert.match(out.additionalContext, /75 .*74 .*76 .*77 .*70 /);
-  assert.match(out.additionalContext, /You may boost, pause or stop any job .*dibs logs who/);
-  assert.match(out.additionalContext, /"stopped by" someone was ended on purpose: find out why first/);
-  assert.match(out.additionalContext, /Ask the person only what can't be undone: dibs question .*--one-way/);
-  assert.doesNotMatch(out.additionalContext, /Never run dibs answer/);
-  assert.match(out.additionalContext, /'files:src\/auth\/\*\*'/);
+  // The rules that change what an agent does, and nothing else (feedback, 2026-11-03: the long version went unread).
+  assert.ok(lines.length >= 5 && lines.length <= 9, `${lines.length} lines`);
+  assert.ok(out.additionalContext.length < 1600, `short enough to read: ${out.additionalContext.length}`);
+  assert.match(out.additionalContext, /dibs run <resource> -m "why" -- <command>` \(resources: sim, .*heavy, playwright:web\)/);
+  assert.match(out.additionalContext, /No dibs for .*long jobs that mostly wait on the network .*crawlers, pollers, HTTP checks/);
+  assert.match(out.additionalContext, /dibs listen` with run_in_background/);
+  assert.match(out.additionalContext, /keep waiting, and never lower `--mem` or raise `-p`/);
+  assert.match(out.additionalContext, /Exit 75: .*Exit 74: /);
+  assert.doesNotMatch(out.additionalContext, /\b7[067]\b/, 'the other exit codes are reference');
+  assert.match(out.additionalContext, /Ask the person only before something you can't undo/);
+  assert.match(out.additionalContext, /dibs progress /);
+  assert.doesNotMatch(out.additionalContext, /dibs later|quota|dibs pair|MCP/, 'what nobody used stays out of the first read');
   assert.ok(!start.mods.includes('talk') && !start.mods.includes('commands'), `the primer loads no more of dibs: ${start.mods}`);
 
   const sub = { hook_event_name: 'SubagentStart', session_id: 's1', agent_id: 'a1', agent_type: 'Explore' };
