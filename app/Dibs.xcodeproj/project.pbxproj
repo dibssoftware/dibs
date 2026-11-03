@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		008B9102F34C161E38B2F459 /* logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 75E04400310CBF795E73FF7B /* logo.png */; };
 		019E74C7DCCE8B07C1C5E90F /* Wording.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B67CC4B1FE7FE8A39A6C3F /* Wording.swift */; };
 		04CC472C1EC2F54603BFE0E9 /* ComingUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D0CA4499CA68CCA2A36FAD4 /* ComingUp.swift */; };
 		050A88BA0BF60081FC590F56 /* board-group.json in Resources */ = {isa = PBXBuildFile; fileRef = 99EBD6658E5F15C24997727B /* board-group.json */; };
@@ -17,6 +16,7 @@
 		110C5576240967FE4E1A51FC /* pace-070.json in Resources */ = {isa = PBXBuildFile; fileRef = A21E11B29CDE699786BF02E8 /* pace-070.json */; };
 		11B2A832B8D19F3214913187 /* Wording.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B67CC4B1FE7FE8A39A6C3F /* Wording.swift */; };
 		1393196E236B0634E12AFEF2 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D3313B840B7E33F4B70824 /* Pairing.swift */; };
+		191DB7A4EFC0C204E49C50F2 /* SchibstedGrotesk.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = DD2BD77FE931D2BF7EC5A370 /* SchibstedGrotesk.woff2 */; };
 		1AC33EEA7B62DA50D577AB00 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80E1D10799F42F14DB5641A /* History.swift */; };
 		1C04596820291FF474E52139 /* Later.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E33398B55084744C3E2371 /* Later.swift */; };
 		1DCCEAE49A8A9654C4555570 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E49C9C89AAB0E3910F87F48 /* MenuBarView.swift */; };
@@ -36,7 +36,6 @@
 		44D00E38FDC4EE64EB68E94E /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99F0EFA52583A9E277AC1FA /* HomeView.swift */; };
 		45A2ABDCAD187E85BD45E48D /* Alerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533B2991B8D0F29E0CEE9B48 /* Alerts.swift */; };
 		4648854FDA1DB11AE233557B /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D3313B840B7E33F4B70824 /* Pairing.swift */; };
-		49E6500FD471105CB617D0A9 /* SchibstedGrotesk.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = D35FAA6B223538873FDB47F4 /* SchibstedGrotesk.woff2 */; };
 		4E99669802410C6C52B06A9C /* PairSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AF5F5DF529B23BAC1A206B /* PairSheet.swift */; };
 		54523BB261B24BA37E967A7F /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 2C144E1708B96F652AE7B3BA /* AppIcon.icon */; };
 		576DD6F356D18A31C7A2F54C /* Alerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533B2991B8D0F29E0CEE9B48 /* Alerts.swift */; };
@@ -64,6 +63,7 @@
 		9074082F449248C7E252351F /* Threads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D4A7122098CBAB77766C64 /* Threads.swift */; };
 		93E45CDC7D241122ECD8BB59 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2060BC2D12046C5A73220F /* HistoryView.swift */; };
 		941ED7827711A1CA6AEF464E /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905A4A040D64C38906405E5A /* RootView.swift */; };
+		9C606071EEC5428C7EC581E0 /* logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 13A3A490AC4DB3044E3B96D1 /* logo.png */; };
 		9FB6CC68703D7835BC04EA81 /* guard-070.json in Resources */ = {isa = PBXBuildFile; fileRef = EE65DD9559C5BC5E4DA8B726 /* guard-070.json */; };
 		A10296ED00447921D2928826 /* OverrideByTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E047DAD16248B96DFC389247 /* OverrideByTests.swift */; };
 		A31F9FAC8B93C4D7A90C2549 /* Reader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C93C7A6BCF33190070443CF /* Reader.swift */; };
@@ -79,6 +79,7 @@
 		B4280A3131F2E95CDB693F44 /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A09608D0B915317ADA27CDA /* MessagesView.swift */; };
 		B9AFF45AFAC00F5CA15E1414 /* guard-none-070.json in Resources */ = {isa = PBXBuildFile; fileRef = BC386F1D9E6D965FC8A4DAA5 /* guard-none-070.json */; };
 		BEE2E25BDC79DCC2158221F4 /* Questions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20E8FDD1771CC7A79EBB1EC /* Questions.swift */; };
+		C08B7298D241DC0EDAAFDAA7 /* board-listening.json in Resources */ = {isa = PBXBuildFile; fileRef = 0CE47B6F2407E3B43C2976E7 /* board-listening.json */; };
 		C09CA2E956CB57D7B5E43E14 /* MachinesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AB4EDD5DC8CFE520ADC6ED /* MachinesScreen.swift */; };
 		C0A8F6FBA95FCEE3251956B9 /* Plain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAABBEEB6AB8A45E05A81A00 /* Plain.swift */; };
 		C118CE0ED2AFA8AE0766EB6B /* history-080.json in Resources */ = {isa = PBXBuildFile; fileRef = 3D46CCE73D75C27247A2C678 /* history-080.json */; };
@@ -123,9 +124,11 @@
 
 /* Begin PBXFileReference section */
 		0101988BDC97F5B38E0D40D9 /* ProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressTests.swift; sourceTree = "<group>"; };
+		0CE47B6F2407E3B43C2976E7 /* board-listening.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-listening.json"; sourceTree = "<group>"; };
 		1163818D74C5E0192CBACAEE /* Needs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Needs.swift; sourceTree = "<group>"; };
 		12989D9765CD4EBE43A8A5C6 /* threads-talk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "threads-talk.json"; sourceTree = "<group>"; };
 		13796799D8CB87EFB19C2BAD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		13A3A490AC4DB3044E3B96D1 /* logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = logo.png; sourceTree = "<group>"; };
 		13B778046534699AC8DD6904 /* Rows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rows.swift; sourceTree = "<group>"; };
 		1449827BC315EA7F2F5E8B15 /* QueueTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueTabs.swift; sourceTree = "<group>"; };
 		1858EC33FE934C3F49A4A012 /* AccountsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsTests.swift; sourceTree = "<group>"; };
@@ -158,7 +161,6 @@
 		6B6C82838E48ED689C33B2E5 /* ServerAlertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAlertTests.swift; sourceTree = "<group>"; };
 		6EFF224880B392322B38035A /* board-unreachable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-unreachable.json"; sourceTree = "<group>"; };
 		74E33398B55084744C3E2371 /* Later.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Later.swift; sourceTree = "<group>"; };
-		75E04400310CBF795E73FF7B /* logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = logo.png; sourceTree = "<group>"; };
 		76AF5F5DF529B23BAC1A206B /* PairSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairSheet.swift; sourceTree = "<group>"; };
 		770C2292FB679D9B6B306215 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		7AEFA8D7FBC27BBA2CB908E2 /* CounterCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CounterCard.swift; sourceTree = "<group>"; };
@@ -191,13 +193,13 @@
 		CD649192F5925CFD0C3C22C5 /* board-override-by.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-override-by.json"; sourceTree = "<group>"; };
 		D0B2E73A916770B7D99414DD /* Chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chat.swift; sourceTree = "<group>"; };
 		D35E51D4F017E55A4E9BF176 /* DibsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DibsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		D35FAA6B223538873FDB47F4 /* SchibstedGrotesk.woff2 */ = {isa = PBXFileReference; path = SchibstedGrotesk.woff2; sourceTree = "<group>"; };
 		D3AB4EDD5DC8CFE520ADC6ED /* MachinesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesScreen.swift; sourceTree = "<group>"; };
 		D5BC2F3A9B9F76006F8DE56A /* ServerAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAlerts.swift; sourceTree = "<group>"; };
 		D62159DC02B7165E1756EC6D /* guard-080.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "guard-080.json"; sourceTree = "<group>"; };
 		D9634C6057A5630B4EE5C706 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		D99F0EFA52583A9E277AC1FA /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		DA635EF2B4746DBD474F0968 /* board-070.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-070.json"; sourceTree = "<group>"; };
+		DD2BD77FE931D2BF7EC5A370 /* SchibstedGrotesk.woff2 */ = {isa = PBXFileReference; path = SchibstedGrotesk.woff2; sourceTree = "<group>"; };
 		DEA2CDFBA2248633F203C8E4 /* board-080-fallback.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-080-fallback.json"; sourceTree = "<group>"; };
 		DEB6038C47BCF99D92E21C66 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E047DAD16248B96DFC389247 /* OverrideByTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverrideByTests.swift; sourceTree = "<group>"; };
@@ -217,6 +219,15 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		05D5FB8E4AEDA1459EFD417C /* web */ = {
+			isa = PBXGroup;
+			children = (
+				13A3A490AC4DB3044E3B96D1 /* logo.png */,
+				DD2BD77FE931D2BF7EC5A370 /* SchibstedGrotesk.woff2 */,
+			);
+			path = web;
+			sourceTree = "<group>";
+		};
 		0A8F2A429870B28736BFF98A /* DibsTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -235,12 +246,12 @@
 			path = DibsTests;
 			sourceTree = "<group>";
 		};
-		393F90041E1E21C1323B516C /* dibs-rel178 */ = {
+		2A248DAC81EFF8F0C807F09C /* dibs-listen */ = {
 			isa = PBXGroup;
 			children = (
-				4366651CA848B6BDE49E9136 /* web */,
+				05D5FB8E4AEDA1459EFD417C /* web */,
 			);
-			name = "dibs-rel178";
+			name = "dibs-listen";
 			path = ..;
 			sourceTree = "<group>";
 		};
@@ -255,15 +266,6 @@
 				83AA1CF1FE69958EAA7A13EC /* Views */,
 			);
 			path = Dibs;
-			sourceTree = "<group>";
-		};
-		4366651CA848B6BDE49E9136 /* web */ = {
-			isa = PBXGroup;
-			children = (
-				75E04400310CBF795E73FF7B /* logo.png */,
-				D35FAA6B223538873FDB47F4 /* SchibstedGrotesk.woff2 */,
-			);
-			path = web;
 			sourceTree = "<group>";
 		};
 		5B80D0101E7A4E03537F488E /* Store */ = {
@@ -285,6 +287,7 @@
 				DEA2CDFBA2248633F203C8E4 /* board-080-fallback.json */,
 				F048299866CD059D223C5F18 /* board-080.json */,
 				99EBD6658E5F15C24997727B /* board-group.json */,
+				0CE47B6F2407E3B43C2976E7 /* board-listening.json */,
 				CD649192F5925CFD0C3C22C5 /* board-override-by.json */,
 				6EFF224880B392322B38035A /* board-unreachable.json */,
 				EE65DD9559C5BC5E4DA8B726 /* guard-070.json */,
@@ -390,7 +393,7 @@
 			isa = PBXGroup;
 			children = (
 				3FB8C013AFCA879735C4D80E /* Dibs */,
-				393F90041E1E21C1323B516C /* dibs-rel178 */,
+				2A248DAC81EFF8F0C807F09C /* dibs-listen */,
 				0A8F2A429870B28736BFF98A /* DibsTests */,
 				7A69B492C595928CF495C051 /* Products */,
 			);
@@ -486,6 +489,7 @@
 				F20F89657FB84F7D746B2555 /* board-080-fallback.json in Resources */,
 				F275BCF6D0138C6E51EE7D15 /* board-080.json in Resources */,
 				050A88BA0BF60081FC590F56 /* board-group.json in Resources */,
+				C08B7298D241DC0EDAAFDAA7 /* board-listening.json in Resources */,
 				7F9F4D668E16C26E981C5DF7 /* board-override-by.json in Resources */,
 				E12D143D4E9DE758C62EF23E /* board-unreachable.json in Resources */,
 				9FB6CC68703D7835BC04EA81 /* guard-070.json in Resources */,
@@ -511,8 +515,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				54523BB261B24BA37E967A7F /* AppIcon.icon in Resources */,
-				49E6500FD471105CB617D0A9 /* SchibstedGrotesk.woff2 in Resources */,
-				008B9102F34C161E38B2F459 /* logo.png in Resources */,
+				191DB7A4EFC0C204E49C50F2 /* SchibstedGrotesk.woff2 in Resources */,
+				9C606071EEC5428C7EC581E0 /* logo.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

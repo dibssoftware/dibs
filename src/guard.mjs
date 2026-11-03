@@ -20,6 +20,11 @@ const LOG = path.join(DIBS_HOME, 'guard.log');
 // Who has a message from the person waiting: { session_id: [agent ids] }, or
 // no file at all. src/talk.mjs keeps it; the hook only reads it.
 const INBOX = path.join(DIBS_HOME, 'inbox.json');
+// dibs listen's list of who listens (src/talk.mjs), and the listeners already reminded about.
+const LISTENERS = path.join(DIBS_HOME, 'listeners.json');
+const REMINDED = path.join(DIBS_HOME, 'listen-reminded.json');
+// Sessions remembered in REMINDED: enough for every session a machine runs in a day or two.
+const REMIND_KEEP = 200;
 // The threads themselves, which the hook only searches for a subagent's id.
 const MESSAGES = path.join(DIBS_HOME, 'messages.json');
 const SETTINGS = process.env.DIBS_CLAUDE_SETTINGS || path.join(os.homedir(), '.claude', 'settings.json');
@@ -429,6 +434,29 @@ function talked(input) {
   try { return fs.readFileSync(MESSAGES, 'utf8').includes(JSON.stringify(input.agent_id)); } catch { return false; }
 }
 
+// A main agent ending its turn after its dibs listen ended (it handed messages over, ran out of
+// time or was killed) is kept going once, for that listener, to start it again: without one, a
+// message sent while it waits sits until its next tool call. Only a session that listened
+// before; one that never did hears about it at its start (src/primer.mjs). One read, and one
+// small write when it reminds.
+function rearm(input) {
+  if (input?.hook_event_name !== 'Stop' || input.stop_hook_active || typeof input.session_id !== 'string') return null;
+  let l;
+  try { l = JSON.parse(fs.readFileSync(LISTENERS, 'utf8'))[`${input.session_id}|main`]; } catch { return null; }
+  if (!Number.isInteger(l?.pid)) return null;
+  try { process.kill(l.pid, 0); return null; } catch (e) { if (e.code !== 'ESRCH') return null; }
+  let told = {};
+  try { told = JSON.parse(fs.readFileSync(REMINDED, 'utf8')); } catch {}
+  if (told[input.session_id] === l.pid) return null;
+  delete told[input.session_id];
+  told[input.session_id] = l.pid;
+  const keys = Object.keys(told);
+  for (const k of keys.slice(0, Math.max(0, keys.length - REMIND_KEEP))) delete told[k];
+  fs.writeFileSync(`${REMINDED}.${process.pid}`, JSON.stringify(told));
+  fs.renameSync(`${REMINDED}.${process.pid}`, REMINDED);
+  return { decision: 'block', reason: 'dibs: re-arm: your dibs listen has ended. Start it again with run_in_background (dibs listen) before you end your turn, so a message sent while you wait wakes you. dibs reminds you once each time it ends.' };
+}
+
 // The hook itself: Claude Code's JSON on stdin, a decision on stdout. Any
 // failure prints nothing, which leaves the command to the normal permission flow.
 export async function hook() {
@@ -444,6 +472,7 @@ export async function hook() {
     if (queuedFor(input)) out = (await import('./talk.mjs')).deliver(input, out);
     else if (input?.hook_event_name === 'SubagentStop' && talked(input)) (await import('./talk.mjs')).finished(input);
   } catch (e) { logError(e, input); }
+  try { if (!out) out = rearm(input); } catch (e) { logError(e, input); }
   if (out) process.stdout.write(JSON.stringify(out) + '\n');
 }
 

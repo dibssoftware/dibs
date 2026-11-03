@@ -282,6 +282,8 @@ final class Store {
         var state: StateDot.Kind
         var jobs: Int
         var lastPost: Date?
+        // Waiting on dibs listen: a message to it wakes it now.
+        var listening = false
         var id: String { who }
     }
 
@@ -295,6 +297,8 @@ final class Store {
         var names = Set(rows.map(\.who))
         names.formUnion((later ?? []).filter(\.active).map(\.who))
         names.formUnion(tasks.map(\.who))
+        let ears = Set(board?.listening ?? [])
+        names.formUnion(ears)
         return names.map { who in
             let jobs = rows.filter { $0.who == who }
             let agent = tasks.first { $0.who == who }
@@ -305,7 +309,7 @@ final class Store {
                 : !jobs.isEmpty ? .waiting
                 : last.map { now.timeIntervalSince($0) < Self.fresh } == true ? .busy
                 : .idle
-            return AgentRow(who: who, state: state, jobs: jobs.count, lastPost: last)
+            return AgentRow(who: who, state: state, jobs: jobs.count, lastPost: last, listening: ears.contains(who))
         }
         .sorted { ($0.lastPost ?? .distantPast, $0.jobs) > ($1.lastPost ?? .distantPast, $1.jobs) }
     }

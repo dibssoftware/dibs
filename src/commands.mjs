@@ -19,7 +19,7 @@ import { bold, dim, amber, columns, wrap, quoted } from './style.mjs';
 import { quotasNow, isQuota } from './quota.mjs';
 import { agentsNow } from './agents.mjs';
 import { forYou } from './questions.mjs';
-import { notesForYou } from './talk.mjs';
+import { notesForYou, listeners } from './talk.mjs';
 import { remoteConf, shortHost } from './remote.mjs';
 import { sample, sized, grewLine, grewPlain, tellOverAsk } from './measure.mjs';
 import { clash, isFiles, short, takeAgent, callKey, sameAgent, fileKey, shellRes, projectKey } from './files.mjs';
@@ -32,7 +32,7 @@ import { scan as scanAlerts, alertLines, onBoard } from './alerts.mjs';
 
 const REQUESTS = path.join(HOME, 'requests.jsonl');
 // Exit codes dibs gives its own meaning (AGENTS.md).
-const DIBS_CODES = new Set([1, 2, 70, 74, 75, 76, 77, 127]);
+const DIBS_CODES = new Set([1, 2, 3, 70, 74, 75, 76, 77, 127]);
 const json = x => console.log(JSON.stringify(x, null, 1));
 
 export function freePort() {
@@ -686,6 +686,8 @@ export function boardJson(s, cfg, { hist = history(), m = machine(), t = now(), 
     agents: agentsNow(cfg),
     questions: forYou(cfg, t),
     notes: notesForYou(),
+    // Agents waiting on dibs listen for a message: dibs tell reaches them within seconds.
+    listening: listeners(),
     caps: s.caps || {},
     later: laterBoard(t),
     // What's wrong, each with its fix (src/alerts.mjs): open ones, then those resolved lately.
@@ -757,6 +759,8 @@ function plainStatus(s, cfg, hist, m, t, rc, away, broken, me) {
   const count = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
   if (asks && !notes) out.push(amber(`${count(asks, 'question')} ${asks > 1 ? 'are' : 'is'} waiting for your answer: dibs questions`));
   else if (notes) out.push(amber(`${[asks && count(asks, 'question'), count(notes, 'note')].filter(Boolean).join(' and ')} ${asks + notes > 1 ? 'are' : 'is'} waiting for you: dibs threads`));
+  const ears = listeners();
+  if (ears.length) out.push(dim(`Listening for messages (dibs tell reaches them within seconds): ${ears.join(', ')}`));
   const { busy, free } = lineParts(p);
   out.push('', ...columns([...busy.map(b => [b.label, b.now, b.next]), ...(free.length ? [['Free', dim(freeText(p, free))]] : [])]));
 

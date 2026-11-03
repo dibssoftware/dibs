@@ -24,11 +24,14 @@ import { takeAgent, talkKey } from './files.mjs';
 import { asked, forYou } from './questions.mjs';
 import { named, minutes, lower } from './plain.mjs';
 import { bold, dim, columns } from './style.mjs';
-import { die, now, say as note, sleepSync, fakeFull } from './util.mjs';
+import { die, now, say as note, sleepSync, fakeFull, ms, dur, SIGNALS, signalExit } from './util.mjs';
 
 const FILE = path.join(HOME, 'messages.json');
 const LOCK = path.join(HOME, 'messages.lock');
 export const INBOX = path.join(HOME, 'inbox.json');
+// Who's running dibs listen, by thread key: { pid, pstart, at }. Its own small file, written under
+// this lock, so the guard hook can tell at a stop whether a session is still listening (one read).
+export const LISTENERS = path.join(HOME, 'listeners.json');
 // Writes take milliseconds, so a lock this old belongs to a dibs that died holding it.
 const LOCK_STALE = 5000;
 const LOCK_WAIT = 15e3;
@@ -44,6 +47,13 @@ const RECENT = 20;
 // A notice is about a job running now. One that hasn't reached its agent in
 // an hour is stale advice, and it would keep inbox.json around for nothing.
 const NOTICE_LIFE = 36e5;
+
+// dibs listen: how long it waits by default, and how often it looks in case a change to
+// messages.json slipped past fs.watch (a rename it didn't report, a volume that doesn't).
+const LISTEN_FOR = 60 * 6e4;
+const LISTEN_POLL = 5000;
+// Its exit code when the time runs out with nothing for it (DIBS_CODES in src/commands.mjs).
+export const LISTEN_TIMEOUT = 3;
 
 const STOPS = new Set(['Stop', 'SubagentStop']);
 const MAIN = 'main';
@@ -258,19 +268,20 @@ export function tell(args) {
     s.messages.push({ id: ++s.seq, key: th.key, at: t, from: 'person', kind: 'message', text: o.text, state: 'queued',
       session: th.session, agentId: th.agentId, ...(who.agent && { by: who.name }) });
     th.last = t;
-    return { th: { ...th }, alive: liveness([th])(th) };
+    return { th: { ...th }, alive: liveness([th])(th), listening: listening().has(th.key) };
   });
   if (r.no) die(r.no, 1);
   const to = names([r.th]).get(r.th.key);
   logChange('tell', { to });
   if (!r.th.session) console.log(`queued for ${to}, which isn't a Claude Code session: the hook can't hand it over. It gets it the next time it runs dibs say.`);
   else if (!r.alive) console.log(`queued for ${to}, but ${r.th.agentId === MAIN ? 'its session has ended' : 'that subagent has finished'}. It stays queued, shown as not delivered, in case it comes back.`);
+  else if (r.listening) console.log(`queued for ${to}: it's listening (dibs listen), so it gets it within seconds.`);
   else console.log(`queued for ${to}: it gets it with its next tool call, or as it finishes its turn.`);
 }
 
 // Mark one queued message handed over, with a line in the thread saying how.
 const VIA = { tool: 'got it with its next tool call', stop: 'got it as it was finishing, and kept going', say: 'got it when it ran dibs say',
-  command: 'got it with its next dibs command' };
+  command: 'got it with its next dibs command', listen: 'got it while listening' };
 function handOver(s, m, via, t) {
   Object.assign(m, { state: 'delivered', deliveredAt: t, via });
   if (m.kind === 'notice') return;
@@ -376,6 +387,122 @@ export function noticesFor(who) {
   } catch { return ''; }
 }
 
+// dibs listen [--for 60m] [--json]: for an agent whose turn is over. The hook hands messages over
+// only with a tool call or at a stop, so an idle agent never hears one; this waits until
+// something is queued for it (a message, an answer in words, a notice about its jobs), hands it
+// over under the lock exactly as the hook would, prints it and exits 0. Run with Claude Code's
+// run_in_background, its exit wakes the agent. One listener per thread: a newer one takes over
+// and the older one exits 0 saying so. No message in time: exit 3.
+// listeners.json says who listens, for the board, dibs threads and the hook's reminder at a stop.
+const readListeners = () => { try { return JSON.parse(fs.readFileSync(LISTENERS, 'utf8')); } catch { return {}; } };
+function writeListeners(l) {
+  if (!Object.keys(l).length) return fs.rmSync(LISTENERS, { force: true });
+  fs.writeFileSync(`${LISTENERS}.tmp`, JSON.stringify(l));
+  fs.renameSync(`${LISTENERS}.tmp`, LISTENERS);
+}
+// Said when it hands messages over: listening stops with this run, and the hook reminds the
+// agent at its next stop if it doesn't start again (src/guard.mjs rearm).
+const AGAIN = 'To keep listening, start dibs listen again with run_in_background.';
+export async function listen(args) {
+  const o = { for: LISTEN_FOR, json: false, words: [] };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--for') o.for = ms(args[++i] ?? die('--for needs a time: dibs listen --for 30m'));
+    else if (a === '--json') o.json = true;
+    else if (a === '--as') o.as = args[++i] ?? die('--as needs a value');
+    else die(`unknown ${a}. dibs listen [--for 60m] [--json]`);
+  }
+  if (!(o.for > 0)) die('--for needs a time above zero: dibs listen --for 30m');
+  const me = { pid: process.pid, pstart: pstart(process.pid), at: now() };
+  const th = locked(s => {
+    const t = mine(s, 'listen', args, o);
+    const l = readListeners();
+    const up = makeAlive(Object.values(l).map(x => x.pid));
+    // Dead ones stay until a new listener for the same thread replaces them: the hook's reminder
+    // at a stop needs to know this session listened before.
+    for (const [k, x] of Object.entries(l)) if (!up(x.pid, x.pstart) && now() - x.at > KEEP_FOR) delete l[k];
+    l[t.key] = me;
+    writeListeners(l);
+    return { ...t };
+  });
+  // Queued for this thread: by session and agent inside Claude Code (as the hook matches), by
+  // thread outside it, plus notices left for the name when there's no session.
+  const ours = m => m.state === 'queued' && (th.session ? m.session === th.session && m.agentId === th.agentId
+    : m.key === th.key || (m.kind === 'notice' && !m.session && m.to === th.who));
+  const still = () => readListeners()[th.key]?.pid === me.pid;
+  // Gone from the list only when killed: one that ran its course stays, so the hook can tell
+  // the agent at its stop that it isn't listening any more.
+  const leave = () => { try { locked(() => { const l = readListeners(); if (l[th.key]?.pid === me.pid) { delete l[th.key]; writeListeners(l); } }, HOOK_LOCK_WAIT); } catch {} };
+  // Killed (the agent stopped its background task): no listener left behind on the board.
+  for (const sig of SIGNALS) process.on(sig, () => { leave(); process.exit(signalExit(sig)); });
+  const end = now() + o.for;
+  const r = await new Promise(resolve => {
+    let watcher = null, done = false;
+    const finish = x => {
+      if (done) return;
+      done = true;
+      watcher?.close();
+      clearInterval(poll);
+      clearTimeout(stop);
+      resolve(x);
+    };
+    // A look without the lock first, then the lock only when there's something to take.
+    const check = () => {
+      if (done) return;
+      if (!still()) return finish({ replaced: true });
+      if (load().messages.some(ours)) {
+        const got = locked(s2 => {
+          if (!still()) return { replaced: true };
+          const list = s2.messages.filter(ours);
+          if (!list.length) return null;
+          const t = now();
+          for (const m of list) {
+            handOver(s2, m, 'listen', t);
+            const x = s2.threads.find(y => y.key === m.key);
+            if (x) Object.assign(x, { ended: null, last: t });
+          }
+          return { got: list.map(m => ({ ...m })) };
+        });
+        if (got) return finish(got);
+      }
+      if (now() >= end) finish({ timeout: true });
+    };
+    try { watcher = fs.watch(HOME, (ev, name) => { if (!name || name === 'messages.json' || name === 'listeners.json') check(); }); } catch {}
+    const poll = setInterval(check, LISTEN_POLL);
+    const stop = setTimeout(check, o.for + 50);
+    check();
+  });
+  if (r.replaced) {
+    if (o.json) return console.log(JSON.stringify({ replaced: true, messages: [] }));
+    return console.log('Another dibs listen for this agent took over, so this one stopped. Nothing was handed over here.');
+  }
+  if (r.timeout) {
+    if (o.json) console.log(JSON.stringify({ timeout: true, messages: [] }));
+    else console.log(`no messages in ${dur(o.for)}; run it again to keep listening`);
+    process.exit(LISTEN_TIMEOUT);
+  }
+  if (o.json) return console.log(JSON.stringify({ messages: r.got.map(m => ({ from: m.kind === 'notice' ? 'dibs' : m.by ? 'agent' : 'person', ...(m.by && { by: m.by }), kind: m.kind, text: m.text, at: m.at })), again: AGAIN }));
+  console.log(`${texts(r.got)}\n\n${AGAIN}`);
+}
+
+// Who's listening now, by thread key, read without the lock: for the board and dibs threads.
+export function listening() {
+  const l = Object.entries(readListeners());
+  if (!l.length) return new Map();
+  const up = makeAlive(l.map(([, x]) => x.pid));
+  return new Map(l.filter(([, x]) => up(x.pid, x.pstart)));
+}
+
+// The names listening, for the board: as dibs tell takes them.
+export function listeners() {
+  if (!fs.existsSync(FILE)) return [];
+  const on = listening();
+  if (!on.size) return [];
+  const s = load();
+  const named = names(s.threads);
+  return s.threads.filter(th => on.has(th.key)).map(th => named.get(th.key));
+}
+
 // A subagent that finished: its thread shows it can't be reached until it runs again.
 export function finished(input) {
   if (!input.agent_id || !fs.existsSync(FILE)) return;
@@ -430,11 +557,12 @@ function view(s, t = now()) {
   const named = names(threads);
   const alive = liveness(threads);
   const desk = deskName();
+  const on = listening();
   return threads.map(th => {
     const messages = lines.get(th.key).sort((a, b) => a.at - b.at);
     return { agent: th.who, label: th.label || '', session: th.session, agentId: th.agentId, to: named.get(th.key), alive: alive(th),
       ...(desk && named.get(th.key) === desk && { desk: true }),
-      working: workingId(doing(th, st)), doing: doing(th, st), unread: messages.filter(m => m.from === 'agent' && m.kind !== 'delivered' && m.at > (th.readAt || 0)).length,
+      working: doing(th, st) || !on.has(th.key) ? workingId(doing(th, st)) : 'listening', doing: doing(th, st), ...(on.has(th.key) && { listening: true }), unread: messages.filter(m => m.from === 'agent' && m.kind !== 'delivered' && m.at > (th.readAt || 0)).length,
       last: th.last, messages };
   }).sort((a, b) => b.last - a.last);
 }
@@ -480,7 +608,7 @@ export function threads(args) {
   out.push(...columns(list.map(th => {
     const lastLine = th.messages.filter(m => m.kind !== 'delivered').at(-1);
     const flags = [th.unread ? `${th.unread} unread` : '', th.messages.some(m => m.state === 'queued') ? 'your message is not delivered yet' : ''].filter(Boolean).join(', ');
-    return [th.to, `${th.alive ? workingPlain(th.doing, cfg) : 'not running'}, last heard ${ago(t, th.last)}${flags ? ` (${flags})` : ''}.`,
+    return [th.to, `${th.alive ? (th.listening && !th.doing ? 'listening for messages' : workingPlain(th.doing, cfg)) : 'not running'}, last heard ${ago(t, th.last)}${flags ? ` (${flags})` : ''}.`,
       lastLine ? dim(`${lastLine.from === 'person' ? 'You' : lastLine.from === 'dibs' ? 'dibs' : 'They'}: ${lastLine.text}`) : ''];
   })));
   out.push('', dim('Read one: dibs threads read <agent>. Write to one: dibs tell <agent> "..."'));
@@ -508,7 +636,7 @@ function read(args) {
   if (r.no) die(r.no, 1);
   const out = [];
   for (const th of r.list) {
-    out.push(bold(`${th.to}: ${th.alive ? workingPlain(th.doing, loadConfig()) : 'not running (your messages wait for it)'}.`));
+    out.push(bold(`${th.to}: ${th.alive ? (th.listening && !th.doing ? 'listening for messages' : workingPlain(th.doing, loadConfig())) : 'not running (your messages wait for it)'}.`));
     for (const m of th.messages.slice(-RECENT)) {
       const who = m.from === 'person' ? 'you' : m.from === 'dibs' ? 'dibs told them' : 'them';
       const what = m.kind === 'question' ? `asked (#${m.questionId}, ${m.state}): ${m.text}${m.options ? `  (${m.options.join(' / ')})` : ''}`

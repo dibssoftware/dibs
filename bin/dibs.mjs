@@ -12,13 +12,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, paths, profiled } from '../src/config.mjs';
 import { identity } from '../src/proc.mjs';
+import { changelog, seenBy, markSeen, newer } from '../src/news.mjs';
 import { PRIORITY_SHIFT, PRIORITIES, priority } from '../src/schedule.mjs';
 import { VERSION } from '../src/version.mjs';
 import { run, notifyOnExit, hold, release, when, why, mine, who, yieldTo, ask, requests, status, freePort, pace, checkNames, nearest } from '../src/commands.mjs';
 import { remoteRun, join, machines } from '../src/remote.mjs';
 import { sims } from '../src/simpool.mjs';
 import { question, questions, answer, hoursCmd } from '../src/questions.mjs';
-import { say, tell, threads, noticesFor } from '../src/talk.mjs';
+import { say, tell, threads, noticesFor, listen } from '../src/talk.mjs';
 import { bytes, ms, deadline, die, noSpace, fullDisk, setCaller, lastDie, lastDieCode } from '../src/util.mjs';
 import { event } from '../src/events.mjs';
 import { fileRes, isFiles, resList } from '../src/files.mjs';
@@ -41,12 +42,17 @@ Wait your turn
                                              (no wait under your hold); give it back: dibs release sim
   dibs hold 'files:src/auth/**' -m "why"     keep other agents' edits off these files
   dibs run test --anywhere -- <command>      on whichever machine in the group starts it soonest (--on <machine>: that one)
+  dibs run deploy --quick -- ./ship.sh       a command over in under 15 s starts at once (or --est 10s; dibs learns it after)
 
 Tell the person
   dibs progress "what you did or found" --task <name> --eta 30m    as often as you commit; then --blocked or --done
   dibs question "Ship 123 now?" --options yes,no --recommend yes -m why --one-way "testers get it at once"
                                              only one-way doors reach the person; the same command plus --wait reads the answer
   dibs say "done: tests pass"                an FYI in your thread, no question
+
+Other agents and their jobs
+  dibs tell <agent> "..."                    a message that reaches it with its next tool call (or dibs say --to <agent>)
+  dibs boost <id> high -m "why"              move a job up (urgent|high|normal|low|idle); --owner <its session> if not yours
 
 Look around
   dibs                                       what each resource is doing and who's next
@@ -115,13 +121,15 @@ ask the person (one-way doors only)
   dibs questions dismiss <id>              dismiss one; its waiting agent gets exit 75
   dibs hours [09:00-23:00|off] [--json]    the person's hours: outside them, questions below urgent wait for morning
   dibs say "..." [--as label] [--to person] an FYI to the person in your thread: progress, done, blocked on X.
-                                           --to person: a reply to what they said (the desk's answers)
+                                           --to person: a reply to what they said (the desk's answers); --to <agent>: a message to that agent,
+                                           the same as dibs tell
 
 progress (post as often as you commit)
   dibs progress "..." [--task <name>] [--eta 30m|17:30] [--done|--blocked]
                                            what you just did, found or decided, in a sentence or a paragraph. The person
                                            reads every post live; other agents read them too. Post at each step, not at the end
   dibs progress [--agent <name>] [-n 50] [--json]   recent posts
+  dibs progress list [--all] [--json]      your session's open tasks (--all: every session's), owner, state, ETA, last post
 
 the person's page and MCP server
   dibs web [--port 7421] [--bind <address>] every agent's jobs, tasks and posts at http://127.0.0.1:7421, and the same as
@@ -153,6 +161,9 @@ talk with your agents
   dibs tell <agent> "..."                  a message for that agent: it gets it with its next tool call, or as it
                                            finishes its turn (needs dibs guard install). From an agent, it says which agent sent it
   dibs tell desk "..."                     to the agent config.json names as "desk": it answers with dibs say --to person
+  dibs listen [--for 60m] [--json]         waits until a message, an answer or a notice is queued for you, prints all of it
+                                           and exits 0 (exit 3: none in time). Start it with run_in_background at the start of
+                                           a session and again each time it exits: its exit wakes you even while idle
 
 several machines
   dibs run <res> --anywhere -- <cmd>       run it on whichever machine would start it soonest (maybe this one)
@@ -207,6 +218,10 @@ flags
                     low and idle runs may be paused (not killed) for urgent or high work, or under memory pressure
   --by 23:30|20m    deadline: as it nears you move up the queue (up to an hour), and you're warned if it's at risk
   --est 5m          how long the job takes, when dibs has no history for it. Short jobs move up a little
+  --quick           it takes under 15 s (quickUnder): it starts at once, past the line and full slots, at most 2 at a time.
+                    On the simulator, or a deploy of the same repo, it goes to the front of the line instead. Trusted the
+                    first time; a run that goes over loses the pass until it runs under again. A command dibs has seen run
+                    under 15 s gets it without the flag
   --cost 3          tokens a quota:<name> job takes from its bucket (default 1)
   --mem 4G          memory the job needs (default from the resource). dibs measures what it really uses
                     and plans the next run at that when it's more
@@ -245,7 +260,7 @@ same command again within 2 minutes to keep your place), 74 not enough disk,
 76 lost the coordinator or the other machine before the job started (safe to send again),
 77 lost it after the job started on another machine (it may have run: check before running it again),
 127 command didn't start, 2 bad usage (also: you already have this exact command waiting or running),
-1 nothing matched (mine, release), 70 dibs itself crashed (a bug in dibs; report it: dibs ask "...").
+1 nothing matched (mine, release), 3 dibs listen heard nothing in time, 70 dibs itself crashed (a bug in dibs; report it: dibs ask "...").
 A job sent to another machine takes the git working copy (tracked files plus new ones git doesn't ignore;
 outside git, the folder minus build output). .env files, keys and certificates never leave this machine.
 Config: ${paths.config}`;
@@ -260,6 +275,7 @@ function parse(argv) {
     else if (a === '-p' || a === '--priority') { o.prio = priority(next()); if (!(o.prio in PRIORITY_SHIFT)) die(`priority is one of ${PRIORITIES.join(', ')} (or 1-5)`); }
     else if (a === '--by') o.by = deadline(next());
     else if (a === '--est') o.est = ms(next());
+    else if (a === '--quick') o.quick = true;
     else if (a === '--cost') { o.cost = Number(next()); if (!(o.cost > 0)) die('--cost takes a number of tokens above 0'); }
     else if (a === '--mem') o.mem = bytes(next());
     else if (a === '--cpu') { o.cpu = Number(next()); if (!(o.cpu >= 0)) die('--cpu takes a number of cores'); }
@@ -299,14 +315,6 @@ function parse(argv) {
   return o;
 }
 
-// The changelog's sections, newest first: [{ version, body }].
-function changelog() {
-  try {
-    return fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8').split(/^## /m).slice(1)
-      .map(sec => ({ version: sec.split(/\s/)[0], body: sec.slice(sec.indexOf('\n') + 1).trim() }));
-  } catch { return []; }
-}
-
 // The first time each agent session runs a new version, one line pointing at
 // what changed. Only for an agent that ran an older one here: a brand-new
 // install, or a session that never ran dibs before, has nothing to compare.
@@ -314,16 +322,11 @@ function changelog() {
 function announce() {
   const id = identity();
   const key = String(id.spid || id.who);
-  let seen = {};
-  try { seen = JSON.parse(fs.readFileSync(paths.seen, 'utf8')); } catch {}
-  if (seen[key] === VERSION) return;
-  const before = seen[key];
-  seen[key] = VERSION;
-  try {
-    const tmp = `${paths.seen}.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(seen));
-    fs.renameSync(tmp, paths.seen);
-  } catch {}
+  const before = seenBy(key);
+  // Already heard of this one, or of a newer one (a dibs listen told it of an update this older
+  // process hasn't been replaced by yet): nothing to say, and never move it back.
+  if (before === VERSION || (before && newer(before, VERSION))) return;
+  markSeen(key, VERSION);
   if (before) process.stderr.write(`dibs was updated to ${VERSION}: see \`dibs changes\`\n`);
 }
 
@@ -350,7 +353,7 @@ function notices() {
 const ALIASES = { done: 'release', renew: 'hold', news: 'changes', cool: 'throttle', ls: 'status', board: 'status' };
 const VERBS = new Set(['run', 'hold', 'release', 'when', 'why', 'mine', 'who', 'yield', 'ask', 'requests', 'port', 'throttle', 'changes', 'status', 'help',
   'machines', 'serve', 'join', 'leave', 'worker', 'service', 'invite', 'kick', 'limit', 'guard', 'sims', 'pace', 'setup', 'history', 'stats',
-  'question', 'questions', 'answer', 'hours', 'say', 'tell', 'threads', 'boost', 'pause', 'resume', 'stop', 'cap', 'later',
+  'question', 'questions', 'answer', 'hours', 'say', 'tell', 'threads', 'listen', 'boost', 'pause', 'resume', 'stop', 'cap', 'later',
   'progress', 'web', 'pair', 'relay', 'connect', 'alerts', 'init']);
 
 // A job sent from another machine ends when the worker that started it does,
@@ -488,6 +491,7 @@ async function main() {
     case 'relay': return (await lazy('relay')).relay(rest);
     case 'tell': return tell(rest);
     case 'threads': return threads(rest);
+    case 'listen': return listen(rest);
     case 'boost': return boost(rest, cfg);
     case 'pause': return pause(rest, cfg);
     case 'resume': return resume(rest);

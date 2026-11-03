@@ -321,18 +321,20 @@ export function snapshot(j, t = now()) {
     // What's wrong and what fixes it (src/alerts.mjs), open ones first.
     alerts: (j.alerts || []).map(a => ({ id: a.id, cause: a.cause, level: a.level, title: a.title, why: a.why || null, detail: a.detail || null, fix: a.fix,
       job: a.job ?? null, who: a.who || null, since: a.since, resolvedAt: a.resolvedAt || null, dismissed: !!a.dismissed })),
+    // Agents waiting on dibs listen: a message to them wakes them within seconds.
+    listening: Array.isArray(j.listening) ? j.listening : [],
   };
 }
 
 // The agents, merged from their jobs and their progress posts.
 function people(b, posts) {
   const ts = taskList(posts);
-  const names = new Set([...b.jobs.map(x => x.who), ...b.later.map(x => x.who), ...ts.map(x => x.who)]);
+  const names = new Set([...b.jobs.map(x => x.who), ...b.later.map(x => x.who), ...ts.map(x => x.who), ...(b.listening || [])]);
   const last = new Map();
   for (const p of posts) last.set(p.who, p);
   return [...names].map(who => ({
     who, jobs: b.jobs.filter(x => x.who === who), later: b.later.filter(x => x.who === who), tasks: ts.filter(x => x.who === who),
-    lastPost: last.get(who) || null,
+    lastPost: last.get(who) || null, listening: (b.listening || []).includes(who),
   })).sort((a, b2) => (b2.lastPost?.at || 0) - (a.lastPost?.at || 0) || b2.jobs.length - a.jobs.length);
 }
 

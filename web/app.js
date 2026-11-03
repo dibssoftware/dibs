@@ -280,7 +280,8 @@
       b.setAttribute('aria-current', String(a.who === chosen));
       b.append(el('span', `dot ${stateOf(a, now)}`), el('span', 'rail-name', a.who));
       const n = a.jobs.length;
-      b.append(el('span', 'rail-meta', n ? `${n} job${n > 1 ? 's' : ''}` : a.lastPost ? ago(now - a.lastPost.at) : ''));
+      // Listening: a message to it wakes it now (dibs listen), so it reads first when there's no job.
+      b.append(el('span', 'rail-meta', n ? `${n} job${n > 1 ? 's' : ''}` : a.listening ? 'listening' : a.lastPost ? ago(now - a.lastPost.at) : ''));
       b.title = a.lastPost ? `Last post ${ago(now - a.lastPost.at)}: ${a.lastPost.text}` : a.who;
       return b;
     }));

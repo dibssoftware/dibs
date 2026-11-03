@@ -209,6 +209,8 @@ struct Sidebar: View {
                         Spacer(minLength: Space.xs)
                         if a.jobs > 0 {
                             meta("\(a.jobs) job\(a.jobs == 1 ? "" : "s")")
+                        } else if a.listening {
+                            meta("listening")
                         } else if let last = a.lastPost {
                             meta(Span.ago(Date.now.timeIntervalSince(last)))
                         }

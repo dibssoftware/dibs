@@ -106,6 +106,25 @@ function inSession(p) {
   return null;
 }
 
+// Subagents of a session that have stopped (SubagentStop), so the main thread may clear
+// what they left in the scratchpad. A teammate that takes another message starts again
+// and loses the mark. The name can't be a folder's: encodeURIComponent never makes a bare %.
+const stopMark = (session, agent) => path.join(makersDir(session), '%stopped', encodeURIComponent(agent));
+export function subagentState(input) {
+  if (typeof input?.session_id !== 'string' || typeof input.agent_id !== 'string' || !input.agent_id) return;
+  const f = stopMark(input.session_id, input.agent_id);
+  try {
+    if (input.hook_event_name === 'SubagentStop') { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, String(Date.now())); }
+    else if (input.hook_event_name === 'SubagentStart') fs.rmSync(f, { force: true });
+  } catch {}
+}
+const stopped = (session, agent) => fs.existsSync(stopMark(session, agent));
+
+// Folders that rebuild themselves: a browser profile's caches, Xcode's and Swift's build
+// output, a bundler's. Any agent of the session may clear them in its own scratchpad
+// (on 2026-11-03 an agent had to ask a teammate to delete Chrome caches in its own session).
+const CACHES = new Set(['Cache', 'Caches', 'Code Cache', 'GPUCache', 'DerivedData', '.build', 'build', 'dist', '.next', '.turbo', '.cache']);
+
 export function maker(session, name) {
   try { return JSON.parse(fs.readFileSync(path.join(makersDir(session), encodeURIComponent(name)), 'utf8')); } catch { return null; }
 }
@@ -138,15 +157,18 @@ function ownDelete(p, t, input) {
   if (!rest.length) return whole("your session's temp folder");
   if (!overlap(path.join(folder, rest[0]), pad)) return null;
   if (rest.length === 1) return whole("your session's scratchpad");
+  if (!GLOB.test(rest.slice(1).join('/')) && rest.slice(1).some(n => CACHES.has(n))) return null;
   let names = [rest[1]];
   if (GLOB.test(rest[1])) {
     try { names = fs.readdirSync(pad).filter(n => overlap(path.join(pad, rest[1]), path.join(pad, n))); } catch { names = []; }
   }
   for (const n of names) {
     const m = maker(input.session_id, n), dir = path.join(pad, n);
-    if (m && m.agent !== agentOf(input))
+    // The main thread may clear what a subagent of its own left, once that subagent has stopped.
+    if (m && m.agent !== agentOf(input) && !(agentOf(input) === 'main' && m.agent !== 'main' && stopped(input.session_id, m.agent)))
       return `${dir} in your session's scratchpad was made by ${agentName(m)}, another agent of your session, so ${t.why} can't delete it.\n`
-        + `Ask ${m.agent === 'main' ? 'the main thread' : m.type || m.agent} whether it's done with it, or have the person delete it. Deleting single files in it is fine.`;
+        + `Ask ${m.agent === 'main' ? 'the main thread' : m.type || m.agent} whether it's done with it, or have the person delete it. Deleting single files in it is fine, `
+        + `and so is a cache or build folder in it (${[...CACHES].join(', ')})${agentOf(input) === 'main' ? '. Once that subagent has finished, you may delete the folder' : ''}.`;
     if (!m && !namedBy(input.session_id, n, agentOf(input)) && bigger(names.length > 1 || rest.length === 2 ? dir : p, UNTRACKED_MAX))
       return `${dir} in your session's scratchpad holds more than ${UNTRACKED_MAX} files, and dibs can't tell which agent of your session made it (it's older than dibs's record), so ${t.why} can't delete it all.\n`
         + 'Ask the agents of your session whose it is, or have the person delete it. Deleting single files in it is fine.';
@@ -953,7 +975,7 @@ const ALIASES = { done: 'release', renew: 'hold', ls: 'status', board: 'status' 
 // their own. A word the hook can't read ($VAR) matches any one word.
 // Every other call is keyed the same way, by all its words, so two subagents
 // running `dibs run sim -- ...` at once each claim their own note.
-const TALK_VERBS = new Set(['say', 'question', 'later', 'progress']);
+const TALK_VERBS = new Set(['say', 'question', 'later', 'progress', 'listen']);
 export const talkKey = (verb, words) => `${verb}|${words.join('\0')}`;
 // A word the hook can't read ("files:$R/a.ts", $(...)) stands for any one word.
 const WILD = '\u0001';

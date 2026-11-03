@@ -13,6 +13,8 @@ struct BoardTests {
     @Test("a 0.0.63 board decodes, and a waiter borrows its reason from the coordinator's copy")
     func board063() throws {
         let board = try fixture("board-063", as: Board.self)
+        #expect(board.listening.isEmpty, "a board from before dibs listen has nobody listening")
+        #expect(try fixture("board-listening", as: Board.self).listening == ["web-app"])
         #expect(board.machine.pace == "normal")
         #expect(board.subagents?.slots == 8)
 

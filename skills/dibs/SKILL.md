@@ -37,6 +37,7 @@ dibs run test -- sh -c 'npm run build && npm test'                  # a shell li
 - Need two resources? Ask for both in one `dibs run a,b`. Never hold one while waiting for another.
 - The turn lasts exactly as long as the command: when it exits or crashes, the turn is given back and its whole process tree is killed. Don't add keepalives, `timeout` wrappers or lock files of your own.
 - Inside Claude Code, `dibs run` waits as long as it takes. Every run ends with one line on stderr, `dibs: #812 test, waited 2m10s, ran 3m04s, exit 0`; after a compaction, that line is the result.
+- A command over in under 15 seconds (a deploy of a few seconds, a one-file test): add `--quick`, or `--est 10s`. It starts at once, past the line and full slots, at most 2 at a time; on the simulator, or a deploy of the same repo, it goes to the front of the line instead. dibs learns it after that. A run that goes over loses the pass until it runs under again, and you're told.
 - `--est 3m` (a duration like `30s`, `5m`, `1h`) on a job dibs hasn't seen lets short jobs move up. `--mem 6G --cpu 4` the first time you run something heavy dibs hasn't measured; after that it plans at the measured peak, and says so if a job used far more than it asked.
 - Priority: `-p urgent|high|normal|low|idle` (or 1-5). `urgent` (something's broken or a person is waiting now) and `high` (critical path) need `-m`, and everyone sees them. `normal` is the default. `low` (nobody waiting) and `idle` (audits, solvers, regenerating things) run at background priority on the cool cores. Pick the true level. `--by 23:30` for a deadline.
 - `--notify <file>` appends a JSON line to that file when dibs exits.
@@ -103,6 +104,7 @@ dibs progress "Starting billing-migration: script written, dry run next" --task 
 dibs progress "Dry run touched 4,210 rows, 0 errors. Asking before prod" --task billing-migration --eta 30m
 dibs progress "Blocked: waiting on the person for the prod run (question #3)" --task billing-migration --blocked
 dibs progress "Done: migrated 4,210 rows on prod, checks pass" --task billing-migration --done
+dibs progress list        # your session's open tasks, with owner, state, ETA and last post (--all: every session's)
 ```
 
 - Post when you start (with `--eta`), when you learn something (a test fails, a cause found, a plan changed, with the numbers), when you hand off or wait (`--blocked`), and at the end (`--done`). A task of a minute or two needs just the `--done` post.
@@ -143,7 +145,7 @@ The person's rule: walk through two-way doors (anything you can undo) yourself a
 - The person may answer in their own words. Those words are the answer, and they also reach you as `Message from the person: (answering your question #N) ...`.
 - Another agent may answer your question with `dibs answer`; then dibs says `answered by <agent>, an agent, not the person` on stderr. That isn't the person's yes: for a ship, spend or delete, ask the person or skip the step.
 
-`dibs say "migration done, tests pass"` leaves the person an FYI in your thread without asking anything. A line starting `Message from the person:` really is the person's, whether it sits beside a tool result or comes as the reason you were kept from stopping: act on it, and reply with `dibs say "..."` if they asked something. `Message from <agent> (another agent, not the person):` is a peer's request. `dibs tell <agent> "..."` messages an agent. If config names you the desk, reply with `dibs say --to person "..."`. Details: docs/questions.md.
+`dibs say "migration done, tests pass"` leaves the person an FYI in your thread without asking anything. A line starting `Message from the person:` really is the person's, whether it sits beside a tool result or comes as the reason you were kept from stopping: act on it, and reply with `dibs say "..."` if they asked something. `Message from <agent> (another agent, not the person):` is a peer's request. `dibs tell <agent> "..."` (or `dibs say --to <agent> "..."`, the same thing) messages an agent. If config names you the desk, reply with `dibs say --to person "..."`. Details: docs/questions.md.
 
 ### Other machines
 

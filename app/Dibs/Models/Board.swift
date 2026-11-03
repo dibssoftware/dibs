@@ -23,11 +23,13 @@ struct Board: Decodable, Sendable {
     var limits: String?
     // 0.0.178: what's wrong, each with its fix (src/alerts.mjs). nil from an older dibs.
     var alerts: [DibsAlert]?
+    // Agents waiting on dibs listen (0.0.179 and newer): a message wakes them within seconds.
+    var listening: [String]
 
     struct Cap: Decodable, Sendable { var prio: String; var at: Double? }
     struct Me: Decodable, Sendable { var name: String }
 
-    enum CodingKeys: String, CodingKey { case machine, held, waiting, quotas, agents, elsewhere, me, caps, lines, hold, limits, alerts }
+    enum CodingKeys: String, CodingKey { case machine, held, waiting, quotas, agents, elsewhere, me, caps, lines, hold, limits, alerts, listening }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -41,6 +43,7 @@ struct Board: Decodable, Sendable {
         caps = c.lenient(.caps) ?? [:]
         lines = c.lenient(.lines)
         alerts = c.lenient(.alerts)
+        listening = c.lenient(.listening) ?? []
         hold = (c.lenient(.hold) as String?).flatMap { $0.isEmpty ? nil : $0 }
         limits = (c.lenient(.limits) as String?).flatMap { $0.isEmpty ? nil : $0 }
     }

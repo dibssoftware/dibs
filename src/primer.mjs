@@ -21,7 +21,7 @@ function resources() {
 // The rules every agent gets first, and nothing else: what to wrap and how, what
 // needs no dibs, staying reachable, the two exit codes agents hit, and when to ask
 // the person. One source: the session primer below, and the top of
-// skills/dibs/SKILL.md and README.md's "Tell your agents", which writeRules()
+// skills/dibs/SKILL.md and docs/reference.md's "Tell your agents", which writeRules()
 // fills from it (test/rules.test.mjs checks they match). The rest is reference,
 // under the skill's "When you need it": agents that got every rule up front
 // skimmed them all (feedback, 2026-11-03).
@@ -42,14 +42,14 @@ export function rules(res = resources(), more = 'is in dibs.md beside dibs (the 
 // A subagent ends with its task, so it isn't told to keep a listener running.
 export const primerText = ({ subagent = false } = {}) => rules().filter(l => !(subagent && l.includes('dibs listen'))).join('\n');
 
-// The rules as the skill and the README carry them, between their markers, with the
+// The rules as the skill and docs/reference.md carry them, between their markers, with the
 // built-in resources (a machine's config adds its own; the primer names those).
 const MARK = /<!-- dibs:rules:start -->[\s\S]*?<!-- dibs:rules:end -->/;
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DOCS = {
   'skills/dibs/SKILL.md': () => rules(BUILT_IN.join(', '), 'is below, under "When you need it", and in `dibs help`'),
   // A block to paste, fenced, for anyone who doesn't let dibs init write the note.
-  'README.md': () => ['```markdown', '## dibs', ...rules(BUILT_IN.join(', '), 'is in the dibs skill and in `dibs help`'), '```'],
+  'docs/reference.md': () => ['```markdown', '## dibs', ...rules(BUILT_IN.join(', '), 'is in the dibs skill and in `dibs help`'), '```'],
 };
 export const marked = lines => `<!-- dibs:rules:start -->\n${lines.join('\n')}\n<!-- dibs:rules:end -->`;
 export function writeRules(root = ROOT) {
@@ -60,6 +60,7 @@ export function writeRules(root = ROOT) {
     fs.writeFileSync(file, text.replace(MARK, marked(make())));
   }
 }
+
 
 // Each subagent hears it once: SubagentStart also fires every time an agent
 // team teammate takes a new message. A short list of ids it was told, newest last.
