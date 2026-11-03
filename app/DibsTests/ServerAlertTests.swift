@@ -31,6 +31,16 @@ struct ServerAlertTests {
         #expect(g.pass([alert("x", resolved: 1)], now: t0.addingTimeInterval(3 * 3600)).isEmpty, "a resolved alert never notifies")
     }
 
+    @Test("a time from another day says which day, so yesterday evening doesn't read as later today")
+    func stamp() {
+        let cal = Calendar.current
+        let now = cal.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 13, minute: 48))!
+        let morning = cal.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 9, minute: 5))!
+        let yesterday = cal.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 18, minute: 40))!
+        #expect(Format.stamp(morning, now: now) == Format.clock(morning))
+        #expect(Format.stamp(yesterday, now: now) == "\(yesterday.formatted(.dateTime.weekday(.abbreviated))) \(Format.clock(yesterday))")
+    }
+
     @Test("a muted cause never notifies, and doesn't use up its 30 minutes")
     func muted() {
         var g = AlertCauseGate()

@@ -63,14 +63,33 @@ const SERVICES_EVERY = MIN;
 export const RESOLVED_SHOWN = 2 * HOUR;
 // The first read of the event log starts this far from its end, not at its start: the log runs to 20 MB.
 const FIRST_READ = 2 * 1024 ** 2;
-// The rules a waiter is held by when memory, not a turn, is in the way.
-const MEMORY_RULES = new Set(['pressure', 'swap', 'swaproom', 'ram', 'oversize']);
+// The rules a waiter is held by when the machine's memory, not a turn or dibs's budget, is in the way.
+const PRESSURE = new Set(['pressure', 'swap', 'swaproom', 'ram', 'oversize']);
+// Bumped when what makes an alert changes, so an upgrade rebuilds the open ones instead of closing them.
+const RULES = 2;
+// The same command failing this many times in a row, with no pass between, is worth the person's attention.
+const REPEATS = 3;
 // Exit codes a stopped command dies with: Ctrl-C, SIGKILL, SIGTERM.
 const STOPPED = new Set([130, 137, 143]);
+
+// A time as the person reads it: the clock today, with the weekday within a
+// week either way, with the date further off. "at 6:40 PM" from yesterday
+// read as a time still to come.
+export function stamp(at, t = now()) {
+  const d = new Date(at);
+  if (d.toDateString() === new Date(t).toDateString()) return clock(at);
+  const day = Math.abs(t - at) < 6 * DAY ? d.toLocaleDateString([], { weekday: 'short' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${day} ${clock(at)}`;
+}
 
 const what = x => (x.purpose || x.cmd || (x.res || []).join(', ') || 'a job').replace(/\s+/g, ' ').slice(0, 70);
 const job = x => `${x.who}'s #${x.id} (${what(x)})`;
 const personWaits = q => q.prio === 'urgent' || q.prio === 'high' || typeof q.by === 'number';
+const isDeploy = res => (res || []).some(r => r === 'deploy' || r.startsWith('deploy-') || r.startsWith('deploy:'));
+// A failure the person cares about: a deploy, or a job they were waiting on.
+// Held by the machine's memory: pressure or swap, or a job that fits dibs's budget but not what's really free.
+const pressed = v => PRESSURE.has(v.rule) || (v.rule === 'memory' && (v.pressure || v.real));
+const matters = x => isDeploy(x.res) || x.prio === 'urgent' || x.prio === 'high' || typeof x.due === 'number';
 
 function load() {
   try { return { seen: {}, open: {}, resolved: [], dismissed: {}, waits: {}, ended: [], svc: {}, restarts: [], hook: [], ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; }
@@ -131,8 +150,9 @@ function readEvents(st, t) {
       // A later success of the same command closes its failures.
       if (e.code === 0 && e.key) for (const x of st.ended) if (x.key === e.key && !x.fixedAt) x.fixedAt = e.at;
       const by = stops.get(e.id);
-      if (by || STOPPED.has(e.code)) st.ended.push({ kind: 'stopped', at: e.at, id: e.id, who: e.who, res: e.res, cmd: e.cmd, purpose: e.purpose, key: e.key, code: e.code, by: by || null });
-      else if (e.code != null && e.code !== 0) st.ended.push({ kind: 'failed', at: e.at, id: e.id, who: e.who, res: e.res, cmd: e.cmd, purpose: e.purpose, key: e.key, code: e.code });
+      const x = { at: e.at, id: e.id, who: e.who, res: e.res, cmd: e.cmd, purpose: e.purpose, key: e.key, code: e.code, prio: e.prio, due: e.due };
+      if (by || STOPPED.has(e.code)) st.ended.push({ kind: 'stopped', ...x, by: by || null });
+      else if (e.code != null && e.code !== 0) st.ended.push({ kind: 'failed', ...x });
     } else if (e.kind === 'lost' || e.kind === 'crash') st.ended.push({ kind: e.kind, at: e.at, who: e.who, cmd: e.cmd, code: e.code, why: e.why, verb: e.verb });
   }
   st.ended = st.ended.filter(x => t - x.at < EVENT_KEEP);
@@ -186,7 +206,7 @@ export function memoryUsers(s, procs, use) {
 
 function appOf(p, sessions) {
   const a = p.args || '';
-  if (/\blaunchd_sim\b|\/CoreSimulator\/Devices\//.test(a)) return 'the iOS Simulator';
+  if (/\blaunchd_sim\b|\/CoreSimulator\/Devices\/|\.simruntime\//.test(a)) return 'the iOS Simulator';
   if (/com\.apple\.WebKit\.(WebContent|GPU|Networking)/.test(a)) return 'Safari and other web pages';
   if (/(^|\/)claude(\s|$)/.test(a)) {
     const x = sessions.get(p.pid);
@@ -194,9 +214,14 @@ function appOf(p, sessions) {
   }
   const app = a.match(/\/([^/]+)\.app\//);
   if (app) return app[1];
-  return path.basename(a.split(/\s+/)[0] || `pid ${p.pid}`);
+  // A script under an interpreter is the script: "node" alone says nothing about which.
+  const [cmd, ...args] = a.split(/\s+/);
+  const name = path.basename(cmd || `pid ${p.pid}`);
+  const script = INTERPRETERS.test(name) && args.find(x => !x.startsWith('-'));
+  return script ? `${name} ${path.basename(script)}` : name;
 }
 
+const INTERPRETERS = /^(node|bun|deno|python3?(\.\d+)?|ruby|perl)$/;
 const sized = g => `${g.name} (${gb(g.bytes).replace(/G$/, ' GB')}${g.n > 1 && g.name.startsWith('Safari') ? `, ${g.n} pages` : ''})`;
 
 // Every alert the state calls for now: { id, cause, level, title, fix, after?, at? }.
@@ -213,25 +238,24 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
     const usual = Math.max(0, ...q.res.map(r => median(st.waits[r] || [])));
     const waited = t - q.enq;
     if (waited < Math.max(WAIT_FLOOR, WAIT_TIMES * usual)) continue;
-    out.push({ id: `wait:#${q.id}`, cause: 'wait', level: personWaits(q) ? 'urgent' : 'warn', job: q.id, who: q.who,
-      title: `${job(q)} has waited ${minutes(waited)}${usual >= MIN ? `, where ${q.res[0]} usually takes ${minutes(usual)}` : ''}${personWaits(q) ? `, and it's ${typeof q.by === 'number' ? `due by ${clock(q.by)}` : q.prio}` : ''}`,
-      why: v.why, fix: waitFix(s, q, v, t) });
+    out.push({ id: `wait:#${q.id}`, cause: 'wait', level: personWaits(q) ? 'urgent' : 'warn', job: q.id, who: q.who, at: q.enq,
+      ...(pressed(v) && !users && { want: 'users' }),
+      title: `${job(q)} has waited ${minutes(waited)}${usual >= MIN ? `, where ${q.res[0]} usually takes ${minutes(usual)}` : ''}${personWaits(q) ? `, and it's ${typeof q.by === 'number' ? `due by ${stamp(q.by, t)}` : q.prio}` : ''}`,
+      why: v.why, fix: waitFix(s, q, v, t, users) });
   }
 
   // Memory holding new jobs back.
-  const held = waiting.filter(q => { const v = verdicts.get(q.id); return MEMORY_RULES.has(v.rule) || (v.rule === 'memory' && (v.pressure || v.real)); });
+  const held = waiting.filter(q => pressed(verdicts.get(q.id)));
   if (held.length) {
     const swap = held.some(q => /^swap/.test(verdicts.get(q.id).rule));
     const list = users || [];
     const close = list.filter(g => !g.dibs);
     const ours = list.filter(g => g.dibs);
-    out.push({ id: 'memory', cause: 'memory', level: 'urgent', after: PRESSURE_AFTER,
+    out.push({ id: 'memory', cause: 'memory', level: 'urgent', after: PRESSURE_AFTER, at: Math.min(...held.map(q => q.enq)), ...(!users && { want: 'users' }),
       title: `${swap ? 'Swap' : 'Memory pressure'} is holding back ${held.length} job${held.length > 1 ? 's' : ''} (${andList(held.slice(0, 3).map(q => `#${q.id}`))}${held.length > 3 ? ' and more' : ''})`,
       why: verdicts.get(held[0].id).why,
       detail: list.length ? `Using the most memory: ${list.map(sized).join(', ')}.` : '',
-      fix: close.length
-        ? `Close what you can of ${andList(close.slice(0, 3).map(sized))}. dibs won't close apps it didn't start.${ours.length ? ` Or stop a dibs job: dibs stop ${ours[0].id}.` : ''}`
-        : ours.length ? `dibs's own jobs use it: dibs stop ${ours[0].id} frees the most.` : 'Close apps you aren\'t using; dibs won\'t close what it didn\'t start.' });
+      fix: memoryFix(list) });
   }
 
   // A slot held by a run that has used no CPU for a long while someone waits for it.
@@ -240,38 +264,51 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
     if (!idle) continue;
     const behind = waiting.filter(q => q.res.some(r => l.res.includes(r)));
     if (!behind.length) continue;
-    out.push({ id: `idle:#${l.id}`, cause: 'idle', level: behind.some(personWaits) ? 'urgent' : 'warn', job: l.id, who: l.who,
+    out.push({ id: `idle:#${l.id}`, cause: 'idle', level: behind.some(personWaits) ? 'urgent' : 'warn', job: l.id, who: l.who, at: l.idleSince,
       title: `${job(l)} has held ${l.res.join(', ')} for ${minutes(t - l.start)} and used no CPU for ${minutes(idle)}, while ${behind.length} job${behind.length > 1 ? 's wait' : ' waits'}`,
       fix: `If it's stuck, stop it: dibs stop ${l.id} --owner ${l.who}. If it's working somewhere dibs can't see, leave it.` });
   }
 
-  // Jobs that failed, were stopped, or were lost, and dibs's own crashes.
+  // Jobs that failed, were stopped, or were lost, and dibs's own crashes. An
+  // agent's test run failing while it works is normal: on 2026-11-03 one
+  // session's 53 failed test runs filled the list. What's loud is what the
+  // person cares about: a deploy, a job a person waits on (high, urgent or
+  // --by), the same command failing REPEATS times in a row, a lost job and a
+  // crash. The rest is quiet: in dibs alerts --all only.
   const failed = new Map();
   for (const x of st.ended) {
     if (x.fixedAt) continue;
-    if (x.kind === 'failed') {
-      const k = x.key || `${x.who}|${x.cmd}`;
+    if (x.kind === 'failed' && matters(x)) {
+      out.push({ id: `failed:#${x.id}`, cause: 'ended', level: 'warn', at: x.at, job: x.id, who: x.who,
+        title: `${job(x)} failed at ${stamp(x.at, t)} (exit ${x.code})${x.due ? `, and it was due by ${stamp(x.due, t)}` : x.prio === 'urgent' || x.prio === 'high' ? `, and it was ${x.prio}` : ''}`,
+        fix: `${x.who} is the one to fix it; this closes when the same command passes.` });
+    } else if (x.kind === 'failed') {
+      // Failures of the exact same command, all since its last pass (a pass closes the ones before it).
+      const k = `${x.who}|${x.cmd || (x.res || []).join(',')}`;
       const g = failed.get(k) || { ...x, n: 0, first: x.at };
       g.n++; g.at = Math.max(g.at, x.at); g.code = x.code;
       failed.set(k, g);
     } else if (x.kind === 'stopped') {
-      out.push({ id: `stopped:#${x.id}`, cause: 'ended', level: 'note', at: x.at, job: x.id, who: x.who,
-        title: `${job(x)} was stopped${x.by ? ` by ${x.by}` : ''} at ${clock(x.at)}${x.code != null ? ` (exit ${x.code})` : ''}`,
+      const other = x.by && x.by !== x.who;
+      out.push({ id: `stopped:#${x.id}`, cause: 'ended', level: 'note', at: x.at, job: x.id, who: x.who, ...(!other && !matters(x) && { quiet: true }),
+        title: `${job(x)} was stopped${x.by ? ` by ${x.by}` : ''} at ${stamp(x.at, t)}${x.code != null ? ` (exit ${x.code})` : ''}`,
         fix: `If it should finish, ${x.who} runs it again; nothing else waits on it.` });
     } else if (x.kind === 'lost') {
       out.push({ id: `lost:${x.at}`, cause: 'ended', level: 'urgent', at: x.at, who: x.who,
-        title: `${x.who}'s job was lost${x.code === 77 ? ' after it started' : ' before it started'} at ${clock(x.at)}: ${x.why || x.cmd}`,
+        title: `${x.who}'s job was lost${x.code === 77 ? ' after it started' : ' before it started'} at ${stamp(x.at, t)}: ${x.why || x.cmd}`,
         fix: x.code === 77 ? 'It may have run. Check what it changed before running it again.' : 'It never ran, so it\'s safe to run again.' });
     } else if (x.kind === 'crash') {
       out.push({ id: `crash:${x.at}`, cause: 'dibs', level: 'urgent', at: x.at, who: x.who,
-        title: `dibs crashed at ${clock(x.at)} running dibs ${x.verb || ''} for ${x.who}`,
+        title: `dibs crashed at ${stamp(x.at, t)} running dibs ${x.verb || ''} for ${x.who}`,
         fix: `It's a bug in dibs. Report it: dibs ask "crash in dibs ${x.verb || ''}"` });
     }
   }
-  for (const [k, g] of failed)
-    out.push({ id: `failed:${hash(k)}`, cause: 'ended', level: 'note', at: g.first, who: g.who,
-      title: `${g.who}'s ${what(g)} failed${g.n > 1 ? ` ${g.n} times, last` : ''} at ${clock(g.at)} (exit ${g.code})`,
+  for (const [k, g] of failed) {
+    const loud = g.cmd && g.n >= REPEATS;
+    out.push({ id: `failed:${hash(k)}`, cause: 'ended', level: loud ? 'warn' : 'note', at: g.first, who: g.who, ...(!loud && { quiet: true }),
+      title: `${g.who}'s ${what(g)} failed${g.n > 1 ? ` ${g.n} times in a row, last` : ''} at ${stamp(g.at, t)} (exit ${g.code})`,
       fix: `${g.who} is the one to fix it; this closes when the same command passes.` });
+  }
 
   // dibs itself.
   for (const [k, h] of Object.entries(st.svc || {}))
@@ -283,13 +320,13 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
     const rs = st.restarts.filter(r => r.k === k);
     const last = rs[rs.length - 1];
     out.push({ id: `restart:${k}`, cause: 'dibs', level: 'warn', at: rs[0].at,
-      title: `dibs's ${k} service crashed (exit ${last.exit}) and launchd started it again${rs.length > 1 ? `, ${rs.length} times in the last hour` : ''}, last at ${clock(last.at)}`,
+      title: `dibs's ${k} service crashed (exit ${last.exit}) and launchd started it again${rs.length > 1 ? `, ${rs.length} times in the last hour` : ''}, last at ${stamp(last.at, t)}`,
       fix: `Look in ~/.dibs/${k}.log for why, and report it: dibs ask "the ${k} service keeps exiting with ${last.exit}"` });
   }
   if (st.hook?.length) {
     const last = st.hook[st.hook.length - 1];
     out.push({ id: 'hook', cause: 'dibs', level: 'warn', at: st.hook[0].at,
-      title: `The Claude Code hook failed ${st.hook.length} time${st.hook.length > 1 ? 's' : ''} in the last hour, last at ${clock(last.at)}: ${last.msg}`,
+      title: `The Claude Code hook failed ${st.hook.length} time${st.hook.length > 1 ? 's' : ''} in the last hour, last at ${stamp(last.at, t)}: ${last.msg}`,
       fix: `Those tool calls ran without dibs's checks. Report it: dibs ask "hook: ${last.msg.slice(0, 60)}"` });
   }
 
@@ -303,7 +340,7 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
 }
 
 // The one thing that lets a long-waiting job start, by what holds it.
-function waitFix(s, q, v, t) {
+function waitFix(s, q, v, t, users) {
   const boost = `dibs boost ${q.id} urgent -m "why"`;
   if (v.rule === 'slot' || v.rule === 'files' || v.rule === 'together') {
     // With one deploy per project (the per-repo lock), the one in the way is this project's.
@@ -313,12 +350,25 @@ function waitFix(s, q, v, t) {
     if (l) return `${job(l)} has held ${v.on} for ${minutes(t - l.start)}. If ${q.who}'s job can't wait, ${boost} puts it first in line; ${l.who} decides whether to stop theirs.`;
   }
   if (v.rule === 'ahead' && v.ahead) return `${job(v.ahead)} is ahead. If this one matters more: ${boost}.`;
-  if (MEMORY_RULES.has(v.rule) || v.rule === 'memory') return 'Free memory: the memory alert says what uses the most.';
+  // What uses the memory, said here: an alert that points at another one that isn't there is no help.
+  if (pressed(v)) return memoryFix(users || []);
+  if (v.rule === 'memory') {
+    const big = (s.leases || []).filter(l => l.mem).sort((a, b) => b.mem - a.mem).slice(0, 3);
+    return `dibs's memory budget is handed out to running jobs${big.length ? `, the biggest ${andList(big.map(l => `${job(l)} with ${gb(l.mem).replace(/G$/, ' GB')}`))}` : ''}. It starts as they end; if it can't wait: ${boost}.`;
+  }
   if (v.rule === 'disk' || v.rule === 'drain') return diskFix();
   if (v.rule === 'load' || v.rule === 'cpu') return `The machine is busy. If a person waits on this: dibs boost ${q.id} high -m "why".`;
   if (v.rule === 'idle') return `It's idle-priority work, which waits for everything else: dibs boost ${q.id} normal.`;
   if (v.rule === 'reset') return `${v.on} is being reset after the last job; if that takes too long, check its onRelease in ~/.dibs/config.json.`;
   return `${v.why}. If it can't wait: ${boost}.`;
+}
+
+// What to close, from the biggest memory users on the machine.
+function memoryFix(list) {
+  const close = list.filter(g => !g.dibs), ours = list.filter(g => g.dibs);
+  if (close.length) return `Close what you can of ${andList(close.slice(0, 3).map(sized))}. dibs won't close apps it didn't start.${ours.length ? ` Or stop a dibs job: dibs stop ${ours[0].id}.` : ''}`;
+  if (ours.length) return `dibs's own jobs use it: dibs stop ${ours[0].id} frees the most.`;
+  return "Close apps you aren't using; dibs won't close what it didn't start.";
 }
 
 function diskFix() {
@@ -332,11 +382,12 @@ const hash = k => { let h = 5381; for (const c of String(k)) h = ((h << 5) + h +
 export function merge(st, found, t) {
   const live = new Set();
   for (const c of found) {
-    if (c.after && t - (st.seen[c.id] ??= t) < c.after) continue;
+    // Since when the problem itself began (the job queued, the first failure), not this scan.
+    if (c.after && t - (st.seen[c.id] ??= c.at ?? t) < c.after) continue;
     if (st.dismissed[c.id]) continue;
     live.add(c.id);
-    const { after, ...a } = c;
-    st.open[c.id] = { ...a, since: st.open[c.id]?.since ?? c.at ?? (c.after ? st.seen[c.id] : t), resolvedAt: null };
+    const { after, want, at, ...a } = c;
+    st.open[c.id] = { ...a, since: at ?? st.open[c.id]?.since ?? (after ? st.seen[c.id] : t), resolvedAt: null };
   }
   const pending = new Set(found.map(c => c.id));
   for (const id of Object.keys(st.seen)) if (!pending.has(id)) delete st.seen[id];
@@ -358,13 +409,15 @@ export function scan({ s, cfg, hist, m = machine(), t = now(), force = false } =
     if (!force && was.at && t - was.at < SCAN_EVERY) return shown(was, t);
     const st = locked(() => {
       const st = load();
+      // Alerts made by older rules aren't resolved, only no longer said that way: start the open list over.
+      if (st.rules !== RULES) { st.open = {}; st.seen = {}; st.rules = RULES; }
       readEvents(st, t);
       readHook(st, t);
       readServices(st, t);
       let users = st.top && t - st.top.at < TOP_EVERY ? st.top.list : null;
       let found = detect({ s, cfg, hist, m, t, st, users });
       // The machine-wide reading only once memory is what holds jobs back.
-      if (!users && found.some(a => a.id === 'memory')) {
+      if (!users && found.some(a => a.want === 'users')) {
         users = memoryUsers(s, processes(), memoryUse());
         st.top = { at: t, list: users };
         found = detect({ s, cfg, hist, m, t, st, users });
@@ -386,8 +439,8 @@ export function scan({ s, cfg, hist, m = machine(), t = now(), force = false } =
 // Open alerts, worst first, then the ones resolved in the last RESOLVED_SHOWN.
 const RANK = { urgent: 0, warn: 1, note: 2 };
 export function shown(st, t = now(), all = false) {
-  const open = Object.values(st.open || {}).sort((a, b) => RANK[a.level] - RANK[b.level] || b.since - a.since);
-  const gone = (st.resolved || []).filter(a => all || t - a.resolvedAt < RESOLVED_SHOWN).sort((a, b) => b.resolvedAt - a.resolvedAt);
+  const open = Object.values(st.open || {}).filter(a => all || !a.quiet).sort((a, b) => RANK[a.level] - RANK[b.level] || b.since - a.since);
+  const gone = (st.resolved || []).filter(a => all || (!a.quiet && t - a.resolvedAt < RESOLVED_SHOWN)).sort((a, b) => b.resolvedAt - a.resolvedAt);
   return [...open, ...gone];
 }
 
@@ -408,10 +461,10 @@ export function dismiss(which, t = now()) {
 export function alertLines(list, t = now()) {
   const out = [];
   for (const a of list) {
-    if (a.resolvedAt) out.push(dim(`Resolved at ${clock(a.resolvedAt)}${a.dismissed ? ' (dismissed)' : ''}: ${a.title}.`));
+    if (a.resolvedAt) out.push(dim(`Resolved at ${stamp(a.resolvedAt, t)}${a.dismissed ? ' (dismissed)' : ''}: ${a.title}.`));
     else {
       const paint = a.level === 'urgent' ? red : a.level === 'warn' ? amber : x => x;
-      out.push(paint(`${a.level === 'note' ? '' : '! '}${a.title} (since ${clock(a.since)}).`), wrap(`  Fix: ${a.fix}`, '  '));
+      out.push(paint(`${a.level === 'note' ? '' : '! '}${a.title} (since ${stamp(a.since, t)}).`), wrap(`  Fix: ${a.fix}`, '  '));
     }
   }
   return out;
@@ -430,8 +483,11 @@ export function alerts(args, cfg) {
   let list = scan({ s, cfg, hist: history(), t, force: true });
   if (args.includes('--all')) list = shown(load(), t, true);
   if (args.includes('--json')) return console.log(JSON.stringify(list, null, 1));
-  if (!list.length) return console.log('Nothing is wrong that dibs can see. Open problems and what fixes them show here, and on the board.');
+  const quiet = args.includes('--all') ? 0 : Object.values(load().open).filter(a => a.quiet).length;
+  const more = quiet ? dim(`${quiet} more not worth your attention (agents' own test runs failing, jobs they stopped themselves): dibs alerts --all`) : '';
+  if (!list.length) return console.log(['Nothing is wrong that dibs can see. Open problems and what fixes them show here, and on the board.', more].filter(Boolean).join('\n'));
   console.log(alertLines(list, t).join('\n'));
+  if (more) console.log(`\n${more}`);
   const open = list.filter(a => !a.resolvedAt);
   if (open.length) console.log(dim(`\nIds, for dibs alerts dismiss <id>: ${open.map(a => a.id).join(', ')}`));
 }

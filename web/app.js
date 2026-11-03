@@ -715,7 +715,13 @@
       return card;
     }));
   }
-  const clockOf = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // The clock today; with the weekday within a week, the date further off, so yesterday's 6:40 PM doesn't read as later today.
+  function clockOf(ms) {
+    const d = new Date(ms), time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (d.toDateString() === new Date().toDateString()) return time;
+    const day = Math.abs(Date.now() - ms) < 6 * 864e5 ? d.toLocaleDateString([], { weekday: 'short' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return `${day} ${time}`;
+  }
 
   function needsSection(needs, now) {
     $('needs-sec').hidden = !needs.length;

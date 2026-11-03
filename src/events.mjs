@@ -85,7 +85,9 @@ export function logChanges(before, paused, s) {
       const pausedMs = (l.pausedMs || 0) + (paused.get(l.id) ? t - paused.get(l.id) : 0);
       // What it was, so a failure can be named and a later success of the same command can close it (src/alerts.mjs).
       out.push({ at: t, kind: 'end', ...fields(l), code: l.code ?? null, ms: t - l.start, paused: pausedMs,
-        ...(l.kind === 'run' && { key: l.key, cmd: String(l.cmd || '').slice(0, 120), ...(l.purpose && { purpose: String(l.purpose).slice(0, 120) }) }) });
+        ...(l.kind === 'run' && { key: l.key, cmd: String(l.cmd || '').slice(0, 120), ...(l.purpose && { purpose: String(l.purpose).slice(0, 120) }),
+          // A deadline (--by) makes its failure the person's business; an override's by is a name, not that.
+          ...(typeof l.by === 'number' && { due: l.by }) }) });
     }
     if (!out.length) return;
     rotate(t);

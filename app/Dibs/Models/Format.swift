@@ -21,6 +21,15 @@ enum Format {
         date.formatted(date: .omitted, time: .shortened)
     }
 
+    // The clock today; with the weekday within a week, the date further off,
+    // so yesterday's 6:40 PM doesn't read as later today (src/alerts.mjs stamp).
+    static func stamp(_ date: Date, now: Date = .now) -> String {
+        if Calendar.current.isDate(date, inSameDayAs: now) { return clock(date) }
+        let day = abs(date.timeIntervalSince(now)) < 6 * 86400
+            ? date.formatted(.dateTime.weekday(.abbreviated)) : date.formatted(.dateTime.month(.abbreviated).day())
+        return "\(day) \(clock(date))"
+    }
+
     // How far one rule moved a waiter in line. dibs counts a positive shift as
     // moving up (a short job, a near deadline) and a negative one as back.
     static func rank(_ part: Waiter.Rank.Part) -> String {

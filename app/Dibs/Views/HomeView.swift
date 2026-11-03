@@ -127,7 +127,7 @@ struct AlertCard: View {
                 StateDot(kind: .busy)
                 Text("\(alert.title).").foregroundStyle(Palette.ink3).lineLimit(2)
                 Spacer(minLength: Space.m)
-                Text("\(alert.dismissed == true ? "Dismissed" : "Resolved") \(Format.clock(gone))")
+                Text("\(alert.dismissed == true ? "Dismissed" : "Resolved") \(Format.stamp(gone))")
                     .font(Typeface.small).foregroundStyle(Palette.ink3).fixedSize()
             }
             .padding(.horizontal, Space.l + 2)
@@ -140,7 +140,7 @@ struct AlertCard: View {
                         .foregroundStyle(Palette.ink)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: Space.m)
-                    Text("since \(Format.clock(alert.sinceDate))")
+                    Text("since \(Format.stamp(alert.sinceDate))")
                         .font(Typeface.small).foregroundStyle(Palette.ink3).fixedSize()
                 }
                 let more = [alert.why.map { "Why: \($0.prefix(1).uppercased())\($0.dropFirst())" }, alert.detail].compactMap { $0 }.joined(separator: " ")
