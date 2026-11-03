@@ -32,10 +32,16 @@ dibs run test --after #42 -- npm run e2e                            # joins the 
 dibs run test -- sh -c 'npm run build && npm test'                  # a shell line goes in sh -c
 ```
 
-- `$SIM` and `--port` variables are set inside the run, so put them in single-quoted `sh -c '...'`.
+- `sim` is the one shared booted simulator. `sim-own` boots a private one for your command (its udid in `$SIM`) and shuts it down after.
+- `$SIM` and `--port` variables are set inside the run, so put them in single-quoted `sh -c '...'`. Use `$WEB` (or whatever you named the port), never a fixed port.
+- Need two resources? Ask for both in one `dibs run a,b`. Never hold one while waiting for another.
+- The turn lasts exactly as long as the command: when it exits or crashes, the turn is given back and its whole process tree is killed. Don't add keepalives, `timeout` wrappers or lock files of your own.
 - Inside Claude Code, `dibs run` waits as long as it takes. Every run ends with one line on stderr, `dibs: #812 test, waited 2m10s, ran 3m04s, exit 0`; after a compaction, that line is the result.
 - `--est 3m` (a duration like `30s`, `5m`, `1h`) on a job dibs hasn't seen lets short jobs move up. `--mem 6G --cpu 4` the first time you run something heavy dibs hasn't measured; after that it plans at the measured peak, and says so if a job used far more than it asked.
-- Priority: `-p urgent|high|normal|low|idle`. `urgent` (something's broken or a person is waiting now) and `high` (critical path) need `-m`, and everyone sees them. `--by 23:30` for a deadline.
+- Priority: `-p urgent|high|normal|low|idle` (or 1-5). `urgent` (something's broken or a person is waiting now) and `high` (critical path) need `-m`, and everyone sees them. `normal` is the default. `low` (nobody waiting) and `idle` (audits, solvers, regenerating things) run at background priority on the cool cores. Pick the true level. `--by 23:30` for a deadline.
+- `--notify <file>` appends a JSON line to that file when dibs exits.
+- A shared API rate budget: `dibs run quota:<name> --cost N -- <cmd>` (the budgets are set in `~/.dibs/config.json` `quotas`).
+- Work that runs outside dibs is moved to the slow cores when the machine runs hot (`dibs throttle`). Wrapping it lets you pick its priority.
 - A resource name close to a real one (`simulator`, `tests`) is refused with exit 2 and the right name. A new name of your own starts its own queue.
 - A suite that takes minutes: `dibs run test --shards 2 -- npx vitest run` splits it across the group's machines and merges the output and exit codes. vitest and `node --test` suites that usually take over 5 minutes split on their own; `--no-shard` keeps one piece.
 
@@ -51,6 +57,8 @@ A script running under `dibs run deploy` that calls `dibs run xcode-build` waits
 - **Disk at your turn:** a resource that declares a disk need (the simulator asks 8 GB) is refused with exit 74 when that much isn't free and nothing running will free it. If your job needs less, pass `--disk 1G` on the hold and on each `dibs run`. From 0.0.173, a job whose own past runs ate more disk than is free waits for disk too, even alone. While you wait on something else, the wait message says early when disk will hold you next, so free your own build output then.
 - **Paused** ("paused your job: free disk is low", or for urgent work): leave it, it resumes by itself.
 - **Load** ("waiting for the machine to cool down"): ends within 20 minutes.
+- **A person is waiting on the job now:** run it with `-p high -m "why"`, or send it to another machine with `--on <machine>` (`dibs machines`). That's the only reason to raise it.
+- **Someone ahead of you:** agents appear by session name, the same name SendMessage uses. Message the agent ahead and ask; whoever is ahead runs `dibs yield <your name>`. If someone asks you and their work is more urgent, run `dibs yield <their name>`.
 - **Lines from the dibs hook about your jobs** (stuck with no CPU for 20 minutes while others wait, over its memory, paused, a progress task overdue): they're about your own work. Act on them.
 
 ### Exit codes
@@ -93,7 +101,7 @@ When dibs's hook sees a heavy command outside `dibs run`, it rewrites it into th
 
 ### Looking without joining the line
 
-`dibs` (the board, whose `Limits` line has memory, disk and swap), `dibs when sim`, `dibs who sim`, `dibs why`, `dibs mine`, `dibs history` (the last 7 days). Every command and flag: `dibs help all`. Something wrong with dibs, or a question about it: `dibs ask "..."`.
+`dibs` (the board, whose `Limits` line has memory, disk and swap), `dibs when sim`, `dibs who sim`, `dibs why`, `dibs mine`, `dibs history` (the last 7 days). Every command and flag: `dibs help all`. Something wrong with dibs, or a question about it: `dibs ask "..."`, or SendMessage the maintainer its answer names. When dibs says it was updated, read what changed with `dibs changes` and follow it.
 
 ### Overriding jobs and settings
 
@@ -107,11 +115,11 @@ dibs cap pushy low       # that agent's work waits and runs at low or below unti
 dibs yield web-app       # let another agent go first
 ```
 
-The same goes for `answer`, `hours`, `pace`, `tell`, `invite`, `pair --machine`, `service install` and `guard install`. dibs records who did each, on the board and in `dibs history`, so act the way you'd defend to the person. Raise a job to high or urgent only when a person is waiting on it now or something is broken. Prefer a message and `dibs yield` over stopping someone else's work. If your own job was **stopped by** someone, it was ended on purpose: find out why (`dibs history`, or ask them) before running it again.
+The same goes for `answer`, `cap`, `hours`, `pace`, `tell`, `join`, `invite`, `kick`, `limit`, `pair --machine`, `service install` and `guard install`. dibs records who did each, on the board and in `dibs history`, so act the way you'd defend to the person. Raise a job to high or urgent only when a person is waiting on it now or something is broken. Prefer a message and `dibs yield` over stopping someone else's work. If your own job was **stopped by** someone, it was ended on purpose: find out why (`dibs history`, or ask them) before running it again.
 
 ### The person: questions, notes and messages
 
-The person's rule: walk through two-way doors (anything you can undo) yourself and show them after. Bring them only one-way doors (things that can't be undone), one at a time, with your recommendation.
+The person's rule: walk through two-way doors (anything you can undo) yourself and show them after. Bring them only one-way doors (ship, spend, delete, rename something public: things that can't be undone), one at a time, with your recommendation.
 
 - **A two-way door:** decide. If it's worth a record, `dibs question "..." --recommend X -m "why"` without `--one-way` logs it as decided by you, prints X on stdout at once (exit 0) and asks nobody. dibs reminds you that's what happened; that's not a refusal.
 - **A one-way door:** add `--one-way "what can't be undone"`. It prints the question's id and returns. Keep working on what doesn't need the answer. When you reach the step that does, run the same command again with `--wait`: it prints only the answer, so `answer=$(dibs question ... --wait)` works. `--timeout 1m` (or `30s`, `2h`) caps the wait.
