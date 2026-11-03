@@ -23,7 +23,7 @@ import { ownerPause, pauseLabel } from './preempt.mjs';
 import { PRIORITIES, BACKGROUND, NEEDS_REASON, priority, byRank } from './schedule.mjs';
 import { actor } from './owner.mjs';
 import { event } from './events.mjs';
-import { die, now, say } from './util.mjs';
+import { die, now, say, sleepSync } from './util.mjs';
 import { takeAgent, callKey } from './files.mjs';
 import { quoted } from './style.mjs';
 
@@ -125,8 +125,9 @@ function setPrio(x, prio, act, who, reason = '') {
 // cores, the rest off them. `from` is its priority before the change (runs
 // started by an older dibs don't record their QoS). Returns the pids to move,
 // found under the lock; they're moved after it, since a big tree takes a while.
-// Reads of the process table after a boost moves a job, for children forked meanwhile.
-const CATCH_UP = 3;
+// After a boost moves a job, the whole group is moved again this many times, CATCH_GAP ms
+// apart: for children forked meanwhile, and a move lost to a fork in progress.
+const CATCH_UP = 3, CATCH_GAP = 100;
 function requeue(l, from) {
   if (l.kind !== 'run' || !l.pgid || OS === 'windows') return null;
   const bg = BACKGROUND.has(l.prio);
@@ -181,17 +182,18 @@ export function boost(args) {
       // One that exited meanwhile has nothing left to move, a zombie its parent hasn't reaped included.
       const gone = pid => !/^[^Z]/.test(spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim());
       const move = pid => (c.qos.bg ? lower(pid) : raise(pid)) || gone(pid);
-      const tried = new Set(c.qos.pids);
-      let moved = c.qos.pids.filter(move).length;
+      // Whether each process was moved, the last time it was tried.
+      const done = new Map(c.qos.pids.map(pid => [pid, move(pid)]));
       // A child forked between reading the process table and moving its parent kept the old
       // priority, and at background priority on a busy machine even a sleep 0.05 can last
-      // seconds. The parents are moved now, so what they start next follows: a few reads catch the rest.
+      // seconds. And a move that lands while its process forks can be lost: on 2026-11-03,
+      // under a full suite, a raised loop shell still read background priority 10 s later.
+      // So the whole group is moved again a few times, a moment apart (a move is idempotent).
       for (let i = 0; i < CATCH_UP; i++) {
-        const late = pidsIn(c.qos.groups).filter(pid => !tried.has(pid));
-        if (!late.length) break;
-        for (const pid of late) tried.add(pid);
-        moved += late.filter(move).length;
+        sleepSync(CATCH_GAP);
+        for (const pid of pidsIn(c.qos.groups)) done.set(pid, move(pid));
       }
+      const tried = done, moved = [...done.values()].filter(Boolean).length;
       line += c.qos.bg ? ', moved to background priority (efficiency cores)' : ', moved off background priority';
       if (moved < tried.size) line += ` (${tried.size - moved} of its ${tried.size} processes couldn't be moved${OS === 'linux' && !c.qos.bg ? ': Linux lets only root raise a priority' : ''})`;
     }
