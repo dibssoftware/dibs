@@ -143,6 +143,8 @@ test('the owner pauses a running job of any priority and resumes it, and its age
   assert.match(dibs(h, ['--detail'], { agent: 'viewer' }).out, /\[paused by owner\]/);
   assert.match(dibs(h, [], { agent: 'viewer' }).out, /^t {6}busy is using it, time left unknown \(paused by the person at this machine\)$/m);
   await until(() => /the owner \(the person at this machine\) paused your job/.test(job.err));
+  // Said plainly (#16590 found "timeouts may fire on resume" ambiguous): what stopped, and what to check after.
+  assert.match(job.err.replace(/\n\s*/g, ' '), /Its processes were stopped \(SIGSTOP\) and continue where they were when it resumes\. Anything waiting on a server meanwhile .* may have timed out on the far side: check its output for timeouts\./);
   assert.match(owner(h, ['pause', String(id)]).out, /already paused by you/);
   // A pause that only lasts as long as its lease: a later state change mustn't drop it.
   assert.equal(owner(h, ['cap', 'nobody', 'low']).code, 0);
