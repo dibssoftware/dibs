@@ -421,13 +421,13 @@ export function noticeHandler(read) {
       const by = pausedBy(l);
       const why = l.pauses.find(x => x.owner)?.reason;
       say(by ? `${by === 'owner' ? 'the owner (the person at this machine)' : by} paused your job (dibs pause ${l.id})${why ? `: "${why}"` : ''}. It keeps its lease and its place; dibs resume ${l.id} continues it.`
-          + ' Timeouts inside it may fire on resume.'
+          + ' Its processes were stopped (SIGSTOP) and continue where they were when it resumes. Anything waiting on a server meanwhile (an HTTP request, an upload) may have timed out on the far side: check its output for timeouts.'
         : p
         ? `paused your job for ${p.who} (${p.prio}${p.purpose ? `: "${p.purpose}"` : ''}), who needed ${p.res.join(', ')}.`
-          + ` It keeps its lease and its place, and resumes when their job ends. Timeouts inside it may fire on resume.`
+          + ' It keeps its lease and its place, and resumes when their job ends.' + ' Its processes were stopped (SIGSTOP) and continue where they were when it resumes. Anything waiting on a server meanwhile (an HTTP request, an upload) may have timed out on the far side: check its output for timeouts.'
         : l.pauses?.some(x => x.disk)
         ? `paused your job: free disk is low and ${l.pauses.some(x => x.swap) ? 'swap is still growing on it' : 'still falling'}. It keeps its lease and its place, and resumes once there's room again.`
-          + ' If it stays paused, free some disk space. Timeouts inside it may fire on resume.'
+          + ' If it stays paused, free some disk space.' + ' Its processes were stopped (SIGSTOP) and continue where they were when it resumes. Anything waiting on a server meanwhile (an HTTP request, an upload) may have timed out on the far side: check its output for timeouts.'
         : l.alongside ? pausedLine()
         : `paused your ${l.prio} job: the machine is short on memory. It keeps its lease and resumes when memory pressure eases.`);
     } else if (!l.pausedAt && since) {

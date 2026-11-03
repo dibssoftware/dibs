@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, bg, until, flat, PERSON } from './helpers.mjs';
+import { tmp, sync, bg, until, flat, PERSON, AGENT } from './helpers.mjs';
 
 const qs = h => JSON.parse(sync(h, ['questions', '--json'], { agent: 'viewer' }).out);
 const threads = h => JSON.parse(sync(h, ['threads', '--json'], { agent: 'viewer' }).out);
@@ -83,7 +83,15 @@ test('the desk: dibs tell desk reaches the agent config names, which answers the
   assert.ok(desk.messages.some(m => m.kind === 'message' && m.text === 'why is my build waiting?'));
   assert.ok(desk.messages.some(m => m.kind === 'note' && m.reply && /about 3 minutes/.test(m.text)));
   assert.ok(j.threads.find(x => x.to === 'other').messages.every(m => m.kind !== 'note' || m.fyi), 'other notes are FYI');
-  assert.equal(sync(h, ['say', '--to', 'web-app', 'x'], { agent: 'helper' }).code, 2, 'say goes to the person only');
+  // dibs say --to <agent> is a tell from the caller (2026-11-03: everyone wrote it that way).
+  const peer = sync(h, ['say', '--to', 'other', 'your build is next'], { agent: 'helper', ...AGENT });
+  assert.equal(peer.code, 0, peer.err);
+  assert.match(peer.out, /^Sent as a message to other \(dibs tell other\): /);
+  assert.equal(peer.out.trim().split('\n').length, 1, 'one line');
+  const toOther = threads(h).threads.find(x => x.to === 'other').messages.find(m => m.text === 'your build is next');
+  assert.equal(toOther.kind, 'message');
+  assert.equal(toOther.by, 'helper', 'from the agent, never the person');
+  assert.equal(sync(h, ['say', '--to', 'nobody-here', 'x'], { agent: 'helper' }).code, 1);
   fs.writeFileSync(path.join(h, 'config.json'), '{}');
   assert.match(sync(h, ['tell', 'desk', 'hi'], PERSON).err, /no desk agent is set/);
 });

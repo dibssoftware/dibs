@@ -178,7 +178,7 @@ function parse(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--as') o.as = args[++i] ?? die('--as needs a value');
-    else if (a === '--to') { o.to = args[++i] ?? die('--to needs a value: dibs say --to person "..."'); if (o.to !== 'person') die(`dibs say goes to the person: --to person, not --to ${o.to}. To reach an agent: dibs tell <agent> "..."`); }
+    else if (a === '--to') o.to = args[++i] ?? die('--to needs a value: dibs say --to person "...", or an agent\'s name');
     else if (a === '--json') o.json = true;
     else if (a.startsWith('-') && a.length > 1) die(`unknown flag ${a}. Try: dibs help`);
     else o.words.push(a);
@@ -194,6 +194,11 @@ function parse(args) {
 export function say(args) {
   const o = parse(args);
   if (!o.text) die('say what? dibs say "migration done, tests pass"');
+  // dibs say --to <agent> is what people and agents write to reach an agent (2026-11-03): it's a tell.
+  if (o.to && o.to !== 'person') {
+    const r = send(o.to, o.text);
+    { const d = delivery(r); return console.log(`Sent as a message to ${r.to} (dibs tell ${r.to})${d.startsWith('but ') ? ', ' : ': '}${d}`); }
+  }
   const r = locked(s => {
     const th = mine(s, 'say', args, o);
     const t = now();
@@ -262,17 +267,34 @@ const nobody = (s, name) => {
 // dibs tell <agent> "text": the person, or another agent, queues a message for an agent.
 // An agent's message says which agent sent it, never that the person did.
 export function tell(args) {
-  let [name, ...rest] = args;
+  const [name, ...rest] = args;
+  const o = parse(rest);
+  if (o.to) die('--to goes with dibs say. dibs tell <agent> "..." already names who it\'s for');
+  if (!name || !o.text) die('tell whom what? dibs tell <agent> "use the staging database" (names: dibs threads)');
+  const r = send(name, o.text);
+  if (!r.th.session) console.log(`queued for ${r.to}, which isn't a Claude Code session: the hook can't hand it over. It gets it the next time it runs dibs say.`);
+  else { const d = delivery(r); console.log(`queued for ${r.to}${d.startsWith('but ') ? ', ' : ': '}${d}`); }
+}
+
+// When a message queued for an agent reaches it.
+const delivery = r => (!r.th.session ? "it isn't a Claude Code session, so it gets it the next time it runs dibs say."
+  : !r.alive ? `${r.th.agentId === MAIN ? 'its session has ended' : 'that subagent has finished'}. It stays queued, shown as not delivered, in case it comes back.`
+  : r.listening ? "it's listening (dibs listen), so it gets it within seconds."
+  // An idle agent makes no tool call and no stop, so nothing hands it over until it works again
+  // (2026-11-03: two of the owner's messages sat unread for hours in an idle session).
+  : r.idle ? `but ${r.to} is idle and not listening: it won't see this until it next works. Once it runs dibs listen in the background, messages wake it.`
+  : 'it gets it with its next tool call, or as it finishes its turn.');
+
+// Queue text for the agent called name, from whoever is calling, on the record.
+function send(name, text) {
   // "desk" is whichever agent config.json names to answer the person (the app's chat).
   if (name === 'desk') name = loadConfig().desk || die('no desk agent is set. Name one in ~/.dibs/config.json: "desk": "<agent name>" (names: dibs threads)');
-  const o = parse(rest);
-  if (!name || !o.text) die('tell whom what? dibs tell <agent> "use the staging database" (names: dibs threads)');
   const who = actor();
   const r = locked(s => {
     const th = target(s, name);
     if (!th) return { no: nobody(s, name) };
     const t = now();
-    s.messages.push({ id: ++s.seq, key: th.key, at: t, from: 'person', kind: 'message', text: o.text, state: 'queued',
+    s.messages.push({ id: ++s.seq, key: th.key, at: t, from: 'person', kind: 'message', text, state: 'queued',
       session: th.session, agentId: th.agentId, ...(who.agent && { by: who.name }) });
     th.last = t;
     // Claude Code's own word for whether the session is working now (its session file).
@@ -282,13 +304,7 @@ export function tell(args) {
   if (r.no) die(r.no, 1);
   const to = names([r.th]).get(r.th.key);
   logChange('tell', { to });
-  if (!r.th.session) console.log(`queued for ${to}, which isn't a Claude Code session: the hook can't hand it over. It gets it the next time it runs dibs say.`);
-  else if (!r.alive) console.log(`queued for ${to}, but ${r.th.agentId === MAIN ? 'its session has ended' : 'that subagent has finished'}. It stays queued, shown as not delivered, in case it comes back.`);
-  else if (r.listening) console.log(`queued for ${to}: it's listening (dibs listen), so it gets it within seconds.`);
-  // An idle agent makes no tool call and no stop, so nothing hands it over until it works again
-  // (2026-11-03: two of the owner's messages sat unread for hours in an idle session).
-  else if (r.idle) console.log(`queued for ${to}, but ${to} is idle and not listening: it won't see this until it next works. Once it runs dibs listen in the background, messages wake it.`);
-  else console.log(`queued for ${to}: it gets it with its next tool call, or as it finishes its turn.`);
+  return { ...r, to };
 }
 
 // Mark one queued message handed over, with a line in the thread saying how.

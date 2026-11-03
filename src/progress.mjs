@@ -46,6 +46,7 @@ function parse(args) {
     else if (a === '--agent') o.agent = val();
     else if (a === '-n') o.n = Number(val());
     else if (a === '--json') o.json = true;
+    else if (a === '--all') o.all = true;
     else if (a.startsWith('-') && a.length > 1) die(`unknown flag ${a}. Try: dibs progress "ran the auth tests: 41 pass, 2 fail on token expiry" --task auth --eta 20m`);
     else o.words.push(a);
   }
@@ -72,6 +73,9 @@ function branch(dir) {
 
 export async function post(args) {
   const o = parse(args);
+  // dibs progress list: the open tasks. One word "list" is the command, never a post (2026-11-03: crews kept typing it).
+  if (o.words.length === 1 && o.words[0] === 'list' && !o.task && !o.state && !o.eta) return openTasks(o);
+  if (o.all) die('--all goes with dibs progress list');
   if (!o.text) return list(o);
   if (o.text.length > MAX_TEXT) die(`that's ${o.text.length} characters; keep a post under ${MAX_TEXT} and post again as you go. Nothing was posted.`);
   if (o.task && o.task.length > MAX_TASK) die(`--task is a short name (under ${MAX_TASK} characters), not a description. Nothing was posted.`);
@@ -149,6 +153,25 @@ export function tasks(posts, at = now()) {
     else if (k.eta && k.eta < at) k.overdue = true;
   }
   return [...by.values()].sort((a, b) => b.last - a.last);
+}
+
+// The open tasks of the caller's session (every agent in it), or every session's with
+// --all: who owns each, its state, its ETA and its last post.
+function openTasks(o) {
+  const id = identity(o);
+  const session = process.env.CLAUDE_CODE_SESSION_ID || sessionFiles().find(f => f.pid === id.spid)?.sessionId || null;
+  const mine = p => o.all || (session ? p.session === session : p.who === id.who);
+  const t = now();
+  const open = tasks(read().filter(mine), t).filter(k => k.state === 'doing' || k.state === 'blocked');
+  if (o.json) return console.log(JSON.stringify(open, null, 1));
+  if (!open.length) return console.log(o.all ? 'No open tasks on this machine.' : 'Your session has no open tasks. Every session\'s: dibs progress list --all');
+  for (const k of open) {
+    const owner = `${k.who}${k.label ? `/${k.label}` : ''}`;
+    const due = k.eta ? (k.overdue ? `overdue since ${clock(k.eta)}` : `expected by ${clock(k.eta)}`) : 'no ETA';
+    console.log(`${bold(k.task || `(untitled, in ${k.project || 'a folder'})`)}  ${owner}  ${k.state}, ${due}, last post ${dur(t - k.last)} ago`);
+    console.log(`  ${k.text.replace(/\s*\n\s*/g, ' ').slice(0, 300)}`);
+  }
+  console.log(dim(`Close one: dibs progress "what's done" --task <name> --done${o.all ? '' : '. Every session\'s: dibs progress list --all'}`));
 }
 
 function list(o) {

@@ -531,6 +531,41 @@ test("in a session's own scratchpad, a recursive delete of what a sibling made, 
   assert.deepEqual(fs.readdirSync(path.join(home, 'scratch')), ['sess-2']);
 });
 
+test("the main thread may clear what a stopped subagent left, and any agent of the session may clear caches; another session's stay off limits", t => {
+  const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
+  const root = path.join(fs.realpathSync(base), `claude-${process.getuid()}`, '-Users-x-proj');
+  const pad = path.join(root, S, 'scratchpad');
+  fs.mkdirSync(pad, { recursive: true });
+  const call = (agent, input) => {
+    const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },
+      input: JSON.stringify({ session_id: S, ...input, ...(agent ? { agent_id: agent, agent_type: `${agent}-worker` } : {}) }) });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
+  };
+  const event = (name, agent) => call(agent, { hook_event_name: name, cwd: pad });
+  assert.equal(call('relay', bash(pad, 'mkdir -p build-web && echo x > build-web/a.js')), null);
+  const early = call(null, bash(pad, 'rm -rf build-web'));
+  assert.equal(early?.permissionDecision, 'deny', 'not while relay is still running');
+  assert.match(early.permissionDecisionReason, /Once that subagent has finished, you may delete the folder/);
+  event('SubagentStop', 'relay');
+  event('SubagentStart', 'relay');
+  assert.equal(call(null, bash(pad, 'rm -rf build-web'))?.permissionDecision, 'deny', 'a teammate that took another message is running again');
+  event('SubagentStop', 'relay');
+  assert.equal(call('webapp', bash(pad, 'rm -rf build-web'))?.permissionDecision, 'deny', 'a sibling still may not');
+  assert.equal(call(null, bash(pad, 'rm -rf build-web')), null, 'the main thread may, once relay stopped');
+
+  // Caches and build output rebuild themselves: anyone in the session may clear them, nothing more.
+  assert.equal(call('relay', bash(pad, 'mkdir -p chrome/Default/Cache chrome/Default/"Code Cache" app/DerivedData app/node_modules/.cache && echo x > chrome/Default/Prefs')), null);
+  for (const cmd of ['rm -rf chrome/Default/Cache', 'rm -rf "chrome/Default/Code Cache"', 'rm -rf app/DerivedData', 'rm -rf app/node_modules/.cache'])
+    assert.equal(call('webapp', bash(pad, cmd)), null, cmd);
+  assert.equal(call('webapp', bash(pad, 'rm -rf chrome'))?.permissionDecision, 'deny', 'the profile itself is still relay\'s');
+  assert.equal(call('webapp', bash(pad, 'rm -rf chrome/*'))?.permissionDecision, 'deny', 'a glob is not a cache folder');
+
+  const theirs = path.join(root, 'sess-other', 'scratchpad', 'chrome', 'Default', 'Cache');
+  fs.mkdirSync(theirs, { recursive: true });
+  assert.equal(call(null, bash(pad, `rm -rf ${theirs}`))?.permissionDecision, 'deny', "another session's cache stays off limits");
+});
+
 test('a folder a program made in the scratchpad belongs to the agent whose command named it: fix-app may delete its own derived data', t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
   const folder = path.join(fs.realpathSync(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
