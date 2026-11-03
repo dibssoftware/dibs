@@ -178,6 +178,8 @@ const HOLDING_SHIFT = 10 * MIN;
 export function rankParts(q, hist, t = now()) {
   const parts = [];
   const add = (label, shift) => { if (Math.abs(shift) >= 1000) parts.push({ label, shift: Math.round(shift) }); };
+  // The quick lane goes to the front of its line, ahead of any priority: it's over in seconds.
+  if (q.quickPass) add('quick', QUICK_FRONT);
   add(q.prio, PRIORITY_SHIFT[q.prio] || 0);
   if (q.holding && (!q.prio || q.prio === 'normal')) add(`holds ${q.holding.res.join(',')}`, HOLDING_SHIFT);
   if (q.by) {
@@ -718,13 +720,8 @@ function clashOf(s, me, hist) {
   return null;
 }
 
-// The instant lane: a job whose command has taken under INSTANT (the middle of
-// its runs) starts beside anything, past full slots and the line, while the
-// machine's memory, disk, load and swap gates still hold. On 2026-10-21 most of
-// the jobs that waited longer than they ran were checks of under a minute that
-// waited tens of seconds for a browser slot. Only on resources whose slots are
-// capacity: never an exclusive one (the shared simulator, deploys, a lock) or a
-// pool that hands each job its own simulator.
+// A run this short (the middle of its runs) is over in seconds: featherweight below. The quick
+// lane (quickPass) goes by cfg.quickUnder, which is 15 s unless set.
 const INSTANT = 15e3;
 // A job over in seconds that has never been seen using much memory: its middle
 // run under INSTANT (or, before dibs has seen it, an --est that short with no --mem
@@ -753,11 +750,34 @@ export function probation(s, me, cfg, hist, t) {
   if (!me.res.every(r => !isFiles(r) && resCfg(cfg, r).pausable === true)) return false;
   return !s.leases.some(l => l.trial);
 }
-function instant(me, cfg, hist) {
-  const d = typical(hist, me.key);
-  // A resource's own config: a name dibs doesn't know takes cfg.unknown's exclusive.
-  return d != null && d < INSTANT && me.res.every(r => isFiles(r) || (cfg.resources[r] && !cfg.resources[r].exclusive && !cfg.resources[r].pool));
+// The quick lane (2026-11-03, the person: "let one really really quick thing go instantly ...
+// if it takes under 15 seconds"). A command whose runs here take under quickUnder at the
+// middle, or one run with --quick (or an --est that short) before dibs has seen it, starts at
+// once: past the line, the slots of shared and pool resources, warning memory pressure, swap
+// and the load ceiling. The disk floor, critical pressure, file leases and someone else's hold
+// still hold it, and it never pauses anyone. A run that went over quickUnder takes the pass
+// away from its command until a run comes in under again and the middle is back under.
+// On an exclusive resource it doesn't run alongside: it goes to the front of the line, unless
+// the resource says quickAlongside: "other-repo" (a deploy is one at a time per project) and
+// every job on it is from another repo.
+export const QUICK_MAX = 2;   // quick jobs at once, machine-wide: a lane, not a way around dibs
+// What the board says about a job the quick lane let in, so others see why it went first.
+export const QUICK_LINE = 'quick: it runs in seconds, so it went first';
+const QUICK_FRONT = 24 * 36e5;
+export function quickPass(q, hist, cfg) {
+  if (q.kind === 'hold' || !q.key || cfg.quickUnder === null) return false;
+  const under = ms(cfg.quickUnder ?? '15s');
+  const runs = runsOf(hist, q.key);
+  if (runs.length && runs.at(-1).dur >= under) return false;
+  const d = typical(hist, q.key);
+  if (d != null) return d < under;
+  // An --est that short counts as --quick, as for featherweight, unless the job asked for memory itself.
+  return !!q.quick || (q.est != null && q.est < under && !q.declared);
 }
+// Every job on r is another repo's, so a quick one may start beside them (quickAlongside).
+const otherRepos = (s, me, r) => !!me.repo && s.leases.filter(l => l.res.includes(r)).every(l => l.repo && l.repo !== me.repo);
+// A hold on r by someone else: the quick lane never goes past it.
+const heldByOther = (s, mine, r) => !mine.has(r) && s.leases.some(l => l.kind === 'hold' && l.res.includes(r));
 
 // Can this waiter start now? If not: the rule that stops it (slot, ahead,
 // reset, disk, pressure, swap, swaproom, drain, memory, cpu, ram, load, idle), a sentence, and what it's stuck on.
@@ -811,7 +831,11 @@ export function verdict(s, me, cfg, hist, t = now()) {
 }
 
 function decide(s, me, cfg, hist, t) {
-  if ((me.mem || 0) > LIGHT_MEM && featherweight(me, hist)) me = { ...me, mem: LIGHT_MEM, feather: true };
+  // In the quick lane while there's room in it; the cap counts quick jobs running now.
+  const quick = !!(me.quickPass ?? quickPass(me, hist, cfg)) && s.leases.filter(l => l.quick).length < QUICK_MAX;
+  // A quick job dibs hasn't seen use much memory is booked small, as a featherweight is.
+  const lightQuick = quick && !me.declared && runsOf(hist, me.key).slice(-10).every(h => h.mem == null || h.mem <= LIGHT_MEM);
+  if ((me.mem || 0) > LIGHT_MEM && (featherweight(me, hist) || lightQuick)) me = { ...me, mem: LIGHT_MEM, feather: true };
   const myRank = rank(me, hist, t);
   // When it would be done, at its slow runs: passing a waiter is a promise not to delay it.
   const myEnd = t + Math.max(expected(me, hist), slow(hist, me.key) || 0);
@@ -825,7 +849,7 @@ function decide(s, me, cfg, hist, t) {
   // don't hold it (over minDisk, it goes). On 2026-10-21 0.5 GB deploys waited 79 and 92 s
   // on the room kept for swap, and one waited 9 minutes on load.
   const lightTurn = (me.mem || 0) <= LIGHT_MEM && me.res.every(r => cfg.resources[r]?.exclusive);
-  const pastCeiling = pastsCeiling(me) || instant(me, cfg, hist) || lightTurn;
+  const pastCeiling = pastsCeiling(me) || quick || lightTurn;
   // Over the ceiling, a waiter that passes it doesn't wait behind ones the ceiling holds back.
   const ahead = s.queue
     .filter(q => q.pid && q.id !== me.id && !(hot && pastCeiling && !pastsCeiling(q)))
@@ -849,7 +873,6 @@ function decide(s, me, cfg, hist, t) {
     return at < myEnd;
   };
   const side = [];
-  const quick = instant(me, cfg, hist);
   for (const r of me.res) {
     if (mine.has(r)) continue;
     if (isFiles(r)) {
@@ -857,7 +880,9 @@ function decide(s, me, cfg, hist, t) {
       if (f) return f;
       continue;
     }
-    if (quick) continue;
+    // A resource's own config: a name dibs doesn't know takes cfg.unknown's exclusive, which resCfg mixes into every one.
+    const own = cfg.resources[r];
+    if (quick && own && !heldByOther(s, mine, r) && (!own.exclusive || (own.quickAlongside === 'other-repo' && otherRepos(s, me, r)))) continue;
     const { open, across } = roomFor(s, me, r, cfg);
     if (open <= 0) {
       // Full, but the machine may have room for one more on top (src/overlap.mjs).
@@ -874,7 +899,7 @@ function decide(s, me, cfg, hist, t) {
   // Learned clashes: a job that runs SLOW_PAIR times as slow beside one running now, or
   // makes it that slow, waits for it, but no longer than its own run time since it
   // joined, so it can't starve. Both finish sooner one after the other.
-  const pair = t - me.enq < expected(me, hist) && clashOf(s, me, hist);
+  const pair = !quick && t - me.enq < expected(me, hist) && clashOf(s, me, hist);
   if (pair) return { ok: false, rule: 'together', why: pair.why, on: pair.res, ahead: pair.lease };
   // The last user's onRelease is still putting it back (src/reset.mjs).
   const reset = (s.resets || []).find(x => me.res.includes(x.res) && !mine.has(x.res));
@@ -905,13 +930,13 @@ function decide(s, me, cfg, hist, t) {
   let sw = (me.prio || 'normal') !== 'urgent' && busy && swapping(cfg, m);
   let trial = false;
   if (sw && sw.level !== 'critical' && !light && sw.rule === 'pressure' && probation(s, me, cfg, hist, t)) trial = true;
-  if (sw && (light || trial) && sw.level !== 'critical') sw = null;
+  if (sw && (light || trial || quick) && sw.level !== 'critical') sw = null;
   // The same for the disk swap grows on: one job may still start alone, since waiting frees nothing then.
   // A light job can't grow the swap, so on a resource that writes little (exclusive, or declaring
   // no disk: tests, deploys) only the floor holds it. On 2026-10-26 every start waited on the room
   // kept for swap with 6.8 GB free, one-second test runs included.
   const writesLittle = me.res.every(r => cfg.resources[r]?.exclusive || !resCfg(cfg, r).disk);
-  const squeeze = (me.prio || 'normal') !== 'urgent' && busy && !sw && !(light && writesLittle) && diskSqueeze(cfg, needDisk, m);
+  const squeeze = (me.prio || 'normal') !== 'urgent' && busy && !sw && !quick && !(light && writesLittle) && diskSqueeze(cfg, needDisk, m);
   let breaker = (sw || squeeze) && breaksStall(s, me, cfg, hist, t, m);
   if (sw && !breaker) return { ok: false, why: swapWhy(sw), ...sw, machine: true };
   if (squeeze && !breaker) return { ok: false, ...squeeze, machine: true };
@@ -919,7 +944,7 @@ function decide(s, me, cfg, hist, t) {
   // waited long, unless it'll be done before that one could start. Waiters
   // stuck on something else (machine memory, disk) don't hold anyone up.
   const head = ahead.find(q => q.res.every(r => roomFor(s, q, r, cfg).open > 0) && !neverFits(cfg, q) && overBudget(s, q, cfg));
-  if (head && t - head.enq > ms(cfg.starveAfter) && blocks(head))
+  if (!quick && head && t - head.enq > ms(cfg.starveAfter) && blocks(head))
     return { ok: false, rule: 'ahead', why: `${tag(head)} has waited ${dur(t - head.enq)}, so it goes first`, ahead: head, starved: true };
   let budget = overBudget(s, me, cfg, side.length > 0, breaker, t);
   // Nothing starts past the memory budget (0.0.125). Jobs book what they're
@@ -951,7 +976,7 @@ function decide(s, me, cfg, hist, t) {
   if ((me.prio || 'normal') === 'idle') {
     if (m.memFree < IDLE_MEM_FREE) return { ok: false, rule: 'idle', why: `idle work waits for ${IDLE_MEM_FREE}% memory free (now ${m.memFree}%)` };
   }
-  return { ok: true, covered: me.res.filter(r => mine.has(r)), ...(quick && { instant: true }), ...(trial && { trial: true }), ...(side.length && { alongside: merge(side) }), ...(breaker && { breaker: true }), ...(loadPast && { loadPast: true, loadWaited: t - since }),
+  return { ok: true, covered: me.res.filter(r => mine.has(r)), ...(quick && { quick: true }), ...(trial && { trial: true }), ...(side.length && { alongside: merge(side) }), ...(breaker && { breaker: true }), ...(loadPast && { loadPast: true, loadWaited: t - since }),
     ...(!breaker && (me.prio || 'normal') !== 'urgent' && { gated: true }) };
 }
 

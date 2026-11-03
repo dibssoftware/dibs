@@ -12,7 +12,7 @@ import { jobSize } from './simpool.mjs';
 import { sized, grewLine, grewPlain, treeOf } from './measure.mjs';
 import { isQuota, quotaProblem, quotaBlock, takeQuota } from './quota.mjs';
 import { capWaiter } from './override.mjs';
-import { verdict, forecast, expected, remaining, byRank, holdingOf, PRIORITY_SHIFT, PRIORITIES, NEEDS_REASON, used, overBy, STALL, neverFits, explicitAsk, capToMachine } from './schedule.mjs';
+import { verdict, forecast, expected, remaining, byRank, holdingOf, PRIORITY_SHIFT, PRIORITIES, NEEDS_REASON, used, overBy, STALL, neverFits, explicitAsk, capToMachine, quickPass } from './schedule.mjs';
 import { event } from './events.mjs';
 import { startLine } from './overlap.mjs';
 import { dur, clock, die, say, sleep, now, ms, gb, SIGNALS, signalExit, KEY_SPLIT, noSpace, OFF_LIMITS, callerPid } from './util.mjs';
@@ -309,9 +309,11 @@ export function decide(s, w) {
   // When its dibs last looked, so the board can tell a waiter that could start from one nobody
   // is deciding for. Once a minute at most: a poll that changes nothing leaves the state file alone.
   if (!(now() - (cur.polledAt || 0) < POLLED_EVERY)) cur.polledAt = now();
+  // Kept on the entry, so other waiters rank it at the front too (src/schedule.mjs quickPass).
+  if (quickPass(cur, hist, cfg)) cur.quickPass = true; else delete cur.quickPass;
   let v = verdict(s, cur, cfg, hist);
-  // A rate limit that would stop it anyway is checked before pausing anyone for it.
-  if (!v.ok && v.rule === 'slot') v = quotaBlock(s, cur, cfg, hist) || preempt(s, cur, cfg, hist) || v;
+  // A rate limit that would stop it anyway is checked before pausing anyone for it. The quick lane never pauses anyone.
+  if (!v.ok && v.rule === 'slot' && !cur.quickPass) v = quotaBlock(s, cur, cfg, hist) || preempt(s, cur, cfg, hist) || v;
   if (v.ok) v = quotaBlock(s, cur, cfg, hist) || v;
   // What held it and for how long, for its start event: on 2026-10-24 a 2-second test waited
   // 3 minutes with 11 GB of disk free, and the log said only that it waited. Kept in the
@@ -357,6 +359,7 @@ export function decide(s, w) {
   if (v.covered.length) lease.covered = v.covered;
   if (v.alongside) lease.alongside = v.alongside;
   if (v.trial) lease.trial = true;
+  if (v.quick) lease.quick = true;
   if (cur.repo) lease.repo = cur.repo;
   if (v.loadPast) Object.assign(lease, { loadPast: true, loadWaited: v.loadWaited });
   // The stall breaker's clock (schedule.mjs) runs from the last start the gates allowed.
@@ -638,6 +641,7 @@ export async function acquire(o, kind, cfg) {
     capWaiter(s, q);
     if (o.by) q.by = o.by;
     if (o.est) q.est = o.est;
+    if (o.quick) q.quick = true;   // trusted the first time; its runs decide after (quickPass)
     if (o.cost != null) q.cost = o.cost;
     if (o.mem != null) q.declared = true;   // a size to go on before dibs has measured it (src/overlap.mjs)
     if (o.cpu != null) q.cpuDeclared = true;   // asked for in so many words, which alone can make it never fit (neverFits)

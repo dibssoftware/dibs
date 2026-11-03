@@ -84,9 +84,11 @@ test('squeeze: a job that usually takes seconds starts next to a busy one; an un
   assert.equal(slow.rule, 'slot');
   assert.match(slow.alongside, /past its busy limit/);
   assert.match(judge(s, s.queue[0], c, [], { load: 3 }).alongside, /can't tell whether it fits\. Pass --mem the first time/);
-  // --est is the job's own word, not history.
+  // --est is the job's own word, not history, so it doesn't squeeze in; under 15 s it's the quick lane's (src/schedule.mjs quickPass).
   const said = waiter({ est: 5e3 });
-  assert.equal(judge({ ...s, queue: [said] }, said, c, [], { load: 3 }).ok, false);
+  const q = judge({ ...s, queue: [said] }, said, c, [], { load: 3 });
+  assert.deepEqual([q.ok, q.quick, q.alongside], [true, true, undefined]);
+  assert.equal(judge({ ...s, queue: [waiter({ est: 20e3 })] }, waiter({ est: 20e3 }), c, [], { load: 3 }).ok, false);
   // Quick, but its memory doesn't fit: it waits.
   assert.equal(judge(s, s.queue[0], c, [ran({ dur: 20e3, mem: 7 * G })], { load: 3 }).ok, false);
   // fit alone doesn't let quick jobs past the load.

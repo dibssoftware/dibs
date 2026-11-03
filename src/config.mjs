@@ -27,6 +27,7 @@ export const DEFAULT_CONFIG = {
   minFreeMem: 15,        // jobs of 2G+ wait while the OS reports less than this % of memory free
   minDisk: '5G',         // nothing starts below this much free disk
   starveAfter: '3m',     // after this long at the head of the line, nobody jumps it
+  quickUnder: '15s',     // a command that runs under this goes in the quick lane: it starts at once (src/schedule.mjs quickPass)
   roomyMemFree: 35,      // with at least this % of memory free...
   roomyLoad: 0.6,        // ...and load under this share of the cores, the memory and CPU budgets don't apply
   coolLoad: 8,           // `dibs throttle` acts when the 1-minute load average is above this
@@ -75,8 +76,9 @@ export const DEFAULT_CONFIG = {
     test:          { slots: 3, mem: '2G', cpu: 3, pausable: true, rerun: true },
     // One deploy at a time per project, up to across at once (exclusiveBy: src/schedule.mjs roomFor):
     // two projects' deploys don't touch each other, and a 6-second web deploy waited behind another
-    // project's TestFlight upload (2026-11-03). slots is per project, so a config's slots: 1 reads so too.
-    deploy:        { slots: 1, mem: '0.5G', cpu: 1, pausable: false, exclusive: true, exclusiveBy: 'repo', across: 3 },
+    // project's TestFlight upload (2026-11-03). slots is per project, so a config's slots: 1 reads so too. A quick deploy of
+    // another project may go past across (quickAlongside).
+    deploy:        { slots: 1, mem: '0.5G', cpu: 1, pausable: false, exclusive: true, exclusiveBy: 'repo', across: 3, quickAlongside: 'other-repo' },
     heavy:         { slots: 1, mem: '4G', cpu: 4, disk: '10G', pausable: true, rerun: true },
   },
   // A name dibs doesn't know is often someone's lock ("one migration at a time"), so it never overlaps.
@@ -109,7 +111,9 @@ export function loadConfig() {
     if (v.onReleaseTimeout != null) ms(v.onReleaseTimeout);
     if (v.exclusiveBy != null && v.exclusiveBy !== 'repo') die(`resources.${k}.exclusiveBy in ${paths.config} is "repo" (one at a time per project), or null`);
     if (v.across != null && !(Number.isInteger(v.across) && v.across > 0)) die(`resources.${k}.across in ${paths.config} is how many projects may use it at once, a whole number above 0`);
+    if (v.quickAlongside != null && v.quickAlongside !== 'other-repo') die(`resources.${k}.quickAlongside in ${paths.config} is "other-repo" (a quick job of another repo starts beside this one's jobs), or null`);
   }
+  if (merged.quickUnder != null && !(ms(merged.quickUnder) >= 0)) die(`quickUnder in ${paths.config} is a duration like 15s, or null for no quick lane`);
   merged.profiles = checkProfiles(c.profiles, merged.resources);
   if (c.pace) Object.assign(merged, paced(c).knobs);
   // The person's own word wins; else the pace's; else one job per slot.

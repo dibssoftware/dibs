@@ -91,7 +91,8 @@ test('a job over in seconds that never used much memory starts through warning p
   assert.equal(judge(s, waiter({ key: 'test|new', est: 10e3, declared: true }), cfg(), { vmPressure: 1 }).rule, 'pressure', 'with --mem it waits');
   // Seen using real memory, or taking longer: the usual rules.
   const fat = [...quick, { key, dur: 400, mem: 1.5 * G, at: T }];
-  assert.equal(judge(s, me, cfg(), { vmPressure: 1 }, fat).rule, 'pressure', 'once measured at 1.5 GB it waits');
+  // Over in under a second, it's in the quick lane (src/schedule.mjs quickPass), which goes through warning pressure whatever it uses; it waits only once the lane is off.
+  assert.equal(judge(s, me, cfg({ quickUnder: null }), { vmPressure: 1 }, fat).rule, 'pressure', 'once measured at 1.5 GB it waits');
   const slowRuns = [1, 2, 3].map(i => ({ key, dur: 40e3, at: T - i * 1e3 }));
   assert.equal(judge(s, me, cfg(), { vmPressure: 1 }, slowRuns).rule, 'pressure', 'a 40 s job waits');
 });

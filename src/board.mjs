@@ -3,7 +3,7 @@
 import { resCfg } from './config.mjs';
 import { tag, isMine } from './proc.mjs';
 import { idleFor } from './acquire.mjs';
-import { forecast, byRank, remaining, used, overBy, verdict, memUsed, cpuUsed, shownFree, swapGrowing, diskSqueeze, BREAKER_LINE } from './schedule.mjs';
+import { forecast, byRank, remaining, used, overBy, verdict, memUsed, cpuUsed, shownFree, swapGrowing, diskSqueeze, BREAKER_LINE, QUICK_LINE } from './schedule.mjs';
 import { grewLine, cappedLine } from './measure.mjs';
 import { pauseLabel } from './preempt.mjs';
 import { alongsideLabel } from './overlap.mjs';
@@ -55,7 +55,7 @@ export function boardOf(s, cfg, hist, t = now(), me = null) {
     held: [...s.leases].sort((a, b) => a.start - b.start).map(l => ({
       res: l.res.map(r => short(r)), who: l.who, label: l.label, agentId: l.agentId, for: t - l.start, left: remaining(l, hist, t), idle: idleFor(l, t),
       stuck: s.queue.some(q => q.pid) && stuckFor(l, t) > 0,
-      prio: l.prio, paused: pauseLabel(l) || null, alongside: alongsideLabel(l) || (l.breaker ? BREAKER_LINE : null), owner: ownerLabel(l) || null, purpose: l.purpose, cmd: l.cmd ? l.cmd.slice(0, 40) : null,
+      prio: l.prio, paused: pauseLabel(l) || null, alongside: alongsideLabel(l) || (l.breaker ? BREAKER_LINE : l.quick ? QUICK_LINE : null), owner: ownerLabel(l) || null, purpose: l.purpose, cmd: l.cmd ? l.cmd.slice(0, 40) : null,
       mem: l.mem, use: l.use?.mem ?? null, over: overBy(l) > 0, grew: grewLine(l) || null, ...you(l) })),
     waiting: [...s.queue].sort(byRank(hist, t)).map(q => ({
       res: q.res.map(r => short(r)), who: q.who, label: q.label, agentId: q.agentId, waited: t - q.enq, in: fc.has(q.id) ? fc.get(q.id) - t : null,

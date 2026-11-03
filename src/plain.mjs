@@ -7,7 +7,7 @@
 // job in the way has a run time from history or --est, "as soon as X finishes"
 // when X has none, and "unknown" when the wait is on the machine (disk, memory,
 // load), which no clock predicts.
-import { IDLE_MEM_FREE, verdict, forecastDetail, expected, known, remaining, rankParts, byRank, recentUse, coveredNow, memUsed, memHolders, shownFree, NOT_PRIORITY, swapping, diskSqueeze, overLoad, STALL } from './schedule.mjs';
+import { IDLE_MEM_FREE, verdict, forecastDetail, expected, known, remaining, rankParts, byRank, recentUse, coveredNow, memUsed, memHolders, shownFree, NOT_PRIORITY, swapping, diskSqueeze, overLoad, STALL, QUICK_LINE } from './schedule.mjs';
 import { quotaBlock, isQuota, QUOTA } from './quota.mjs';
 import { isFiles, short, elsewhere } from './files.mjs';
 import { machine, resCfg } from './config.mjs';
@@ -272,6 +272,9 @@ export function moves(q, hist, t, cfg) {
     } else if (p.label === 'recent use') {
       label = 'taking turns';
       reason = `this agent used ${andList(recentUse(hist, q.who, q.res, t).res.map(r => named(cfg, r).the))} a lot in the last hour`;
+    } else if (p.label === 'quick') {
+      label = 'quick';
+      reason = "it runs in seconds (the quick lane), so it goes before anyone who'd hold the slot for longer";
     } else if (p.label === 'let ahead') {
       label = 'let ahead';
       reason = `${q.yieldBy || 'another agent'} let it go first`;
@@ -390,7 +393,7 @@ export function plainBoard(s, cfg, hist, t = now(), m = machine(), me = null) {
   const someoneWaits = order.length > 0;
   const held = new Map(s.leases.map(l => [l.id, {
     headline: l.res.map((r, i) => (i ? lower(named(cfg, r).doing) : named(cfg, r).doing)).join(' and '),
-    endsText: ends(l, hist, t).endsText, paused: pausedText(l, cfg), ...(l.alongside ? { alongside: alongsideText(l.alongside) } : l.breaker ? { alongside: `Let in although the machine is short of disk or memory, since nothing had started for ${STALL / 6e4} min` } : {}),
+    endsText: ends(l, hist, t).endsText, paused: pausedText(l, cfg), ...(l.alongside ? { alongside: alongsideText(l.alongside) } : l.breaker ? { alongside: `Let in although the machine is short of disk or memory, since nothing had started for ${STALL / 6e4} min` } : l.quick ? { alongside: upper(QUICK_LINE) } : {}),
     ...(someoneWaits && stuckFor(l, t) ? { stuck: `${stuckText(l, t)} (#${l.id}${l.purpose ? `, "${l.purpose}"` : ''})` } : {}) }]));
   return { lines, held, waiting, rules, names: new Map(s.queue.map(q => [q.id, holderName(q)])), holds: new Set(s.leases.filter(l => l.kind === 'hold').map(l => l.id)), cfg,
     hold: machineHold(s, cfg, m) };

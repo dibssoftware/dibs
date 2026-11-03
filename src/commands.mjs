@@ -133,6 +133,7 @@ export async function run(o, cfg) {
   };
   const stopAll = sig => { stopTree(child.pid, sig); if (OS !== 'windows') for (const g of groups) stopTree(g, sig); };
   let finished = false, tracker = null, ran = null;
+  let took = null;   // how long a run the quick lane let in really took
   const finish = code => {
     if (finished) return;
     finished = true;
@@ -153,6 +154,7 @@ export async function run(o, cfg) {
         s.leases = s.leases.filter(x => x.id !== lease.id);
         // A failing run is often the one that ran out of memory: its size counts too.
         if (l && (code === 0 || l.peak?.mem)) record(l.key, now() - l.start - pausedFor(l), l.who, l.peak, code !== 0);
+        if (l?.quick) took = now() - l.start - pausedFor(l);
         tellOverAsk(l);
       });
     } catch (e) {
@@ -163,6 +165,9 @@ export async function run(o, cfg) {
       else say(`dibs hit a bug recording that this job ended (${e.message}). Your command's exit code comes back anyway, and the next dibs command cleans up. Report it: dibs ask "..."`);
     }
     if (again) return runAgain(o, lease, again);
+    // Over the quick lane's limit: its next runs wait their turn until one comes in under (src/schedule.mjs quickPass).
+    const under = cfg.quickUnder == null ? null : ms(cfg.quickUnder);
+    if (took != null && under != null && took >= under) say(`this took ${dur(took)}, over the ${dur(under)} the quick lane is for, so its next runs wait their turn until one finishes in under ${dur(under)}.`);
     // A failing command's code can look like one of dibs's own (75, 74, 127), so say whose it is.
     if (code && code < 128) say(`${path.basename(o.cmd[0])} exited with code ${code}${DIBS_CODES.has(code) ? ". That's your command's code, not dibs's" : ''}.`);
     // One line that says it all, for an agent that has lost the output above (a compacted context).

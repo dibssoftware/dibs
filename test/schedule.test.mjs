@@ -445,16 +445,16 @@ test('a job that has run 1.8 times as long or more beside a kind of work waits f
 });
 
 // 2026-10-21: most jobs that waited longer than they ran were checks of under a minute waiting tens of seconds for a browser slot.
-test('a job whose command takes under 15 seconds starts beside anything on a capacity resource, past full slots and the line', () => {
+test('a job whose command takes under 15 seconds (the quick lane) starts beside anything on a capacity resource, past full slots and the line', () => {
   const quick = Array.from({ length: 5 }, (_, i) => ({ key: 'playwright|npx playwright test smoke', dur: 6e3, at: i }));
   const full = [lease({ res: ['playwright'], who: 'a', mem: 0, cpu: 0 }), lease({ res: ['playwright'], who: 'b', mem: 0, cpu: 0 })];
   const ahead = q({ res: ['playwright'], enq: T - 10 * 6e4, key: 'playwright|npx playwright test big' });
   const me = q({ res: ['playwright'], key: 'playwright|npx playwright test smoke', mem: 0.5 * G, cpu: 1 });
   const v = verdict({ leases: full, queue: [ahead, me] }, me, cfg, quick, T);
   assert.equal(v.ok, true, v.why);
-  assert.equal(v.instant, true);
+  assert.equal(v.quick, true);
   assert.equal(verdict({ leases: full, queue: [ahead, me] }, { ...me, key: 'never-seen' }, cfg, quick, T).ok, false, 'a command not measured waits its turn');
-  // Never on an exclusive resource: the one shared simulator, a deploy.
+  // Never alongside on an exclusive resource: the one shared simulator, a deploy of the same (here unknown) repo.
   const dep = [lease({ res: ['deploy'], who: 'a', mem: 0, cpu: 0 })];
   const ship = Array.from({ length: 5 }, (_, i) => ({ key: 'deploy|./ship.sh', dur: 6e3, at: i }));
   assert.equal(verdict({ leases: dep, queue: [] }, q({ res: ['deploy'], key: 'deploy|./ship.sh' }), cfg, ship, T).rule, 'slot');
