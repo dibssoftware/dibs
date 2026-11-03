@@ -526,7 +526,11 @@ const sendsNote = (r, name) => { const s = r.sends?.[name]; return !s ? '' : s.l
 // dibs machines: every machine in the group, and the jobs moving between them.
 export async function machines(o) {
   const rc = remoteConf();
-  if (!rc) die("this machine isn't in a group with other machines. Start a group here: dibs serve. Or join one: dibs join <url> <token>");
+  // A read, not a mistake: outside a group there's nothing to list (exit 0, not 2 as before 2026-11-03).
+  if (!rc) {
+    if (o.json) return console.log(JSON.stringify({ group: false, machines: [], jobs: [] }, null, 1));
+    return console.log("this machine isn't in a group. dibs pair --machine on a coordinator adds one (then dibs join <code> here); dibs serve makes this one the coordinator.");
+  }
   let r;
   try { r = await call(rc, 'GET', '/machines', undefined, { timeout: 8000 }); }
   catch (e) { die(`can't reach the coordinator at ${rc.url}: ${e.message}`, LOST); }

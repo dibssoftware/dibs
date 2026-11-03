@@ -308,6 +308,42 @@ test('dibs machines shows this machine before its worker checks in, with when th
   assert.doesNotMatch(sync(g.ha, ['machines']).out, /checked in since/, 'a machine whose worker reports gets its usual row');
 });
 
+// Until 2026-11-03 dibs machines exited 2 here, and the MCP machines tool answered with an error.
+test('dibs machines on a machine in no group says so and exits 0, as text and as JSON', t => {
+  const h = tmp(t);
+  const r = sync(h, ['machines']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /this machine isn't in a group\. dibs pair --machine on a coordinator adds one/);
+  assert.deepEqual(JSON.parse(sync(h, ['machines', '--json']).out), { group: false, machines: [], jobs: [] });
+});
+
+test('dibs leave: a machine that joined stops taking jobs and forgets the coordinator; the coordinator leaves only once the others are gone', async t => {
+  const g = await group(t, { invite: true });
+  // Services go in a folder of the test's own, never the real LaunchAgents or systemd units.
+  const svc = { env: { DIBS_LAUNCH_AGENTS: tmp(t, 'agents') } };
+  const stay = sync(g.h0, ['leave'], svc);
+  assert.equal(stay.code, 2);
+  // gamma was invited and ran dibs join, but no worker of its own has reported yet: not counted.
+  assert.match(flat(stay.err), /this machine is the group's coordinator, and alpha, beta are still in the group\. Remove each first \(dibs kick alpha, dibs kick beta\), then dibs leave again\. Nothing changed/);
+  assert.ok(fs.existsSync(path.join(g.h0, 'remote.json')));
+
+  const left = sync(g.ha, ['leave'], svc);
+  assert.equal(left.code, 0, left.err);
+  assert.match(left.out, /left the group at http:\/\/127\.0\.0\.1:\d+: this machine takes no more jobs from it\. On the coordinator, dibs kick alpha takes it off the list/);
+  assert.ok(!fs.existsSync(path.join(g.ha, 'remote.json')));
+  await g.wa.done;   // its worker, started by hand, is stopped
+  assert.match(sync(g.ha, ['machines']).out, /isn't in a group/);
+  const ev = fs.readFileSync(path.join(g.ha, 'events.jsonl'), 'utf8');
+  assert.match(ev, /"act":"leave".*"as":"member"/);
+  assert.match(sync(g.ha, ['leave'], svc).err, /isn't in a group, so there's nothing to leave/);
+
+  for (const n of ['alpha', 'beta']) assert.equal(sync(g.h0, ['kick', n]).code, 0);
+  const done = sync(g.h0, ['leave'], svc);
+  assert.equal(done.code, 0, done.err);
+  assert.match(done.out, /no longer a coordinator/);
+  assert.ok(!fs.existsSync(path.join(g.h0, 'remote.json')));
+});
+
 test('a broken remote.json is reported, not taken as "not connected"', t => {
   const h = tmp(t);
   fs.writeFileSync(path.join(h, 'remote.json'), '{"url": "http://127.0.0.1:1", "tok');

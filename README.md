@@ -14,7 +14,7 @@ curl -fsSL https://dibs.cc/install.sh | sh
 
 It downloads the release tarball from dibs.cc, checks its sha256, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and exits nonzero, having installed nothing. Each release's tarball and sum are at `https://dibs.cc/releases/dibs-v<version>.tar.gz` and `.tar.gz.sha256`.
 
-Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.174/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
+Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.175/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
 
 ## The first five commands
 
@@ -184,7 +184,7 @@ Agents branch on these, so they don't change.
 | 76 | lost the coordinator or the other machine before a remote job started. Nothing ran there: sending it again is safe |
 | 77 | lost the other machine after a remote job started. It may have run, or may still be running: check before running it again |
 | 127 | the command didn't start |
-| 2 | bad usage, a job asking more memory or cores than the machine ever hands out (it says the most it can ask), a resource name close to a real one (`simulator` for `sim`), an agent's high or urgent boost without `-m`, `--on` or `dibs machines` on a machine that isn't in a group, or a `dibs run` you already have waiting or running (wait for that one) |
+| 2 | bad usage, a job asking more memory or cores than the machine ever hands out (it says the most it can ask), a resource name close to a real one (`simulator` for `sim`), an agent's high or urgent boost without `-m`, `--on` on a machine that isn't in a group, or a `dibs run` you already have waiting or running (wait for that one) |
 | 1 | nothing matched: `mine` with nothing held (the clean result after a release), `release` with nothing to give back |
 | 70 | dibs itself crashed: a bug in dibs, not your command. Report it with `dibs ask "..."`. If your command already ran, you get its code instead |
 

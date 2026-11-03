@@ -41,16 +41,22 @@ test('a waiter behind one that waits on memory has no start time either, and say
   assert.match(whyLines(p, b, two)[0], /Start time unknown/);
 });
 
+// The first job is measured within a moment (DIBS_SAMPLE_MS), as a slow machine gets round to it
+// sooner or later. Measured at next to nothing, it leaves room in the budget for the waiter, which
+// then starts if the machine has the memory: here it doesn't, so memory holds the line however
+// long the three reads below take. On 2026-11-02 that ran past the first measurement once in 3
+// suites, and the waiter had started by the third read.
 test('dibs when, dibs why and the wait agree while memory holds the line', { skip: WIN }, async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ budget: '4G', cores: 10, roomyMemFree: 101 }));
-  const first = bg(t, h, ['run', 'heavy', '--', 'sh', '-c', 'while [ ! -f stop ]; do sleep 0.1; done'], { agent: 'a', cwd });
-  await until(() => board(h).held.length === 1);
-  const w = bg(t, h, ['run', 'test', '--', 'true'], { agent: 'b' });
-  await until(() => board(h).waiting.length === 1);
-  const when = flat(sync(h, ['when', 'test'], { agent: 'c' }).out);
-  const why = flat(sync(h, ['why'], { agent: 'b' }).out);
-  const detail = flat(sync(h, ['why', '--detail'], { agent: 'b' }).out);
+  const env = { DIBS_SAMPLE_MS: '100', DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, memFree: 10 }) };
+  const first = bg(t, h, ['run', 'heavy', '--', 'sh', '-c', 'while [ ! -f stop ]; do sleep 0.1; done'], { agent: 'a', cwd, env });
+  await until(() => board(h, { env }).held[0]?.use);
+  const w = bg(t, h, ['run', 'test', '--', 'true'], { agent: 'b', env });
+  await until(() => board(h, { env }).waiting.length === 1);
+  const when = flat(sync(h, ['when', 'test'], { agent: 'c', env }).out);
+  const why = flat(sync(h, ['why'], { agent: 'b', env }).out);
+  const detail = flat(sync(h, ['why', '--detail'], { agent: 'b', env }).out);
   assert.match(when, /start time unknown/);
   assert.doesNotMatch(when, /under a minute/);
   assert.match(why, /Start time unknown/);

@@ -2,6 +2,15 @@
 
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
+## 0.0.175
+- `dibs connect` is the one way in for anything that connects to this Mac: with no arguments it explains each (this browser, a phone, a dibs account, another Claude account's MCP, another machine) and on a terminal asks which. `dibs connect --list` and `--remove <id>` cover all of them. `dibs pair` works as before. If the person asks how to reach dibs from somewhere, point them at `dibs connect`.
+- New for the person: a dibs account at app.dibs.cc/account. They sign in with an email link or a passkey, and every browser they sign in with opens all their Macs, still end to end encrypted. `dibs connect --account` adds this Mac; `dibs connect --approve <code>` lets a new browser have the account's key when it shows that 6-digit code, and prints a second code the person types into that browser. Never approve a code for the person, or type either code for them: only they can see what their browser shows.
+- Codes and links say when they expire, as a clock time.
+- A `dibs run` inside your own `dibs hold` starts on what the hold got: it's no longer refused for disk (exit 74) right after "you already have ..., so you go ahead".
+- The disk a resource declares (8 GB for the simulator) gives way to what its runs here really eat once there are a few: a `dibs hold sim` with 7 GB free now goes, where it exited 74. `--disk <size>` still says it in so many words.
+- `dibs machines` on a machine that isn't in a group says so and exits 0 (it exited 2). `--json` prints `{"group": false, "machines": [], "jobs": []}`.
+- `dibs leave` takes a machine out of its group: it stops taking jobs and forgets the coordinator. On the coordinator it refuses while other machines are joined and names them (`dibs kick` each first). It goes in `dibs history` with who ran it. Only do this when the person asks.
+
 ## 0.0.174
 - dibs is public: https://github.com/dibssoftware/dibs. People install it with `curl -fsSL https://dibs.cc/install.sh | sh`, which downloads the release tarball from dibs.cc and always checks its sha256 (install.sh also still installs from a clone with `DIBS_SOURCE=<the clone>`). Nothing changes in how agents call dibs.
 - The Claude Code plugin installs from the public repo: `/plugin marketplace add dibssoftware/dibs`, then `/plugin install dibs@dibs`.

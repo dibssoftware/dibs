@@ -19,6 +19,9 @@
 //                 the relay's own notes ({t:'mac', up}) are text.
 import { DurableObject } from 'cloudflare:workers';
 import { CodeBook, MAX_CODES } from './codebook.js';
+import { accountRoute } from './accounts.js';
+import { human } from './turnstile.js';
+export { Accounts } from './accounts.js';
 
 const MID = /^[A-Za-z0-9_-]{22}$/;
 // Paired tabs per machine at once. A person has a few devices, each with a tab or two.
@@ -98,7 +101,7 @@ const machineId = async pub => b64u((await crypto.subtle.digest('SHA-256', new U
 // browser side, so it gets the strictest policy the page can live with.
 function pageHeaders(host) {
   return {
-    'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src wss://${host}${host.startsWith('127.0.0.1:') || host.startsWith('localhost:') ? ` ws://${host}` : ''}; manifest-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'`,
+    'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss://${host}${host.startsWith('127.0.0.1:') || host.startsWith('localhost:') ? ` ws://${host}` : ''}; manifest-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'`,
     'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
     'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
@@ -122,7 +125,7 @@ const MCP_KINDS = 'oauth-protected-resource|oauth-authorization-server|openid-co
 const MCP_ROUTES = new Set(['GET:/mcp', 'POST:/mcp', 'POST:/oauth/register', 'GET:/oauth/client', 'POST:/oauth/authorize', 'POST:/oauth/token',
   ...MCP_KINDS.split('|').map(k => `GET:/.well-known/${k}`)]);
 // The sign-in page and what it loads, served from this Worker's own copy (relay/build.mjs).
-const MCP_PAGE_FILES = new Set(['/web/app.css', '/web/dither.js', '/web/authorize.js', '/web/logo.png', '/web/SchibstedGrotesk.woff2']);
+const MCP_PAGE_FILES = new Set(['/web/app.css', '/web/dither.js', '/web/authorize.js', '/web/email.js', '/web/logo.png', '/web/SchibstedGrotesk.woff2']);
 const MCP_IN = ['content-type', 'authorization', 'origin', 'accept', 'mcp-protocol-version'];
 const MCP_BODY_MAX = 64 * 1024;
 // How long the Mac gets to answer (its own CLI calls give up at 15 s).
@@ -146,6 +149,31 @@ const mcpHeaders = extra => ({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Po
   'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'",
   ...extra });
 const mcpJson = (status, error) => new Response(JSON.stringify({ error }), { status, headers: mcpHeaders({ 'Content-Type': 'application/json' }) });
+
+// The page that asks for a sign-in link, on this host rather than app.dibs.cc: it runs
+// Cloudflare Turnstile's script, which the account page (and the account key in its storage)
+// never does. Nothing is stored on this origin.
+const TURNSTILE = 'https://challenges.cloudflare.com';
+const emailHeaders = () => mcpHeaders({ 'Content-Security-Policy': `default-src 'none'; script-src 'self' ${TURNSTILE}; frame-src ${TURNSTILE}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` });
+async function emailPage(req, env, url) {
+  const read = req.method === 'GET' || req.method === 'HEAD';
+  if (read && url.pathname === '/email') return withHeaders(await env.ASSETS.fetch(new Request(new URL('/email', url), req)), emailHeaders());
+  if (read) return json(200, { sitekey: env.TURNSTILE_SITEKEY || null, page: env.PAGE_HOST ? `https://${env.PAGE_HOST}` : null });
+  if (req.method !== 'POST' || req.headers.get('Origin') !== url.origin) return mcpJson(403, 'cross-site request refused');
+  if (!env.TURNSTILE_SITEKEY || !env.TURNSTILE_SECRET || !env.PAGE_HOST) return mcpJson(503, 'sign-in links are not set up on this relay');
+  const ip = req.headers.get('CF-Connecting-IP') || 'local';
+  if (env.RLA) {
+    const { success } = await env.RLA.limit({ key: `acct:${ip}` });
+    if (!success) return mcpJson(429, 'Too many requests from here. Try again in a minute.');
+  }
+  if (Number(req.headers.get('content-length') || 0) > 4096) return mcpJson(413, 'too big');
+  let b = {};
+  try { b = JSON.parse(await req.text()); } catch {}
+  if (!(await human(env, b.token, ip))) return mcpJson(403, 'The check that you\'re a person didn\'t pass. Reload the page and try again.');
+  const page = `https://${env.PAGE_HOST}`;
+  const fwd = new Request(`${page}/account/link`, { method: 'POST', headers: { Origin: page, 'Content-Type': 'application/json', 'CF-Connecting-IP': ip }, body: JSON.stringify({ email: b.email }) });
+  return withHeaders(await accountRoute(fwd, env, new URL(fwd.url), { human: true, origin: page }), mcpHeaders());
+}
 
 // https://mcp.dibs.cc/mcp with no machine id: discovery and registration answered here with
 // nothing stored, sign-in routed by the code's hash through the code index, and everything
@@ -274,6 +302,7 @@ async function bare(req, env, url) {
 
 async function mcp(req, env, url) {
   if (req.method === 'GET' && MCP_PAGE_FILES.has(url.pathname)) return withHeaders(await env.ASSETS.fetch(req), mcpHeaders());
+  if (/^\/email(\/config|\/link)?$/.test(url.pathname)) return emailPage(req, env, url);
   if (BARE.has(url.pathname)) return bare(req, env, url);
   // Clients find the metadata at /.well-known/<kind>/<mid>... (RFC 8414 and RFC 9728 path
   // insertion) or under /<mid>/.well-known/<kind>; both reach the same answer.
@@ -316,6 +345,8 @@ export default {
       return new Response(null, { status: 301, headers: { Location: `https://${env.PAGE_HOST}/`, 'Cache-Control': 'max-age=3600', 'Referrer-Policy': 'no-referrer' } });
     }
     if (env.PAGE_HOST && host !== env.PAGE_HOST) return plain(404, 'not here', host);
+    // The email page belongs to mcp.dibs.cc only (emailPage): never Turnstile's script here.
+    if (url.pathname === '/email' || url.pathname.startsWith('/email.')) return plain(404, 'not here', host);
 
     const ws = /^\/ws\/(m|b)\/([^/]+)$/.exec(url.pathname);
     if (ws) {
@@ -331,6 +362,13 @@ export default {
       return env.MACHINE.get(env.MACHINE.idFromName(ws[2])).fetch(req);
     }
 
+    if (url.pathname.startsWith('/account/')) {
+      const r = await accountRoute(req, env, url);
+      const headers = new Headers(r.headers);
+      for (const [k, v] of Object.entries(pageHeaders(host))) headers.set(k, v);
+      headers.set('Cache-Control', 'no-store');
+      return new Response(r.body, { status: r.status, headers });
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') return plain(405, 'GET only', host);
     const res = await env.ASSETS.fetch(req);
     const headers = new Headers(res.headers);
@@ -537,6 +575,14 @@ export class Machine extends DurableObject {
         return;
       }
       if (msg.length > 4096) return ws.close(1009, 'too big');
+      // An account this Mac holds the key of: browsers waiting for it, and its sealed answer to one.
+      if ((m?.t === 'acct-pending' || m?.t === 'acct-answer') && typeof m.aid === 'string' && typeof m.secret === 'string') {
+        const r = await this.env.ACCOUNTS.get(this.env.ACCOUNTS.idFromName('accounts')).fetch(`https://accounts.internal/${m.t === 'acct-pending' ? 'pending' : 'answer'}`, {
+          method: 'POST', body: JSON.stringify({ aid: m.aid, secret: m.secret, id: m.id, step: m.step }),
+        });
+        ws.send(JSON.stringify({ t: `${m.t}-res`, ref: typeof m.ref === 'string' ? m.ref.slice(0, 32) : null, status: r.status, ...(await r.json()) }));
+        return;
+      }
       if (m?.t === 'kick' && typeof m.ch === 'string') for (const b of this.ctx.getWebSockets(`ch:${m.ch}`)) b.close(4400, 'closed by the Mac');
       const hashList = x => Array.isArray(x) && x.every(y => typeof y === 'string' && unb64u(y, 16));
       if (m?.t === 'tokens' && hashList(m.h) && m.h.length <= MAX_HASHES && hashList(m.p) && m.p.length <= MAX_TICKETS) {

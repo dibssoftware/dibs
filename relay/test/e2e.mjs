@@ -146,7 +146,7 @@ async function main() {
   assert.match(csp, /script-src 'self';/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /require-trusted-types-for 'script'/);
-  assert.match(csp, new RegExp(`connect-src wss://127.0.0.1:${PORT} ws://127.0.0.1:${PORT};`));
+  assert.match(csp, new RegExp(`connect-src 'self' wss://127.0.0.1:${PORT} ws://127.0.0.1:${PORT};`));
   assert.equal(page0.headers.get('x-frame-options'), 'DENY');
   assert.equal(page0.headers.get('referrer-policy'), 'no-referrer');
   assert.match(page0.headers.get('strict-transport-security'), /max-age=63072000/);
@@ -427,6 +427,23 @@ async function main() {
   assert.equal(breg.status, 201, breg.text);
   assert.match(breg.json.client_id, /^b\./);
   step('bare host: discovery and registration answered by the relay, with nothing stored');
+
+  // The page that asks for a sign-in link lives here, never on the account page's origin:
+  // Turnstile's script is allowed on it and nowhere else. This relay has no site key, so it
+  // sends no links from it.
+  const ep = await mcpReq('GET', '/email');
+  assert.equal(ep.status, 200);
+  assert.equal((await mcpReq('HEAD', '/email')).status, 200);
+  assert.match(ep.text, /challenges\.cloudflare\.com\/turnstile/);
+  assert.match(ep.headers['content-security-policy'], /script-src 'self' https:\/\/challenges\.cloudflare\.com;/);
+  assert.match(ep.headers['content-security-policy'], /frame-ancestors 'none'/);
+  assert.deepEqual((await mcpReq('GET', '/email/config')).json.sitekey, null);
+  assert.equal((await mcpReq('POST', '/email/link', { body: { email: 'a@b.cc', token: 'x' }, headers: { Origin: BARE } })).status, 503);
+  assert.equal((await mcpReq('POST', '/email/link', { body: { email: 'a@b.cc', token: 'x' }, headers: { Origin: 'https://evil.example' } })).status, 403);
+  const onPage = await new Promise((resolve, reject) => http.get(`${ORIGIN}/email`, r => { r.resume(); resolve(r.statusCode); }).on('error', reject));
+  assert.equal(onPage, 404, 'the account page\'s origin never serves it');
+  assert.doesNotMatch(fs.readFileSync(path.join(HERE, 'public', 'account.html'), 'utf8'), /challenges\.cloudflare\.com/);
+  step('the sign-in link page is on the MCP host with Turnstile allowed there only, and sends nothing without a site key');
 
   const bverifier = crypto.randomBytes(40).toString('base64url');
   const bchallenge = crypto.createHash('sha256').update(bverifier).digest('base64url');

@@ -116,7 +116,8 @@
 
   // chan: { send(Uint8Array), recv(): Promise<Uint8Array>, close(why) }, one browser
   // tab's connection to the Mac through the relay. store: get(mid), put(record), all().
-  async function pair(chan, link, name, store) {
+  // keys: a device key pair to pair with instead of a new one (a dibs account's, from its keyring).
+  async function pair(chan, link, name, store, keys = null) {
     const secretKey = await hkdfKey(link.secret);
     const pid = new Uint8Array(await subtle.deriveBits(hkdfParams(new Uint8Array(0), 'dibs-relay-v1 pair id'), secretKey, 128));
     const macKey = await subtle.deriveKey(hkdfParams(new Uint8Array(0), 'dibs-relay-v1 pair key'), secretKey, { name: 'HMAC', hash: 'SHA-256', length: 256 }, false, ['sign', 'verify']);
@@ -130,7 +131,7 @@
     namePlain.set(rt, NAME_PAD);
     const nameIv = random(12);
     const box = cat(nameIv, new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv: nameIv, additionalData: enc.encode('dibs-pair-name-v1'), tagLength: 128 }, nameKey, namePlain)));
-    const keys = await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']);
+    keys ||= await subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']);
     const d = new Uint8Array(await subtle.exportKey('raw', keys.publicKey));
     const nb = random(32);
     const t1 = tx('dibs-pair1-v1', link.mid, pid, d, nb, box);
@@ -322,7 +323,10 @@
     // One attempt: wait for the Mac, pair if there's a link, run the handshake.
     async function connect() {
       // A record from before relay tokens can't get in: it pairs again.
-      const rec = link ? null : (await store.all()).filter(r => unb64u(r.rt, 32)).sort((a, b) => b.paired - a.paired)[0];
+      // ?m=<machine id> picks one Mac when this browser reaches several (a dibs account's).
+      const want = new URLSearchParams(base.search || '').get('m');
+      const usable = (await store.all()).filter(r => unb64u(r.rt, 32));
+      const rec = link ? null : (usable.find(r => r.mid === want) || usable.sort((a, b) => b.paired - a.paired)[0]);
       if (!link && !rec) { set('unpaired'); throw fail('unpaired', 'this browser isn\'t paired with a Mac'); }
       set(link ? 'pairing' : 'connecting');
       const chan = socketChan(wsUrl(link ? link.mid : rec.mid), WS, upNow => {
@@ -415,7 +419,7 @@
     };
   }
 
-  const internals = { parseLink, pairTicket, pair, open, tx, b64u, unb64u, fingerprint, pad, unpad, deviceName, remote, local };
+  const internals = { parseLink, pairTicket, pair, open, tx, b64u, unb64u, fingerprint, pad, unpad, deviceName, remote, local, socketChan, idbStore };
   if (root.document) {
     // The relay's copy of the page says so (relay/build.mjs); the one dibs web serves doesn't.
     const isLocal = root.document.querySelector('meta[name="dibs-transport"]')?.content !== 'relay';
@@ -428,7 +432,8 @@
     }
     const t = isLocal ? local() : remote({ link });
     root.dibsTransport = Object.assign(t, { _internals: internals });
-    t.start();
+    // The account page (web/account.js) uses this file's protocol but opens no session of its own.
+    if (!root.document.getElementById('account')) t.start();
   } else {
     root.dibsTransport = { _internals: internals };
   }

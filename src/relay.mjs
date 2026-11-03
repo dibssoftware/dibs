@@ -63,6 +63,8 @@ const PONG_WAIT = 60e3;
 const BACKOFF_MIN = 1000, BACKOFF_MAX = 60e3;
 // How often relay.json is checked for changes the relay must hear about. A stat and a read; cheap.
 const TOKEN_SYNC = 1000;
+// How often a Mac that belongs to an account looks for its new browsers waiting for the key.
+const APPROVAL_POLL = 3000;
 // Request frames are small; responses carry the board.
 export const MAX_REQUEST = 64 * 1024;
 export const BUCKETS = [1024, 4096, 16384, 65536, 262144, 1048576, 4194304];
@@ -147,8 +149,9 @@ function parseKeys(s) {
 export function load() {
   try {
     const j = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    return { devices: j.devices && typeof j.devices === 'object' ? j.devices : {}, pairs: Array.isArray(j.pairs) ? j.pairs : [], mcp: j.mcp === true };
-  } catch { return { devices: {}, pairs: [], mcp: false }; }
+    const obj = k => (j[k] && typeof j[k] === 'object' && !Array.isArray(j[k]) ? j[k] : {});
+    return { devices: obj('devices'), pairs: Array.isArray(j.pairs) ? j.pairs : [], mcp: j.mcp === true, accounts: obj('accounts'), approvals: obj('approvals'), pins: obj('pins'), conn: typeof j.conn === 'string' ? j.conn : null };
+  } catch { return { devices: {}, pairs: [], mcp: false, accounts: {}, approvals: {}, pins: {}, conn: null }; }
 }
 
 // `dibs pair` and the connector both write relay.json; this keeps one from undoing the other.
@@ -181,15 +184,17 @@ function locked(fn) {
 }
 
 // A one-time pairing link. The secret is shown once and only its derived pieces are kept.
-// act: the device it pairs may change things, not only look.
-export function newPairing({ act = false } = {}) {
+// act: the device it pairs may change things, not only look. account: it pairs a dibs account
+// (the page at /account opens it), which may then give this Mac its account key (join, below).
+export function newPairing({ act = false, account = false } = {}) {
   const k = keys();
   const secret = crypto.randomBytes(32);
   locked(w => {
-    w.pairs.push({ pid: b64u(pairId(secret)), key: b64u(pairKey(secret)), nk: b64u(nameKey(secret)), th: tokenHash(pairTicket(secret)), exp: now() + PAIR_LIFE, fails: 0, ...(act ? { act: true } : {}) });
+    w.pairs.push({ pid: b64u(pairId(secret)), key: b64u(pairKey(secret)), nk: b64u(nameKey(secret)), th: tokenHash(pairTicket(secret)), exp: now() + PAIR_LIFE, fails: 0, ...(act ? { act: true } : {}), ...(account ? { acct: true } : {}) });
     w.pairs = w.pairs.slice(-MAX_PAIRS);
   });
-  return { link: `${PAGE}#p=${k.mid}.${b64u(secret)}.${k.fp}`, mid: k.mid, fp: k.fp, life: PAIR_LIFE, act };
+  const frag = `${k.mid}.${b64u(secret)}.${k.fp}`;
+  return { link: account ? `${PAGE}account#join=${frag}` : `${PAGE}#p=${frag}`, mid: k.mid, fp: k.fp, life: PAIR_LIFE, exp: now() + PAIR_LIFE, act };
 }
 
 export const devices = () => Object.entries(load().devices).map(([id, d]) => ({ id, ...d }));
@@ -250,6 +255,144 @@ export function open(key, sid, dir, seq, buf) {
 }
 const hs = obj => Buffer.concat([Buffer.from([T_HS]), utf8(JSON.stringify(obj))]);
 
+// Joining an account: its id, the secret this Mac shows the relay to see the account's
+// waiting browsers (the relay keeps only its hash), and the account key itself. Kept in
+// relay.json (0600), never sent anywhere but sealed to a browser the person approves.
+const B64_32 = /^[A-Za-z0-9_-]{43}$/, B64_16 = /^[A-Za-z0-9_-]{22}$/;
+function joinAccount(dev, did, b) {
+  if (!dev.acct) return { status: 403, json: { error: 'Only a dibs account paired with dibs connect --account can join this Mac to it.' } };
+  if (!b || !B64_16.test(b.aid) || !B64_32.test(b.secret) || !B64_32.test(b.ak)) return { status: 400, json: { error: 'bad account' } };
+  locked(w => { w.accounts = { ...w.accounts, [b.aid]: { secret: b.secret, ak: b.ak, device: did, joined: now(), label: cleanName(b.label) } }; });
+  logChange('account join', { account: b.aid.slice(0, 8) });
+  return { status: 200, json: { ok: true } };
+}
+
+// Handing the account key to a new browser of that account, in the four steps the relay's
+// mailbox carries (relay/src/accountbook.js): the browser's commitment, this Mac's ephemeral
+// key, the browser's reveal, then the 6-digit code both show. Only when the person types that
+// code here (dibs connect --approve <code>) does the key go, sealed to the shared secret, and
+// the browser opens it only once the person types the second code this Mac then prints.
+//
+// Everything in the relay's list is the relay's word, so this Mac pins what it saw first: the
+// commitment, the label and its own deadline, with its key, in round 1. A later list that
+// changes the commitment is refused, and no request gets a second key: otherwise a relay could
+// see this Mac's key, then grind one of its own until the code matched the person's. The keys
+// live in this connection's memory, but which ids were pinned is kept in relay.json until their
+// deadline, so dropping this Mac's socket doesn't start a request over: a relay that did could
+// replay an approved id with keys of its own. An approval also records the keys its codes came
+// from, and the account key is sealed only to those.
+export const commitOf = (B, n) => b64u(sha(Buffer.concat([utf8('dibs-approve-commit-v1\0'), B, n])));
+const sixDigits = b => String(b.readUInt32BE(0) % 1e6).padStart(6, '0');
+export function approvalKeys(ss, aid, id, B, M) {
+  const salt = sha(tx('dibs-approve-v1', aid, id, B, M));
+  const key = hkdf(ss, salt, 'dibs-approve-v1 key', 32);
+  return { key, sas: sixDigits(hkdf(ss, salt, 'dibs-approve-v1 sas', 4)), confirm: sixDigits(hkdf(ss, salt, 'dibs-approve-v1 confirm', 4)) };
+}
+// Browsers of one account that may wait on this Mac at once (the relay keeps at most as many),
+// and how long one may: this Mac's clock, never the relay's expires.
+export const MAX_WAITING = 5;
+const APPROVAL_LIFE = 10 * MIN;
+const APPROVAL_ID = /^[A-Za-z0-9_-]{12}$/;
+export function sealFor(key, aid, id, ak) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  c.setAAD(utf8(`dibs-approve-v1 ${aid}.${id}`));
+  return b64u(Buffer.concat([iv, c.update(ak), c.final(), c.getAuthTag()]));
+}
+// One round for one account, given the mailbox's pending list: what to send back.
+// eph: this connection's pins, by request id. A pin outlives its answer until its deadline,
+// so a request can't start over with a new key from this Mac.
+export function approvalStep(aid, list, eph, t = now()) {
+  const out = [];
+  const acct = load().accounts[aid];
+  if (!acct) return out;
+  for (const [id, pin] of eph) if (pin.exp <= t) eph.delete(id);
+  const done = (p, pin, step) => { pin.done = true; out.push({ id: p.id, step }); };
+  // Round 1 for a new id, recorded in relay.json first: once per id, and at most MAX_WAITING per
+  // account until their deadlines, whatever happens to this connection.
+  const pinNew = p => locked(w => {
+    for (const [id, x] of Object.entries(w.pins)) if (x.exp <= t) delete w.pins[id];
+    if (w.pins[p.id] || w.approvals[p.id]) return false;
+    if (Object.values(w.pins).filter(x => x.aid === aid).length >= MAX_WAITING) return false;
+    w.pins = { ...w.pins, [p.id]: { aid, exp: t + APPROVAL_LIFE, ...(eph.conn && { conn: eph.conn }) } };
+    return true;
+  });
+  for (const p of Array.isArray(list) ? list : []) {
+    if (!p || typeof p.id !== 'string' || !APPROVAL_ID.test(p.id)) continue;
+    const pin = eph.get(p.id);
+    if (!pin) {
+      // Refused on an earlier connection (dibs connect --approve found it stale): tell the browser.
+      const old = load().approvals[p.id];
+      if (old?.refused && old.aid === aid) {
+        out.push({ id: p.id, step: { refuse: true } });
+        locked(w => { delete w.approvals[p.id]; });
+        continue;
+      }
+      // Round 1, once per request: a fresh one (no key on it yet), while there's room.
+      if (p.mac || typeof p.commit !== 'string' || !B64_32.test(p.commit)) continue;
+      if (!pinNew(p)) continue;
+      const e = crypto.generateKeyPairSync('x25519');
+      eph.set(p.id, { aid, e, commit: p.commit, label: cleanName(p.label), exp: t + APPROVAL_LIFE });
+      out.push({ id: p.id, step: { mac: b64u(rawPub(e.publicKey)) } });
+      continue;
+    }
+    if (pin.done || pin.aid !== aid || !p.pub || !p.nonce) continue;
+    const B = unb64u(p.pub, 32), n = unb64u(p.nonce, 32), M = rawPub(pin.e.publicKey);
+    if (!B || !n || p.mac !== b64u(M) || p.commit !== pin.commit || commitOf(B, n) !== pin.commit) { done(p, pin, { refuse: true }); continue; }
+    let ss;
+    try { ss = crypto.diffieHellman({ privateKey: pin.e.privateKey, publicKey: okp('X25519', B) }); } catch { done(p, pin, { refuse: true }); continue; }
+    if (sameBytes(ss, ZERO)) { done(p, pin, { refuse: true }); continue; }
+    const { key, sas, confirm } = approvalKeys(ss, aid, p.id, B, M);
+    const keys = b64u(sha(tx('dibs-approve-keys-v1', aid, p.id, B, M)));
+    const ap = load().approvals[p.id];
+    if (ap && (ap.aid !== aid || ap.keys !== keys)) {
+      done(p, pin, { refuse: true });
+      locked(w => { delete w.approvals[p.id]; });
+    } else if (ap?.approved) {
+      done(p, pin, { sealed: sealFor(key, aid, p.id, unb64u(acct.ak, 32)) });
+      locked(w => { delete w.approvals[p.id]; });
+    } else if (ap?.refused) {
+      done(p, pin, { refuse: true });
+      locked(w => { delete w.approvals[p.id]; });
+    } else if (!ap) {
+      locked(w => {
+        for (const [id, a] of Object.entries(w.approvals)) if (a.exp <= t) delete w.approvals[id];
+        w.approvals = { ...w.approvals, [p.id]: { aid, label: pin.label, sas, confirm, keys, exp: pin.exp, ...(eph.conn && { conn: eph.conn }) } };
+      });
+    }
+  }
+  return out;
+}
+// dibs connect --approve <code>: the code the new browser shows. Returns what was approved, with
+// the code to type back into that browser; { ambiguous } when more than one browser shows it,
+// which only a go-between guessing codes makes likely: those are all refused.
+export function approve(code, t = now()) {
+  return locked(w => {
+    for (const [id, a] of Object.entries(w.approvals)) if (a.exp <= t) delete w.approvals[id];
+    const hits = Object.entries(w.approvals).filter(([, a]) => a.sas === code && !a.approved && !a.refused);
+    if (!hits.length) return null;
+    if (hits.length > 1) { for (const [, a] of hits) a.refused = true; return { ambiguous: hits.length }; }
+    // Pinned on a connection that's gone: the key that would seal is gone with it, so this one
+    // can never be sent. Refused, so the browser hears so, and the person asks again.
+    const [id, a] = hits[0];
+    if (a.conn && a.conn !== w.conn) { a.refused = true; return { id, ...a, stale: true }; }
+    a.approved = true;
+    return { id, ...a };
+  });
+}
+export const waitingApprovals = (t = now()) => Object.entries(load().approvals).filter(([, a]) => a.exp > t && !a.approved && !a.refused).map(([id, a]) => ({ id, ...a }));
+export function removeAccount(which) {
+  return locked(w => {
+    let n = 0;
+    for (const [aid, a] of Object.entries(w.accounts)) if (which === 'all' || aid.startsWith(which)) {
+      delete w.accounts[aid];
+      if (a.device) delete w.devices[a.device];
+      n++;
+    }
+    return n;
+  });
+}
+
 // The Mac's half of the protocol, for every channel (one per browser tab) the relay
 // opens. No sockets in here: `send(ch, bytes)` and `kick(ch, why)` go to the relay,
 // and `call({method, path, body, session})` is src/web.mjs's api().
@@ -292,7 +435,7 @@ export function macPeer({ k = keys(), send, kick, call, admit = () => {}, clock 
       rth = tokenHash(opened.rt);
       w.pairs = w.pairs.filter(x => x !== p);
       const did = b64u(crypto.randomBytes(16));
-      w.devices[did] = { pub: b64u(d), name, rth, created: clock(), ...(p.act === true ? { act: true } : {}) };
+      w.devices[did] = { pub: b64u(d), name, rth, created: clock(), ...(p.act === true ? { act: true } : {}), ...(p.acct === true ? { acct: true } : {}) };
       return { did, key: unb64u(p.key, 32) };
     });
     if (r.err) return refuse(ch, r.err);
@@ -359,7 +502,10 @@ export function macPeer({ k = keys(), send, kick, call, admit = () => {}, clock 
     let route = null;
     try { if (typeof m.path === 'string' && m.path.startsWith('/api/') && m.path.length <= 512) route = new URL(m.path, 'http://dibs').pathname; } catch {}
     const refused = route && remoteAccess(m.method, route, dev.act === true);
-    if (!METHODS.includes(m.method) || !route?.startsWith('/api/')) res = { status: 400, json: { error: 'not an API call' } };
+    // An account paired through dibs connect --account gives this Mac its account key, so it can
+    // hand that key on to the account's new browsers (approve, below). Only such a device may.
+    if (route === '/api/account/join' && m.method === 'POST') res = joinAccount(dev, c.did, m.body);
+    else if (!METHODS.includes(m.method) || !route?.startsWith('/api/')) res = { status: 400, json: { error: 'not an API call' } };
     else if (refused) res = { status: 403, json: { error: refused === 'look' ? lookOnlyText(c.did) : LOCAL_ONLY_TEXT } };
     else {
       let timer;
@@ -515,7 +661,7 @@ export function connectOnce(base, k, call) {
     try { ws = new WebSocket(url); } catch (e) { return resolve(e.message); }
     ws.binaryType = 'arraybuffer';
     let authed = false, lastHeard = now(), done = false, sentTokens = '';
-    const finish = why => { if (done) return; done = true; clearInterval(beat); clearInterval(watch); peer.closeAll(); try { ws.close(); } catch {} resolve(why); };
+    const finish = why => { if (done) return; done = true; clearInterval(beat); clearInterval(watch); clearInterval(approvals); peer.closeAll(); try { ws.close(); } catch {} resolve(why); };
     // The relay's list of who may connect follows relay.json within a second: a new link opens
     // the pairing pool, a pairing adds a hash, a revoke removes one (and its open sessions end).
     const syncTokens = () => {
@@ -527,6 +673,17 @@ export function connectOnce(base, k, call) {
       peer.sweep();
     };
     const watch = setInterval(syncTokens, TOKEN_SYNC);
+    // Browsers of this Mac's accounts waiting for its key: asked for every few seconds, only
+    // while this Mac belongs to an account.
+    // eph.conn names this connection in relay.json, so dibs connect --approve can tell when the
+    // key a request was pinned with went with an earlier one (a restart, a dropped socket).
+    const eph = Object.assign(new Map(), { conn: b64u(crypto.randomBytes(9)) });
+    locked(w => { w.conn = eph.conn; });
+    const askApprovals = () => {
+      if (!authed || ws.readyState !== 1) return;
+      for (const [aid, a] of Object.entries(load().accounts)) ws.send(JSON.stringify({ t: 'acct-pending', aid, secret: a.secret, ref: aid }));
+    };
+    const approvals = setInterval(askApprovals, APPROVAL_POLL);
     const peer = macPeer({
       k, call,
       send: (ch, buf) => ws.readyState === 1 && ws.send(Buffer.concat([Buffer.from(ch, 'base64url'), buf])),
@@ -550,6 +707,10 @@ export function connectOnce(base, k, call) {
         }
         if (m.t === 'ok') { authed = true; syncTokens(); status('connected', { url: base.origin }); return log(`relay: connected to ${base.origin}`); }
         if (!authed) return;
+        if (m.t === 'acct-pending-res' && typeof m.ref === 'string' && Array.isArray(m.pending)) {
+          for (const s of approvalStep(m.ref, m.pending, eph)) ws.send(JSON.stringify({ t: 'acct-answer', aid: m.ref, secret: load().accounts[m.ref]?.secret, id: s.id, step: s.step }));
+          return;
+        }
         if (m.t === 'http' && typeof m.id === 'string') {
           return mcpAnswer(m, k).catch(() => offJson(500)).then(r => { if (ws.readyState === 1) ws.send(httpRes(m.id, r)); });
         }
@@ -574,16 +735,36 @@ export function pairRemote({ act = false } = {}) {
   const p = newPairing({ act });
   logChange('pair remote', { actions: act });
   console.log(`${render(qr(p.link))}\n${p.link}\n`);
-  console.log(`Open it on the phone or browser you want to use (scan the code, or send yourself the link some private way).`);
-  console.log(`One use, good for ${p.life / MIN} minutes. That browser checks it reached this Mac by its fingerprint ${p.fp.slice(0, 16)}...`);
+  console.log(`Scan the code with the phone you want to use, or open the link in that browser. Don't paste it into a chat: whoever opens it first gets in.`);
+  console.log(`One use, until ${clockOf(p.exp)} (${p.life / MIN} minutes). That browser checks it reached this Mac by its fingerprint ${p.fp.slice(0, 16)}...`);
   console.log(act ? 'It can act: boost, pause, resume and stop jobs, cap an agent, set the pace, cancel scheduled runs. Never message agents, answer their questions, or change the hook or your hours. Revoke it if the device is lost.'
     : 'It can only look. To let a browser change things too: dibs pair --remote --allow-actions');
   const s = statusLine();
   if (!s || s.startsWith('not running')) console.log(`\nThis Mac isn't connected to the relay yet. Turn it on: dibs service install relay`);
 }
+// dibs connect --account: a link a browser signed in to a dibs account opens, to add this Mac to
+// the account. Every browser of the account then reaches this Mac, and this Mac can hand the
+// account's key to its new browsers (dibs connect --approve).
+export function pairAccount({ act = false } = {}) {
+  const p = newPairing({ act, account: true });
+  logChange('connect account', { actions: act });
+  console.log(`${render(qr(p.link))}\n${p.link}\n`);
+  console.log('Open it in a browser signed in to your dibs account (app.dibs.cc/account), or scan it with a phone that is.');
+  console.log(`One use, until ${clockOf(p.exp)} (${p.life / MIN} minutes). After that, every browser you sign in to the account with opens this Mac.`);
+  console.log(act ? 'Those browsers can act: boost, pause, resume and stop jobs, cap an agent, set the pace, cancel scheduled runs.'
+    : 'Those browsers can only look. To let them change things: dibs connect --account --allow-actions');
+  const s = statusLine();
+  if (!s || s.startsWith('not running')) console.log(`\nThis Mac isn't connected to the relay yet. Turn it on: dibs service install relay`);
+}
+const clockOf = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
 export function listRemote() {
   const ds = devices();
   if (load().mcp) console.log(`(${mcpLine()})`);
-  for (const d of ds) console.log(`${d.id.slice(0, 8)}  remote: ${d.name}, ${d.act === true ? 'can act' : 'look only'}  paired ${new Date(d.created).toLocaleString()}, last connected ${ago(d.seen)}`);
-  return ds.length;
+  for (const d of ds) console.log(`${d.id.slice(0, 8)}  ${d.acct ? 'account' : 'remote'}: ${d.name}, ${d.act === true ? 'can act' : 'look only'}  paired ${new Date(d.created).toLocaleString()}, last connected ${ago(d.seen)}`);
+  const accts = Object.entries(load().accounts);
+  for (const [aid, a] of accts) console.log(`${aid.slice(0, 8)}  dibs account${a.label && a.label !== 'a browser' ? ` ${a.label}` : ''}: this Mac holds its key and approves its new browsers (dibs connect --approve)  joined ${new Date(a.joined).toLocaleString()}`);
+  const wait = waitingApprovals();
+  if (wait.length) console.log(`${wait.length} browser${wait.length > 1 ? 's' : ''} waiting for approval: type the 6-digit code it shows, dibs connect --approve <code>`);
+  return ds.length + accts.length;
 }

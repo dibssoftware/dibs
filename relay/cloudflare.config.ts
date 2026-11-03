@@ -65,6 +65,8 @@ export default defineConfig((ctx) => {
 						Machine: { type: "durable-object", storage: "sqlite" },
 						// Sign-in code hashes and machine ids for remote MCP, ten minutes at most.
 						CodeIndex: { type: "durable-object", storage: "sqlite" },
+						// Email hashes, passkey public keys and sealed keyrings (src/accountbook.js).
+						Accounts: { type: "durable-object", storage: "sqlite" },
 					},
 					domains: [
 						"app.dibs.cc",
@@ -83,6 +85,9 @@ export default defineConfig((ctx) => {
 					env: {
 						PAGE_HOST: bindings.text("app.dibs.cc"),
 						MCP_HOST: bindings.text("mcp.dibs.cc"),
+						MAIL_FROM: bindings.text("no-reply@mail.dibs.cc"),
+						// The Turnstile widget on mcp.dibs.cc/email; its secret is TURNSTILE_SECRET.
+						TURNSTILE_SITEKEY: bindings.text("0x4AAAAAAFxfl4Oft0B4fWmc"),
 						MACHINE: bindings.durableObject({
 							worker: "dibs-relay",
 							exportName: "Machine",
@@ -90,6 +95,22 @@ export default defineConfig((ctx) => {
 						INDEX: bindings.durableObject({
 							worker: "dibs-relay",
 							exportName: "CodeIndex",
+						}),
+						ACCOUNTS: bindings.durableObject({
+							worker: "dibs-relay",
+							exportName: "Accounts",
+						}),
+						// Sign-in links, from the dibs.cc zone's Email Sending at mail.dibs.cc.
+						EMAIL: bindings.sendEmail({
+							allowedSenderAddresses: ["no-reply@mail.dibs.cc"],
+						}),
+						// Account requests per address: signing in takes a handful.
+						RLA: bindings.rateLimit({
+							namespace: "7425",
+							simple: {
+								limit: 30,
+								period: 60,
+							},
 						}),
 						// MCP requests per address: a client's session makes a few dozen a minute.
 						RLM: bindings.rateLimit({

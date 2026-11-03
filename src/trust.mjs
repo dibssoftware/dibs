@@ -40,7 +40,7 @@ const hash = t => crypto.createHash('sha256').update(String(t)).digest();
 const same = (a, b) => a.length === b.length && crypto.timingSafeEqual(a, b);
 const loopback = addr => /^(127\.|::1$|::ffff:127\.)/.test(String(addr || ''));
 
-function loadRegistry(file = MACHINES) {
+export function loadRegistry(file = MACHINES) {
   let r = {};
   try { r = JSON.parse(fs.readFileSync(file, 'utf8')); }
   catch (e) { if (e.code !== 'ENOENT') throw new Error(`${file} can't be read (${e.message}). Fix or delete it; deleting it removes every invited machine`); }

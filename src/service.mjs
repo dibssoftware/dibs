@@ -28,7 +28,7 @@ const label = k => `dev.dibs.${k}`;
 // DIBS_LAUNCH_AGENTS and DIBS_LAUNCHCTL stand in for ~/Library/LaunchAgents and launchctl in tests.
 const plist = k => path.join(process.env.DIBS_LAUNCH_AGENTS || path.join(os.homedir(), 'Library', 'LaunchAgents'), `${label(k)}.plist`);
 const LAUNCHCTL = process.env.DIBS_LAUNCHCTL || 'launchctl';
-const unit = k => path.join(os.homedir(), '.config', 'systemd', 'user', `dibs-${k}.service`);
+const unit = k => path.join(process.env.DIBS_LAUNCH_AGENTS || path.join(os.homedir(), '.config', 'systemd', 'user'), `dibs-${k}.service`);
 const logFile = k => path.join(HOME, `${k}.log`);
 const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { return e.stdout || ''; } };
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -150,6 +150,13 @@ function remove(k) {
     had = sh('schtasks', ['/Delete', '/F', '/TN', `dibs ${k}`]).length > 0;
   }
   console.log(had ? `removed dibs ${k}` : `dibs ${k} wasn't installed`);
+}
+
+// Out of launchd or systemd, and one started by hand stopped too (dibs leave). One that
+// isn't installed is left alone: nothing to take out, and nothing touched that dibs didn't put there.
+export function removeService(k) {
+  if (PIDFILES[k]) stopManual(k);
+  if (state(k) !== 'not installed') remove(k);
 }
 
 function state(k) {

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Sign in to dibs by email</title>
+<link rel="icon" href="/web/logo.png">
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+<canvas id="dither" aria-hidden="true"></canvas>
+<main class="signin">
+  <div class="ticket-wrap"><form id="email-form" class="signin-card ticket" autocomplete="on">
+    <h1>Sign in to dibs by email</h1>
+    <p>We'll send a link to <a id="back">app.dibs.cc/account</a> that signs you in. It works once, for 15 minutes.</p>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" required>
+    <div id="human"></div>
+    <p id="status" class="status" role="status"></p>
+    <button type="submit" id="send" disabled>Email me a link</button>
+    <p class="sub">This page is on mcp.dibs.cc so the check that you're a person (Cloudflare Turnstile) never runs next to your account's key. The relay keeps only a keyed hash of your address.</p>
+  </form></div>
+</main>
+<script src="/web/dither.js"></script>
+<script src="/web/email.js"></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=dibsHuman" async defer></script>
+</body>
+</html>

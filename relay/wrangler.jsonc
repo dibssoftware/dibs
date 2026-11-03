@@ -15,16 +15,22 @@
   ],
   "workers_dev": false,
   "preview_urls": false,
-  "vars": { "PAGE_HOST": "app.dibs.cc", "MCP_HOST": "mcp.dibs.cc" },
+  "vars": { "PAGE_HOST": "app.dibs.cc", "MCP_HOST": "mcp.dibs.cc", "MAIL_FROM": "no-reply@mail.dibs.cc", "TURNSTILE_SITEKEY": "0x4AAAAAAFxfl4Oft0B4fWmc" },
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
-  "durable_objects": { "bindings": [{ "name": "MACHINE", "class_name": "Machine" }, { "name": "INDEX", "class_name": "CodeIndex" }] },
+  "durable_objects": { "bindings": [{ "name": "MACHINE", "class_name": "Machine" }, { "name": "INDEX", "class_name": "CodeIndex" }, { "name": "ACCOUNTS", "class_name": "Accounts" }] },
   // CodeIndex holds sign-in code hashes and machine ids for ten minutes at most (src/index.js).
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Machine"] }, { "tag": "v2", "new_sqlite_classes": ["CodeIndex"] }],
+  // Accounts holds email hashes, passkey public keys and sealed keyrings (src/accountbook.js).
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Machine"] }, { "tag": "v2", "new_sqlite_classes": ["CodeIndex"] }, { "tag": "v3", "new_sqlite_classes": ["Accounts"] }],
+  // TURNSTILE_SITEKEY: the widget on mcp.dibs.cc/email; its secret is TURNSTILE_SECRET (README.md).
+  // Sign-in links, from the dibs.cc zone's Email Sending at mail.dibs.cc.
+  "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["no-reply@mail.dibs.cc"] }],
   // Keyed per connecting address in memory only.
   "ratelimits": [
     { "name": "RL", "namespace_id": "7423", "simple": { "limit": 20, "period": 60 } },
     // MCP requests per address: a client's session makes a few dozen a minute.
-    { "name": "RLM", "namespace_id": "7424", "simple": { "limit": 120, "period": 60 } }
+    { "name": "RLM", "namespace_id": "7424", "simple": { "limit": 120, "period": 60 } },
+    // Account requests per address: signing in takes a handful.
+    { "name": "RLA", "namespace_id": "7425", "simple": { "limit": 30, "period": 60 } }
   ],
   // No request or console logs leave the Worker: nothing about who connected, and never a frame.
   "observability": { "enabled": false },
@@ -34,10 +40,13 @@
     "local": {
       "vars": { "PAGE_HOST": "" },
       "routes": [],
-      "durable_objects": { "bindings": [{ "name": "MACHINE", "class_name": "Machine" }, { "name": "INDEX", "class_name": "CodeIndex" }] },
+      "durable_objects": { "bindings": [{ "name": "MACHINE", "class_name": "Machine" }, { "name": "INDEX", "class_name": "CodeIndex" }, { "name": "ACCOUNTS", "class_name": "Accounts" }] },
+      // Simulated by wrangler dev: mail is written to a local file, never sent.
+      "send_email": [{ "name": "EMAIL" }],
       "ratelimits": [
         { "name": "RL", "namespace_id": "7423", "simple": { "limit": 1000, "period": 60 } },
-        { "name": "RLM", "namespace_id": "7424", "simple": { "limit": 1000, "period": 60 } }
+        { "name": "RLM", "namespace_id": "7424", "simple": { "limit": 1000, "period": 60 } },
+        { "name": "RLA", "namespace_id": "7425", "simple": { "limit": 1000, "period": 60 } }
       ]
     }
   }

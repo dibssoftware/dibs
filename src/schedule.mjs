@@ -764,9 +764,14 @@ export function diskNeed(s, me, cfg, hist) {
   // job's own runs still count: starting a job that always eats more than there is only fails it.
   // Alone, nothing else needs the floor while it runs, so it needs what it eats and ALONE_ROOM on top.
   const others = othersOf(s, me).length > 0;
-  const shared = others && (me.disk || 0) > 0 ? typicalDisk(hist, me.key) : null;
-  const ate = me.diskDeclared ? null : shared ?? ownDisk(hist, me.key);
-  return { need: Math.max(me.disk || 0, floor, ate != null ? ate + (others ? floor : ALONE_ROOM) : 0), ate, others };
+  if (me.diskDeclared) return { need: Math.max(me.disk || 0, floor), ate: null, others };
+  // What a resource declares is a guess made before any run. Once runs of this command, or of
+  // its resource, show what they really eat, that wins: the simulator declares 8 GB, its 58 runs
+  // here ate 0.17 GB at the middle and 1.6 GB at most, and on 2026-11-03 a hold on it was
+  // refused with 7 GB free.
+  const learned = (me.disk || 0) > 0 ? typicalDisk(hist, me.key) : null;
+  const ate = (others ? learned : null) ?? ownDisk(hist, me.key);
+  return { need: Math.max(learned ?? me.disk ?? 0, floor, ate != null ? ate + (others ? floor : ALONE_ROOM) : 0), ate, others };
 }
 // A job alone still leaves this much free past what it eats: the system writes while it runs too.
 const ALONE_ROOM = 1024 ** 3;
@@ -853,7 +858,12 @@ function decide(s, me, cfg, hist, t) {
   if (reset) return { ok: false, rule: 'reset', why: `${reset.res} is being reset after ${reset.agent || reset.who}'s turn (onRelease, at most ${dur(reset.timeout)})`, on: reset.res };
   // Holding paths runs nothing, so the machine's budgets and load don't apply.
   if (me.res.every(isFiles)) return { ok: true, covered: me.res.filter(r => mine.has(r)) };
-  // Below minDisk nothing starts, urgent work and runs inside a hold included:
+  // A run inside your own hold already has the memory, cores and disk the hold got at its
+  // grant: charging them again would queue it behind jobs that need what it already has, and
+  // checking the disk again refused (exit 74) a run right after "you already have the
+  // simulator, so you go ahead" (2026-11-03). The watcher's low-disk pauses still hold it.
+  if (me.res.every(r => mine.has(r))) return { ok: true, covered: [...me.res] };
+  // Below minDisk nothing else starts, urgent work included:
   // a full disk breaks every job on the machine, and on macOS swap needs it too.
   const others = othersOf(s, me);
   // The floor plus what it usually eats (diskNeed).
@@ -861,9 +871,6 @@ function decide(s, me, cfg, hist, t) {
   // An unreadable disk (null) doesn't stop work; the board and dibs run say it's unknown.
   if (m.diskFree != null && m.diskFree < needDisk)
     return { ok: false, rule: 'disk', why: `disk: ${gb(m.diskFree)} free, you need ${gb(needDisk)}${ate != null && ate + (crowded ? bytes(cfg.minDisk) : ALONE_ROOM) >= needDisk ? ` (${crowded ? `the ${gb(bytes(cfg.minDisk))} dibs keeps free` : `${gb(ALONE_ROOM)} to spare`}, plus the ${gb(ate)} this usually takes; --disk <size> says this run needs less)` : ''}`, disk: true, free: m.diskFree, need: needDisk, alone: !others.length, ...(ate != null && { usual: ate }) };
-  // A run inside your own hold already has the memory and cores the hold reserved:
-  // charging them again would queue it behind jobs that need what it already has.
-  if (me.res.every(r => mine.has(r))) return { ok: true, covered: [...me.res] };
   // While the machine swaps, only urgent work starts on top of what's running.
   // With nothing else working, one job may start: waiting can't make the swap
   // go down then, and swap the OS hasn't reclaimed yet mustn't stop dibs for good.

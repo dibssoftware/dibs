@@ -122,6 +122,10 @@ progress (post as often as you commit)
 the person's page and MCP server
   dibs web [--port 7421] [--bind <address>] every agent's jobs, tasks and posts at http://127.0.0.1:7421, and the same as
                                            MCP tools at /mcp (read-only unless signed in with --allow-actions). dibs service install web keeps it up
+  dibs connect                             connect a browser, a phone, your dibs account, another Claude's MCP or another
+                                           machine: it explains each, and on a terminal asks which
+  dibs connect --list | --remove <id>      everything connected to this Mac; disconnect one
+  dibs connect --approve <code>            let a new browser of your dibs account in: the 6 digits it shows
   dibs pair                                a one-time code to sign the page or an MCP client in (10 minutes, one use)
   dibs pair --allow-actions                a code that also lets an MCP client act: post progress, answer, message agents, hold,
                                            boost, pause, resume and stop jobs, as an agent named after it (mcp-<name>)
@@ -153,13 +157,15 @@ several machines
                                            or through Tailscale (--at when it's elsewhere), then dibs service install worker
   dibs join <url> <token> [--name x]       connect this machine to a coordinator with a line from dibs invite
   dibs worker                              take jobs here (dibs service install worker keeps it running)
+  dibs leave                               this machine out of its group: it stops taking jobs and forgets the coordinator.
+                                           On the coordinator, only once no other machine is joined (dibs kick each first)
   dibs invite <machine>                    on the coordinator: a token for that machine, and the join line to run there
   dibs kick <machine>                      on the coordinator: remove it now; its jobs stop and its token stops working
   dibs limit <machine> --only test,heavy   on the coordinator: the only jobs it takes from others (--any lifts it)
   dibs limit <machine> --sends test|none   on the coordinator: the only jobs it may send to other machines
   .dibs.json {"stayOn": ["mini"]}          at a project's root: the machines its code may go to (besides its own)
   dibs service install|remove|status [serve] [worker] [throttle] [web] [relay]   start them at login and keep them up
-  join, invite, kick, limit, service, guard install/remove, pace, hours and cap go in the history with who ran them
+  join, leave, invite, kick, limit, service, guard install/remove, pace, hours and cap go in the history with who ran them
 
 priorities and pauses (ids are the #numbers on dibs --detail; anyone, person or agent, on any job; the board names who.
   An agent acting on a job that isn't its own adds --owner <session>, or session/agent, as the board names it)
@@ -322,9 +328,9 @@ function notices() {
 // Old names keep working, so nothing that already calls dibs breaks.
 const ALIASES = { done: 'release', renew: 'hold', news: 'changes', cool: 'throttle', ls: 'status', board: 'status' };
 const VERBS = new Set(['run', 'hold', 'release', 'when', 'why', 'mine', 'who', 'yield', 'ask', 'requests', 'port', 'throttle', 'changes', 'status', 'help',
-  'machines', 'serve', 'join', 'worker', 'service', 'invite', 'kick', 'limit', 'guard', 'sims', 'pace', 'setup', 'history', 'stats',
+  'machines', 'serve', 'join', 'leave', 'worker', 'service', 'invite', 'kick', 'limit', 'guard', 'sims', 'pace', 'setup', 'history', 'stats',
   'question', 'questions', 'answer', 'hours', 'say', 'tell', 'threads', 'boost', 'pause', 'resume', 'stop', 'cap', 'later',
-  'progress', 'web', 'pair', 'relay']);
+  'progress', 'web', 'pair', 'relay', 'connect']);
 
 // A job sent from another machine ends when the worker that started it does,
 // even if the worker was killed outright and couldn't say so.
@@ -425,6 +431,7 @@ async function main() {
     case 'worker': return (await lazy('worker')).worker(parse(rest), cfg);
     case 'invite': return (await lazy('admin')).invite(parse(rest));
     case 'kick': return (await lazy('admin')).kick(parse(rest));
+    case 'leave': return (await lazy('admin')).leave();
     case 'limit': return (await lazy('admin')).limit(parse(rest));
     case 'service': return (await lazy('service')).service(rest);
     case 'hold': { const o = profiled(parse(rest), cfg); if (o.notify || o.after) die(`${o.notify ? '--notify' : '--after'} works with dibs run`); checkNames(o.res, cfg); o.thin = thin; return hold(o, cfg); }
@@ -452,6 +459,7 @@ async function main() {
     case 'progress': return (await lazy('progress')).post(rest);
     case 'web': return (await lazy('web')).web(rest);
     case 'pair': return (await lazy('web')).pair(rest);
+    case 'connect': return (await lazy('connect')).connect(rest);
     case 'relay': return (await lazy('relay')).relay(rest);
     case 'tell': return tell(rest);
     case 'threads': return threads(rest);

@@ -1,9 +1,11 @@
 // dibs invite, kick and limit: run on the coordinator's machine, which is the
 // only one whose token may change who is in the group. An invited machine
 // runs commands for every other one, so each change is logged with who made it.
-import { remoteConf, call, LOST } from './remote.mjs';
+import fs from 'node:fs';
+import { remoteConf, call, LOST, REMOTE } from './remote.mjs';
 import { logChange } from './owner.mjs';
-import { NAME } from './trust.mjs';
+import { NAME, loadRegistry } from './trust.mjs';
+import { removeService } from './service.mjs';
 import { die, dur, now } from './util.mjs';
 
 // ok: whether the reply is what a dibs coordinator sends. Anything else on the
@@ -103,4 +105,41 @@ export async function unpairMachine(which, p) {
   if (c) return (await admin('/admin/unpair', { id: c.id }, r => Number.isInteger(r.removed))).removed;
   if (p.machines.some(m => m.name === which)) { await kick({ res: [which] }); return 1; }
   return 0;
+}
+
+// Whether this machine's remote.json is the coordinator's own: on loopback, and holding the
+// token only the coordinator's machine has (an admin route answers it). A loopback address alone
+// isn't enough: machines joined to a coordinator on the same host (tests, a second DIBS_HOME) have one too.
+// A coordinator that's down can't be asked: on loopback it's taken to be this one.
+async function isCoordinator(rc) {
+  if (!/^http:\/\/(127\.0\.0\.1|localhost)(:|$)/.test(rc.url)) return false;
+  try { await call(rc, 'GET', '/admin/pairs', undefined, { timeout: 3000 }); return true; }
+  catch (e) { return !e.status; }
+}
+
+// dibs leave: this machine out of its group. A machine that joined drops its remote.json and
+// stops taking jobs (the worker service, or a worker started by hand). The coordinator only
+// once no other machine is in the group: leaving under them would strand their jobs.
+// Before this, only dibs serve --force got a machine out of a group.
+export async function leave() {
+  const rc = remoteConf();
+  if (!rc) die("this machine isn't in a group, so there's nothing to leave.", 1);
+  const coordinator = await isCoordinator(rc);
+  if (coordinator) {
+    // Machines it knows by token, and any reporting to it now (one joined with the coordinator's own token isn't in the registry).
+    const reg = loadRegistry();
+    const names = new Set(Object.entries(reg.machines).filter(([, m]) => m.joined).map(([n]) => n));
+    try { for (const m of (await call(rc, 'GET', '/machines', undefined, { timeout: 3000 })).machines || []) names.add(m.name); } catch {}
+    // One just kicked can still be listed until its worker next calls in.
+    for (const n of [rc.name, ...Object.keys(reg.removed)]) names.delete(n);
+    const others = [...names].sort();
+    if (others.length) die(`this machine is the group's coordinator, and ${others.join(', ')} ${others.length === 1 ? 'is' : 'are'} still in the group. `
+      + `Remove ${others.length === 1 ? 'it' : 'each'} first (${others.map(n => `dibs kick ${n}`).join(', ')}), then dibs leave again. Nothing changed.`);
+  }
+  logChange('leave', { group: rc.url, as: coordinator ? 'coordinator' : 'member' });
+  for (const k of coordinator ? ['worker', 'serve'] : ['worker']) removeService(k);
+  fs.rmSync(REMOTE, { force: true });
+  console.log(coordinator
+    ? "left: this machine is no longer a coordinator, and takes no jobs from other machines. A dibs serve started by hand in a terminal keeps running until you stop it."
+    : `left the group at ${rc.url}: this machine takes no more jobs from it. On the coordinator, dibs kick ${rc.name} takes it off the list.`);
 }

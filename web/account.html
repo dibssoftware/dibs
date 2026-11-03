@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Your dibs account</title>
+<link rel="icon" href="/web/logo.png">
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+<canvas id="dither" aria-hidden="true"></canvas>
+<a class="mark" href="/" aria-label="dibs"><img src="/web/logo.png" alt="" width="38" height="38"></a>
+<main class="signin" id="account">
+  <div class="ticket-wrap"><div class="signin-card ticket">
+    <section data-view="signed-out" hidden>
+      <h1>Sign in to dibs</h1>
+      <p>Your account remembers your Macs, so any browser you sign in with opens all of them. What you see stays encrypted between this browser and your Macs.</p>
+      <button type="button" id="passkey-signin">Sign in with a passkey</button>
+      <form id="email-form" autocomplete="on">
+        <label for="email">Or get a sign-in link by email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required>
+        <button type="submit">Email me a link</button>
+      </form>
+      <p class="sub">The relay keeps only a keyed hash of your address, and uses the address only to send the link.</p>
+    </section>
+    <section data-view="need-key" hidden>
+      <h1>One more step</h1>
+      <p>You're signed in, but this browser doesn't have your account's key yet. One of your Macs can give it: ask here, then run the command this page shows on that Mac.</p>
+      <button type="button" id="ask-key">Ask my Mac</button>
+      <p class="sub">Signing in with a passkey that holds the key skips this.</p>
+    </section>
+    <section data-view="approve" hidden>
+      <h1>Approve on your Mac</h1>
+      <p>On one of your Macs, run <code>dibs connect --approve</code> with this code:</p>
+      <p class="code" id="code"></p>
+      <p class="sub">If the code your Mac shows differs, don't approve: something between this browser and your Mac is not what it says.</p>
+    </section>
+    <section data-view="confirm" hidden>
+      <h1>Type your Mac's code</h1>
+      <form id="confirm-form" autocomplete="off">
+        <label for="confirm">The code your Mac printed after <code>dibs connect --approve</code></label>
+        <input id="confirm" name="confirm" inputmode="numeric" spellcheck="false" maxlength="7" required>
+        <button type="submit">Open my Macs</button>
+      </form>
+      <p class="sub">This browser uses the key it was sent only with that code, so a key from anywhere but your Mac is never used.</p>
+    </section>
+    <section data-view="signed-in" hidden>
+      <h1>Your Macs</h1>
+      <ul id="machines"></ul>
+      <p class="sub">Add a Mac: run <code>dibs connect --account</code> on it and open its link here.</p>
+      <h2>Passkeys</h2>
+      <ul id="passkeys"></ul>
+      <button type="button" id="passkey-add">Add a passkey</button>
+      <button type="button" id="signout" class="link">Sign out of this browser</button>
+      <button type="button" id="signout-all" class="link">Sign out everywhere else</button>
+    </section>
+    <p id="status" class="status" role="status"></p>
+  </div></div>
+</main>
+<script src="/web/transport.js"></script>
+<script src="/web/dither.js"></script>
+<script src="/web/account.js"></script>
+</body>
+</html>

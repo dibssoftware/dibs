@@ -74,7 +74,7 @@ Always run the suite through dibs: it spawns real processes and coordinators, an
 | `DIBS_CLAUDE_SETTINGS` | settings.json path for `dibs guard install` |
 | `DIBS_CLEAN`, `DIBS_DERIVED` | the caches src/diskwarn.mjs clears, as `{label: argv}`, and the DerivedData folder; without DIBS_CLEAN a test's DIBS_HOME clears nothing |
 | `DIBS_BACKUP_MS` | how often the coordinator checks for a dead throttle watcher and sends the low-disk notes itself (default 30s) |
-| `DIBS_LAUNCHCTL`, `DIBS_LAUNCH_AGENTS` | the launchctl `dibs service` runs, and the folder its plists go in, so a test never touches the real services |
+| `DIBS_LAUNCHCTL`, `DIBS_LAUNCH_AGENTS` | the launchctl `dibs service` runs, and the folder its plists (or, on Linux, its systemd units) go in, so a test never touches the real services |
 | `DIBS_HOG_MIN` | bytes a temp session folder must hold before a low disk notice names it (default 2 GB), so a test's small folders count |
 | `DIBS_CLAUDE_TMP` | stands for `/tmp` when the guard looks for Claude Code's temp folder (`claude-<uid>` under it), so tests never touch the real one |
 | `DIBS_NO_SESSION`, `DIBS_AGENT`, `DIBS_AS` | who dibs thinks is calling |

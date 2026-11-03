@@ -189,13 +189,27 @@ test('a job on top never starts while the machine swaps or is past its load ceil
   assert.equal(judge(s, me, cfg({ overlap: 'squeeze', maxLoad: 10 }), { load: 12 }, hist).rule, 'load');
 });
 
-test('below minDisk nothing starts, not even a run inside its own hold', () => {
+// Until 2026-11-03 a run inside its own hold was refused (exit 74) right after "you already
+// have the simulator, so you go ahead", for disk the hold had already been granted.
+test('below minDisk nothing new starts, urgent work included; a run inside its own hold goes on what the hold got', () => {
   const hold = lease({ kind: 'hold', res: ['test'], pid: 77, spid: 77, expires: T + 6e5 });
   const me = waiter({ spid: 77 });
   const s = { leases: [hold], queue: [me] };
-  assert.equal(judge(s, me, cfg(), { diskFree: 1 * G }).rule, 'disk');
-  assert.equal(judge(s, me, cfg(), { diskFree: 100 * G }).ok, true);
+  assert.equal(judge(s, me, cfg(), { diskFree: 1 * G }).ok, true, 'inside its own hold');
+  assert.equal(judge(s, waiter({ spid: 88 }), cfg(), { diskFree: 1 * G }).rule, 'disk', 'anyone else waits');
   assert.equal(judge(s, waiter({ prio: 'urgent', purpose: 'x' }), cfg(), { diskFree: 1 * G }).rule, 'disk', 'urgent too');
+});
+
+// 2026-11-03: dibs hold sim exited 74 with 7 GB free, on the 8 GB the simulator declares;
+// its runs here eat 0.17 GB at the middle and 1.6 GB at most.
+test('once runs show what a resource really eats of the disk, that beats the size it declares', () => {
+  const me = waiter({ res: ['sim'], disk: 8 * G, key: 'sim|hold', kind: 'hold' });
+  const s = { leases: [], queue: [me] };
+  const hist = [0.2, 0.1, 1.6, 0.17].map((d, i) => ({ key: 'sim|xcrun simctl', dur: 6e4, who: 'x', at: T - i * 36e5, ate: d * G }));
+  assert.equal(judge(s, me, cfg(), { diskFree: 7 * G }).rule, 'disk', 'no runs yet: the declared 8 GB');
+  assert.equal(judge(s, me, cfg(), { diskFree: 7 * G }, hist).ok, true, 'its runs eat well under the 7 GB free');
+  assert.equal(judge(s, me, cfg(), { diskFree: 4 * G }, hist).rule, 'disk', 'the minDisk floor still holds');
+  assert.equal(judge(s, { ...me, disk: 8 * G, diskDeclared: true }, cfg(), { diskFree: 7 * G }, hist).rule, 'disk', 'its own --disk still wins');
 });
 
 test('while the machine swaps, new work below urgent keeps swapRoom of disk free on top of minDisk, for swap to grow into', () => {
