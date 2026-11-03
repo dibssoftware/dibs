@@ -1,10 +1,12 @@
 // Before the disk runs out: under twice the floor, dibs clears caches that
-// rebuild themselves, and tells every active session how much is free, what's
-// growing and whose folder holds the most, at most every WARN_EVERY, again at
-// once when it drops under the floor. Under the floor, each agent with a job
-// running hears to save its work now, and each with a job waiting hears that
-// it waits for disk. On 2026-10-20 the Mac hit 210 MB free: writes failed,
-// Bash died for every session, and jobs sat silently on "free disk".
+// rebuild themselves, and tells the sessions with something of their own to
+// free (a big scratch folder, or running jobs that wrote a lot) how much is
+// free and what to do. Each hears once per band: under twice the floor, then
+// under the floor. On 2026-10-20 the Mac hit 210 MB free: writes failed, Bash
+// died for every session, and jobs sat silently on "free disk". On 2026-11-03
+// the warnings had gone to every session, 13 of them as the disk fell from 8.2
+// to 4.7 GB, mostly to agents with nothing to free; the person sees the whole
+// machine in dibs alerts.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,7 +20,10 @@ import { makeAlive } from './proc.mjs';
 const GB = b => gb(b).replace(/G$/, ' GB');
 const SAY_FREED = 0.1 * 1024 ** 3;   // less than shows as 0.0 GB: not worth a line
 const LOG = path.join(HOME, 'cool.log');
-export const WARN_EVERY = 15 * 6e4;
+// Running jobs that wrote this much (src/measure.mjs, a run's share of the disk's fall) have something to free.
+const ATE_MIN = 1024 ** 3;
+// The bands a session hears about once each, worst last.
+const BANDS = ['low', 'critical'];
 // Clearing caches again sooner than this frees little: they refill slowly.
 const CLEAN_EVERY = 30 * 6e4;
 const STEP_TIMEOUT = 2 * 6e4;
@@ -87,17 +92,16 @@ export async function clean(t = now(), where = HOME) {
 }
 export const cleanDue = (was, t, critical) => !(t - (was?.cleaned?.at || 0) < (critical && !was?.cleanedCritical ? 0 : CLEAN_EVERY));
 
-// The sessions to tell: those with a job running or waiting, and those whose
-// thread with dibs moved in the last hour. Their jobs, for the note.
-function sessions(s, t) {
+// The sessions to tell: those with something of their own to free, a scratch
+// folder hogs.mjs found over its line (was.folders) or running jobs that ate
+// ATE_MIN of disk. Their jobs, for the note.
+function sessions(s, was) {
   const out = new Map();
   const add = (session, who, agentId) => { if (session && !out.has(session)) out.set(session, { session, who, agentId: agentId || null, running: [], waiting: [] }); return out.get(session); };
-  for (const l of s.leases || []) if (l.kind === 'run' && l.sessionId) add(l.sessionId, l.who, l.agentId).running.push(l);
-  for (const q of s.queue || []) if (q.pid && q.sessionId) add(q.sessionId, q.who, q.agentId).waiting.push(q);
-  try {
-    for (const th of JSON.parse(fs.readFileSync(path.join(HOME, 'messages.json'), 'utf8')).threads || [])
-      if (th.session && t - (th.last || 0) < 36e5) add(th.session, th.who, th.agentId);
-  } catch {}
+  for (const h of was?.folders || []) add(h.session, h.who, h.agentId);
+  for (const l of s.leases || []) if (l.kind === 'run' && l.sessionId && (l.ate || 0) >= ATE_MIN) add(l.sessionId, l.who, l.agentId);
+  for (const l of s.leases || []) if (l.kind === 'run' && out.has(l.sessionId)) out.get(l.sessionId).running.push(l);
+  for (const q of s.queue || []) if (q.pid && out.has(q.sessionId)) out.get(q.sessionId).waiting.push(q);
   return [...out.values()];
 }
 const job = x => `#${x.id}${x.purpose ? ` ("${x.purpose}")` : ''}`;
@@ -117,17 +121,6 @@ export function noteText(x, m, floor, hint, cleaned) {
   return lines.join('. ') + '.';
 }
 
-// Whether a session hears again. Under the floor: every WARN_EVERY, and at once on
-// dropping under it. Over it: only once free disk has fallen DROP_AGAIN since its last
-// note, or something grows fast (hogs.mjs writer): a note every 15 minutes at a steady
-// 9.2 GB taught agents to skip it.
-const DROP_AGAIN = 1024 ** 3;
-function again(last, level, m, was, t) {
-  if (level === 'critical') return last.level !== 'critical' || t - last.at >= WARN_EVERY;
-  if (t - last.at < WARN_EVERY) return false;
-  return last.free == null || last.free - m.diskFree >= DROP_AGAIN || !!(was?.writer && t - was.readAt < WARN_EVERY);
-}
-
 // Whether the throttle watcher (src/cool.mjs) is down: its pidfile names no live process.
 export function watcherDown() {
   let pid = 0;
@@ -136,7 +129,7 @@ export function watcherDown() {
 }
 
 // One pass, from hogs.mjs under twice the floor: clear caches when due, then tell
-// each active session, once per WARN_EVERY and level. Returns what to keep in hogs.json.
+// each session with something to free, once per band. Returns what to keep in hogs.json.
 export async function warnOnce(cfg, m, was, hint, t = now()) {
   const floor = bytes(cfg.minDisk);
   if (m.diskFree == null || m.diskFree >= 2 * floor) return {};
@@ -148,14 +141,12 @@ export async function warnOnce(cfg, m, was, hint, t = now()) {
   try { s = JSON.parse(fs.readFileSync(paths.state, 'utf8')); } catch {}
   const { notify } = await import('./talk.mjs');
   const level = critical ? 'critical' : 'low';
-  // Each session's last note, so it hears again only WARN_EVERY later, or at once when it turns critical.
+  // The worst band each session has heard about; hogs.mjs clears it once there's room again.
   const warned = { ...(was?.warned || {}) };
-  for (const x of sessions(s, t)) {
-    const last = warned[x.session];
-    if (last && !again(last, level, m, was, t)) continue;
+  for (const x of sessions(s, was)) {
+    if (BANDS.indexOf(warned[x.session]?.level) >= BANDS.indexOf(level)) continue;
     if (notify({ sessionId: x.session, who: x.who, agentId: x.agentId }, `disk:${level}:${t}`, noteText(x, m, floor, hint, cleaned))) warned[x.session] = { at: t, level, free: m.diskFree };
   }
-  for (const [k, w] of Object.entries(warned)) if (t - w.at > 4 * WARN_EVERY) delete warned[k];
   // Kept only when it changed: on a nearly full disk, every write counts.
   return JSON.stringify(warned) === JSON.stringify(was?.warned || {}) ? keep : { ...keep, warned };
 }

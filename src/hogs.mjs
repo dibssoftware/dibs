@@ -118,6 +118,12 @@ function short(cfg, m, s) {
   return m.diskFree < floor || (s.queue || []).some(q => q.pid && q.disk && m.diskFree < q.disk);
 }
 
+// The session folders over HOG_MIN, biggest first, with whose they are.
+function bigFolders(folders, size) {
+  return Object.entries(size).filter(([p, b]) => folders.includes(p) && b >= HOG_MIN()).sort((a, b) => b[1] - a[1]).slice(0, TOP)
+    .map(([folder, b]) => ({ folder, session: path.basename(folder), bytes: b, what: contents(path.join(folder, 'scratchpad')) || contents(folder), ...ownerOf(folder, path.basename(folder), size) }));
+}
+
 // One pass, from the throttle watcher: measure on a new drop (and every
 // REMEASURE while it lasts), and leave the biggest folders' agents a notice
 // once per drop. Never throws.
@@ -136,12 +142,17 @@ export async function hogsOnce(cfg, m, t = now()) {
       write(was = { ...was, cleaned: await clean(t), cleanedCritical: critical });
     }
     if (!short(cfg, m, s)) {
-      if (was?.under && m.diskFree >= floor + OVER) write({ ...was, under: false, endedAt: t });
+      // Room again (twice the floor): a later fall is news to each session, band by band (src/diskwarn.mjs).
+      const room = m.diskFree != null && m.diskFree >= 2 * floor;
+      if (was?.under && m.diskFree >= floor + OVER) { const { warned, ...rest } = was; write({ ...(room ? rest : was), under: false, endedAt: t }); }
+      else if (was?.warned && room) { const { warned, ...rest } = was; write(rest); }
       else if (m.diskFree != null && m.diskFree < 2 * floor) {
         let x = was || {};
         if (!(t - (was?.readAt || 0) < REMEASURE)) {
           const folders = sessionFolders();
-          write(x = { ...x, under: false, ...readings(folders, await sizes([...folders, ...Object.values(places())]), m, was, t) });
+          const size = await sizes([...folders, ...Object.values(places())]);
+          // The folders big enough to be worth freeing: their sessions are the ones told.
+          write(x = { ...x, under: false, folders: bigFolders(folders, size), ...readings(folders, size, m, was, t) });
         }
         const keep = await warnOnce(cfg, m, x, hintOf(x), t);
         if (Object.keys(keep).length) write({ ...x, ...keep });
@@ -157,8 +168,7 @@ export async function hogsOnce(cfg, m, t = now()) {
     }
     const folders = sessionFolders();
     const size = await sizes([...folders, ...Object.values(places())]);
-    const big = Object.entries(size).filter(([p, b]) => folders.includes(p) && b >= HOG_MIN()).sort((a, b) => b[1] - a[1]).slice(0, TOP)
-      .map(([folder, b]) => ({ folder, session: path.basename(folder), bytes: b, what: contents(path.join(folder, 'scratchpad')) || contents(folder), ...ownerOf(folder, path.basename(folder), size) }));
+    const big = bigFolders(folders, size);
     const waiting = (s.queue || []).filter(q => q.pid).length;
     const x = { ...(was?.cleaned && { cleaned: was.cleaned, cleanedCritical: was.cleanedCritical }), ...(was?.warned && { warned: was.warned }), under: true, drop, at: t, free: m.diskFree, floor, waiting, folders: big, ...readings(folders, size, m, was, t) };
     write(x);

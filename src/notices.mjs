@@ -9,7 +9,9 @@
 // dibs and every running one. Each notice has a name (idle:#12), so however
 // many of them scan, an agent hears about each thing once.
 import fs from 'node:fs';
-import { paths } from './config.mjs';
+import path from 'node:path';
+import { paths, HOME } from './config.mjs';
+import { peek, history } from './state.mjs';
 import { notify } from './talk.mjs';
 import { minutes, stuckFor } from './plain.mjs';
 import { stuckLeases } from './acquire.mjs';
@@ -68,20 +70,32 @@ export function noticeScan(t = now()) {
   } catch {}
 }
 
-// [to, once, text] for each task still in progress that needs a word from its
-// agent: past its ETA, or with no post for QUIET_AFTER. Expired tasks are let go.
-// Only tasks posted from a Claude Code session: the hook is how the notice arrives.
-export function progressNoticesIn(posts, t = now()) {
+// At most one nudge per task this often. On 2026-11-03, 5 of 35 notices were
+// these, and agents were posting progress only to stop them.
+export const NAG_EVERY = 2 * 36e5;
+// An agent with no job running or waiting, and none run in this long, isn't
+// working now: its open task waits quietly for it to come back.
+export const AWAY_AFTER = 30 * 6e4;
+const NAGS = path.join(HOME, 'nags.json');
+
+// [to, once, text, task] for each task still in progress that needs a word
+// from its agent: past its ETA, or with no post for QUIET_AFTER. Expired tasks
+// are let go. Only tasks posted from a Claude Code session: the hook is how the
+// notice arrives. nagged: when each task was last nudged; working(who, session):
+// whether its agent is at work now.
+export function progressNoticesIn(posts, t = now(), { nagged = {}, working = () => true } = {}) {
   const out = [];
   for (const k of tasks(posts, t)) {
     if (k.state !== 'doing' || !k.session) continue;
+    const task = `${k.who}:${k.task || k.project}`;
+    if (t - (nagged[task] || 0) < NAG_EVERY || !working(k.who, k.session)) continue;
     const to = { sessionId: k.session, who: k.who };
     const name = k.task ? `"${k.task}"` : `in ${k.project || 'this folder'}`;
     const again = (...more) => quoted(['dibs', 'progress', 'where it stands', ...(k.task ? ['--task', k.task] : []), ...more]);
     if (k.overdue) out.push([to, `late:${k.who}:${k.task || k.project}:${k.eta}`, `your progress task ${name} was due at ${clock(k.eta)} and is still open. `
-      + `If it's finished, say so: ${again('--done')}. If not, post where it stands with a new time: ${again('--eta', '30m')}.`]);
+      + `If it's finished, say so: ${again('--done')}. If not, post where it stands with a new time: ${again('--eta', '30m')}.`, task]);
     else if (t - k.last > QUIET_AFTER) out.push([to, `quiet:${k.who}:${k.task || k.project}:${k.last}`, `your progress task ${name} has had no post for ${minutes(t - k.last)}. `
-      + `Post where it stands (${again()}), or close it: --done if it's finished, --blocked if it's stuck.`]);
+      + `Post where it stands (${again()}), or close it: --done if it's finished, --blocked if it's stuck.`, task]);
   }
   return out;
 }
@@ -90,11 +104,20 @@ const DAY = 864e5;
 // From the throttle watcher (src/cool.mjs), which is always running: no waiter needed.
 export function progressScan(t = now()) {
   try {
-    for (const [to, once, text] of progressNoticesIn(readPosts({ since: t - DAY }), t)) {
+    let nagged = {};
+    try { nagged = JSON.parse(fs.readFileSync(NAGS, 'utf8')); } catch {}
+    const s = peek(), hist = history();
+    const working = (who, session) => (s.leases || []).some(l => l.who === who || (session && l.sessionId === session))
+      || (s.queue || []).some(q => q.pid && (q.who === who || (session && q.sessionId === session)))
+      || hist.some(r => r.who === who && t - r.at < AWAY_AFTER);
+    const before = JSON.stringify(nagged);
+    for (const [to, once, text, task] of progressNoticesIn(readPosts({ since: t - DAY }), t, { nagged, working })) {
       if (sent.has(once)) continue;
       sent.add(once);
-      notify(to, once, text);
+      if (notify(to, once, text)) nagged[task] = t;
     }
+    for (const [k, at] of Object.entries(nagged)) if (t - at >= NAG_EVERY) delete nagged[k];
+    if (JSON.stringify(nagged) !== before) fs.writeFileSync(NAGS, JSON.stringify(nagged));
   } catch {}
 }
 

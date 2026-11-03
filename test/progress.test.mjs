@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
 import { tmp, env, until, track, BIN } from './helpers.mjs';
 import { tasks, EXPIRE_AFTER, QUIET_AFTER } from '../src/progress.mjs';
-import { progressNoticesIn } from '../src/notices.mjs';
+import { progressNoticesIn, NAG_EVERY } from '../src/notices.mjs';
 
 const MIN = 6e4, H = 36e5, T = Date.UTC(2026, 10, 2, 18);
 const post = (task, at, more = {}) => ({ at, who: 'a1', session: 'sess-a', project: 'app', task, state: 'doing', text: `on ${task}`, ...more });
@@ -47,9 +47,18 @@ test('an open task past its ETA or quiet for a while gets its agent one notice s
   assert.match(quiet, /your progress task "quiet" has had no post for 50 min\. Post where it stands \(dibs progress 'where it stands' --task quiet\), or close it/);
 });
 
+test('a task is nudged at most once every 2 hours, and not at all while its agent has stopped working', () => {
+  const quiet = [post('quiet', T - QUIET_AFTER - 5 * MIN)];
+  assert.equal(progressNoticesIn(quiet, T, { nagged: { [`${quiet[0].who}:quiet`]: T - NAG_EVERY + MIN } }).length, 0, 'nudged 1 hr 59 min ago');
+  assert.equal(progressNoticesIn(quiet, T, { nagged: { [`${quiet[0].who}:quiet`]: T - NAG_EVERY } }).length, 1, 'two hours on, once more');
+  assert.equal(progressNoticesIn(quiet, T, { working: () => false }).length, 0, 'no job running and none for 30 minutes: it waits for its agent quietly');
+});
+
 test('the throttle watcher leaves the notice for a quiet task, once, for the session that posted it', async t => {
   const home = tmp(t);
   fs.writeFileSync(path.join(home, 'progress.jsonl'), `${JSON.stringify(post('review', Date.now() - QUIET_AFTER - 5 * MIN))}\n`);
+  // Its agent ran a job a few minutes ago: it's at work, so its quiet task is worth a word.
+  fs.writeFileSync(path.join(home, 'history.jsonl'), `${JSON.stringify({ key: 'test|npm test', dur: 1000, who: post('review', 0).who, at: Date.now() - 5 * MIN })}\n`);
   const watcher = spawn(process.execPath, [BIN, 'throttle', '--watch'], { env: env(home), stdio: 'ignore' });
   track(t, watcher);
   const notices = () => { try { return JSON.parse(fs.readFileSync(path.join(home, 'messages.json'), 'utf8')).messages.filter(m => m.kind === 'notice'); } catch { return []; } };
@@ -57,4 +66,6 @@ test('the throttle watcher leaves the notice for a quiet task, once, for the ses
   const [n] = notices();
   assert.equal(n.session, 'sess-a');
   assert.match(n.text, /your progress task "review" has had no post for/);
+  await until(() => fs.existsSync(path.join(home, 'nags.json')));
+  assert.ok(Object.keys(JSON.parse(fs.readFileSync(path.join(home, 'nags.json'), 'utf8'))).length, 'the nudge is remembered, so a watcher restart can\'t repeat it');
 });

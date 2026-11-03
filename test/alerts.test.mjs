@@ -221,3 +221,15 @@ test("dibs's own trouble is loud: a service launchd had to restart, the hook fai
   assert.match(hook.fix, /^Those tool calls ran without dibs's checks\./);
   assert.match(find(found, `crash:${T - MIN}`).title, /^dibs crashed at .* running dibs run for web-app$/);
 });
+
+test('a failure is on the plain board for 30 minutes, then only in dibs alerts, the page and the app', t => {
+  const home = tmp(t, 'aging');
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ minDisk: '0' }));
+  const now = Date.now();
+  const deploy = (id, ago) => ({ at: now - ago * MIN, kind: 'end', type: 'run', id, who: 'ios', res: ['deploy'], key: `k${id}`, cmd: `./ship.sh ${id}`, code: 1, prio: 'normal' });
+  fs.writeFileSync(path.join(home, 'events.jsonl'), [deploy(1, 40), deploy(2, 10)].map(e => JSON.stringify(e)).join('\n') + '\n');
+  const board = sync(home, []).out;
+  assert.match(board, /ios's #2 \(\.\/ship\.sh 2\) failed/);
+  assert.doesNotMatch(board, /#1 \(\.\/ship\.sh 1\)/, 'forty minutes old: off the board');
+  assert.match(sync(home, ['alerts']).out, /ios's #1 \(\.\/ship\.sh 1\) failed/, 'still an alert for the person');
+});

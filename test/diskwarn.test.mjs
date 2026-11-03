@@ -1,6 +1,6 @@
 // Before the disk runs out: under twice the floor dibs clears caches that rebuild
-// themselves and tells every active session, again with more urgency under the
-// floor; a job paused for disk tells its agent through the hook.
+// themselves and tells the sessions with something to free, once per band; a job
+// paused for disk tells its agent through the hook.
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,7 +19,8 @@ const notes = () => { try { return JSON.parse(fs.readFileSync(path.join(HOME, 'm
 const clear = () => { for (const f of ['state.json', 'messages.json', 'hogs.json']) fs.rmSync(path.join(HOME, f), { force: true }); };
 
 // 2026-10-20: the Mac hit 210 MB free; writes failed, Bash died for every session, and jobs sat silently on "free disk".
-test('under twice the floor, dibs clears caches that rebuild themselves and tells every active session; under the floor, again, to save work now', async t => {
+// 2026-11-03: the warnings went to every session as the disk fell, 13 of 35 notices, mostly to agents with nothing to free.
+test('under twice the floor, dibs clears caches and tells only the sessions with something to free, once per band', async t => {
   t.after(clear);
   const caches = tmp(t, 'caches'), derived = tmp(t, 'derived');
   fs.writeFileSync(path.join(caches, 'npm-cache'), 'x');
@@ -31,9 +32,12 @@ test('under twice the floor, dibs clears caches that rebuild themselves and tell
   process.env.DIBS_DERIVED = derived;
   t.after(() => { delete process.env.DIBS_CLEAN; delete process.env.DIBS_DERIVED; });
   const t0 = Date.now();
-  fs.writeFileSync(path.join(HOME, 'state.json'), JSON.stringify({ seq: 3,
-    leases: [{ id: 1, res: ['test'], kind: 'run', who: 'builder', sessionId: 'sess-a', pid: process.pid, start: t0, purpose: 'suite', cmd: 'npm test' }],
-    queue: [{ id: 2, res: ['test'], pid: process.pid, who: 'waiter', sessionId: 'sess-b', enq: t0, purpose: 'lint' }] }));
+  // sess-a's job wrote 2 GB; sess-c's job wrote nothing; sess-b only waits. Only sess-a has something to free.
+  fs.writeFileSync(path.join(HOME, 'state.json'), JSON.stringify({ seq: 4,
+    leases: [{ id: 1, res: ['test'], kind: 'run', who: 'builder', sessionId: 'sess-a', pid: process.pid, start: t0, purpose: 'suite', cmd: 'npm test', ate: 2 * G },
+      { id: 3, res: ['heavy'], kind: 'run', who: 'reader', sessionId: 'sess-c', pid: process.pid, start: t0, cmd: 'grep -r x', ate: 0.1 * G }],
+    queue: [{ id: 2, res: ['test'], pid: process.pid, who: 'waiter', sessionId: 'sess-a', enq: t0, purpose: 'lint' },
+      { id: 4, res: ['test'], pid: process.pid, who: 'other', sessionId: 'sess-b', enq: t0 }] }));
 
   await hogsOnce(cfg, { diskFree: 11 * G }, t0);
   assert.equal(notes().length, 0, 'over twice the floor: nothing');
@@ -41,39 +45,40 @@ test('under twice the floor, dibs clears caches that rebuild themselves and tell
   assert.ok(!fs.existsSync(path.join(caches, 'npm-cache')), 'the cache step ran');
   assert.ok(!fs.existsSync(old) && fs.existsSync(fresh), 'only build output unused for a day goes');
   let n = notes();
-  assert.deepEqual(n.map(m => m.session).sort(), ['sess-a', 'sess-b']);
-  assert.match(n.find(m => m.session === 'sess-a').text, /^free disk is getting low: 8\.0 GB left \(dibs starts nothing new under 5\.0 GB\)\. .*Free what you can of your own/);
-  assert.doesNotMatch(n.find(m => m.session === 'sess-b').text, /waiting job/, 'over the floor a waiter waits for something else');
+  assert.deepEqual(n.map(m => m.session), ['sess-a'], 'not the sessions with nothing of their own to free');
+  assert.match(n[0].text, /^free disk is getting low: 8\.0 GB left \(dibs starts nothing new under 5\.0 GB\)\. .*Free what you can of your own/);
   assert.doesNotMatch(n[0].text, /freed 0\.0 GB/, 'nothing freed worth saying');
   assert.match(fs.readFileSync(path.join(HOME, 'cool.log'), 'utf8'), /disk low: dibs cleared npm cache, Xcode build output unused for a day, freeing/);
 
-  await hogsOnce(cfg, { diskFree: 7 * G }, t0 + 6e4);
-  assert.equal(notes().length, 2, 'not again within 15 minutes');
+  await hogsOnce(cfg, { diskFree: 6 * G }, t0 + 40 * 6e4);
+  assert.equal(notes().length, 1, 'still in the same band, however long and however far it falls in it');
 
-  await hogsOnce(cfg, { diskFree: 0.2 * G }, t0 + 2 * 6e4);
+  await hogsOnce(cfg, { diskFree: 0.2 * G }, t0 + 41 * 6e4);
   n = notes();
-  assert.equal(n.length, 4, 'under the floor: at once, with more urgency');
-  const a = n.filter(m => m.session === 'sess-a').at(-1).text;
+  assert.equal(n.length, 2, 'under the floor: a new band, at once');
+  const a = n.at(-1).text;
   assert.match(a, /^free disk is critically low: 0\.2 GB left .*Save your work now/);
   assert.match(a, /Your running dibs job #1 \("suite"\) may fail writing: save what it has done if you can/);
-  assert.match(n.filter(m => m.session === 'sess-b').at(-1).text, /Your waiting job #2 \("lint"\) won't start until there's room/);
-  await hogsOnce(cfg, { diskFree: 0.2 * G }, t0 + 12 * 6e4);
-  assert.equal(notes().length, 4, 'still under: not again within 15 minutes');
-  await hogsOnce(cfg, { diskFree: 0.2 * G }, t0 + 18 * 6e4);
-  assert.equal(notes().length, 6, 'and again after them');
+  assert.match(a, /Your waiting job #2 \("lint"\) won't start until there's room/);
+  await hogsOnce(cfg, { diskFree: 0.2 * G }, t0 + 60 * 6e4);
+  assert.equal(notes().length, 2, 'still under: never again for that band');
+
+  await hogsOnce(cfg, { diskFree: 11 * G }, t0 + 70 * 6e4);
+  await hogsOnce(cfg, { diskFree: 8 * G }, t0 + 80 * 6e4);
+  assert.equal(notes().length, 3, 'room again, then a new fall: told again');
 });
 
-// 2026-10-20: a note every 15 minutes at a steady 9.2 GB taught agents to skip it.
-test('over the floor, a session hears again only once free disk has fallen a gigabyte since its last note', async t => {
+test("a session whose own scratch folder is big hears it's low on disk, though it runs nothing", async t => {
   t.after(clear);
-  const t0 = Date.now();
-  fs.writeFileSync(path.join(HOME, 'state.json'), JSON.stringify({ seq: 2, leases: [], queue: [{ id: 1, res: ['test'], pid: process.pid, who: 'w', sessionId: 'sess-c', enq: t0 }] }));
-  await hogsOnce(cfg, { diskFree: 9.2 * G }, t0);
-  assert.equal(notes().length, 1);
-  await hogsOnce(cfg, { diskFree: 9.0 * G }, t0 + 16 * 6e4);
-  assert.equal(notes().length, 1, 'steady: not again');
-  await hogsOnce(cfg, { diskFree: 8.1 * G }, t0 + 32 * 6e4);
-  assert.equal(notes().length, 2, 'down a gigabyte: again');
+  process.env.DIBS_HOG_MIN = String(200 * 1024);
+  t.after(() => delete process.env.DIBS_HOG_MIN);
+  const pad = path.join(base, `claude-${process.getuid()}`, '-Users-x', 'sess-f', 'scratchpad');
+  fs.mkdirSync(pad, { recursive: true });
+  fs.writeFileSync(path.join(pad, 'big.bin'), Buffer.alloc(300 * 1024));
+  t.after(() => fs.rmSync(path.join(base, `claude-${process.getuid()}`), { recursive: true, force: true }));
+  fs.writeFileSync(path.join(HOME, 'state.json'), JSON.stringify({ seq: 1, leases: [], queue: [] }));
+  await hogsOnce(cfg, { diskFree: 8 * G }, Date.now());
+  assert.deepEqual(notes().map(m => m.session), ['sess-f']);
 });
 
 test("with the throttle watcher down, the coordinator sends the low-disk notes itself", async t => {
@@ -81,7 +86,12 @@ test("with the throttle watcher down, the coordinator sends the low-disk notes i
   const h = tmp(t, 'coord');
   const at = await port();
   fs.writeFileSync(path.join(h, 'state.json'), JSON.stringify({ seq: 2, leases: [], queue: [{ id: 1, res: ['test'], pid: process.pid, who: 'w', sessionId: 'sess-d', enq: Date.now() }] }));
-  bg(t, h, ['serve', '--listen', String(at), '--bind', '127.0.0.1'], { env: { DIBS_BACKUP_MS: '300', DIBS_HOG_PLACES: '{}', DIBS_CLAUDE_TMP: base,
+  // sess-d has something of its own to free: a scratch folder over the line.
+  const pad = path.join(base, `claude-${process.getuid()}`, '-Users-y', 'sess-d', 'scratchpad');
+  fs.mkdirSync(pad, { recursive: true });
+  fs.writeFileSync(path.join(pad, 'big.bin'), Buffer.alloc(300 * 1024));
+  t.after(() => fs.rmSync(path.join(base, `claude-${process.getuid()}`), { recursive: true, force: true }));
+  bg(t, h, ['serve', '--listen', String(at), '--bind', '127.0.0.1'], { env: { DIBS_BACKUP_MS: '300', DIBS_HOG_PLACES: '{}', DIBS_CLAUDE_TMP: base, DIBS_HOG_MIN: String(200 * 1024),
     DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 8 * G }) } });
   await until(async () => await answers(at), SERVE_START);
   await until(() => { try { return JSON.parse(fs.readFileSync(path.join(h, 'messages.json'), 'utf8')).messages.some(m => m.session === 'sess-d' && /free disk is getting low/.test(m.text)); } catch { return false; } });

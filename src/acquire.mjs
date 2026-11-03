@@ -587,12 +587,12 @@ export async function acquire(o, kind, cfg) {
   if (!nested) capToMachine(cfg, size);
   const { mem, cpu, disk, asked, askedCpu, usual } = size;
   const grew = grewPlain({ mem, cpu, asked, askedCpu, usual }, key.split('|')[1]);
+  // Booked at what it really used, not at its ask: dibs's own bookkeeping. It's
+  // said on the run's own output and kept in the history, not sent through the
+  // hook: on 2026-11-03 these were 6 of 35 notices, and agents called them noise.
   if (grew) {
     say(grew);
-    // Once per command per agent, through the hook too: an agent that reads only
-    // its tool's result still learns that its --mem was overruled, and why its job waits.
-    notify({ sessionId: process.env.CLAUDE_CODE_SESSION_ID, who: id.who, agentId: o.agentId }, `sized:${key}:${Math.round(mem / 2 ** 30)}`,
-      `${grew} dibs booked it at that, not at what you asked for. To have your own number match, pass --mem ${Math.ceil((usual ?? mem) / 2 ** 30)}G${askedCpu != null ? ` --cpu ${cpu}` : ''}.`);
+    event({ kind: 'sized', key, who: id.who, mem, cpu, ...(asked != null && { asked }), ...(askedCpu != null && { askedCpu }), ...(usual != null && { usual }) });
   }
   // Running the same request again soon after a timed-out wait keeps your place.
   const ticket = `${id.spid || id.who}|${res.join(',')}|${cmd}`;

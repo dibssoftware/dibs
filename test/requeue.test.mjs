@@ -104,19 +104,18 @@ test('a job running far past its booking while swap fills the disk is stopped, a
   assert.ok(hist.some(h => h.key.startsWith('test|sh') && h.mem === 12 * G));
 });
 
-test('a command that used more than it asks for is booked at what it used, and its agent hears why once', t => {
+test('a command that used more than it asks for is booked at what it used: said on its own output and kept in the history, never sent as a notice', t => {
   const home = tmp(t);
   fs.writeFileSync(path.join(home, 'history.jsonl'), JSON.stringify({ key: 'test|true', dur: 1000, who: 'me', at: Date.now(), fit: true, mem: 6 * G, cpu: 6 }) + '\n');
   const opts = { agent: 'me', env: { CLAUDE_CODE_SESSION_ID: 'sess-1' } };
-  for (let i = 0; i < 2; i++) {
-    const r = spawnSync(process.execPath, [BIN, 'run', 'test', '--mem', '3G', '--cpu', '3', '--', 'true'], { env: env(home, opts), encoding: 'utf8' });
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stderr, /used up to 6\.0 GB of memory \(it asks for 3\.0 GB\) and 6 cores \(it asks for 3\)/);
-  }
-  const msgs = JSON.parse(fs.readFileSync(path.join(home, 'messages.json'), 'utf8')).messages.filter(m => m.kind === 'notice');
-  assert.equal(msgs.length, 1, 'said once, not every run');
-  assert.match(msgs[0].text, /booked it at that, not at what you asked for\. To have your own number match, pass --mem 6G --cpu 6/);
-  assert.equal(msgs[0].session, 'sess-1');
+  const r = spawnSync(process.execPath, [BIN, 'run', 'test', '--mem', '3G', '--cpu', '3', '--', 'true'], { env: env(home, opts), encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /used up to 6\.0 GB of memory \(it asks for 3\.0 GB\) and 6 cores \(it asks for 3\)/);
+  let msgs = [];
+  try { msgs = JSON.parse(fs.readFileSync(path.join(home, 'messages.json'), 'utf8')).messages.filter(m => m.kind === 'notice'); } catch {}
+  assert.deepEqual(msgs, [], "dibs's bookkeeping, not the agent's business (6 of 35 notices on 2026-11-03)");
+  const e = events(home).find(x => x.kind === 'sized');
+  assert.deepEqual([e?.key, e?.mem, e?.cpu, e?.asked, e?.askedCpu], ['test|true', 6 * G, 6, 3 * G, 3]);
 });
 
 test('far past its booking means 4 GB over and twice it, or over the whole budget; a job stopped for it once is not stopped again', () => {

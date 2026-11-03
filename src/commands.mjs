@@ -28,7 +28,7 @@ import { laterBoard, laterLines, laterPlain } from './later.mjs';
 import { noticeScan, NOTICE_EVERY, twinOf } from './notices.mjs';
 import { answer, ISSUES } from './answers.mjs';
 import { event } from './events.mjs';
-import { scan as scanAlerts, alertLines } from './alerts.mjs';
+import { scan as scanAlerts, alertLines, onBoard } from './alerts.mjs';
 
 const REQUESTS = path.join(HOME, 'requests.jsonl');
 // Exit codes dibs gives its own meaning (AGENTS.md).
@@ -713,7 +713,7 @@ export async function status(o, cfg) {
   const out = [`${others ? `${rc.name} (this one)  ` : ''}${cfg.pace ? `pace ${cfg.pace}, ` : ''}${handedOut(b)}    `
     + `machine: ${m.memFree}% memory free, disk ${m.diskFree == null ? 'unknown' : `${gb(m.diskFree)} free`}, swap ${gb(m.swapUsed)}, load ${m.load.toFixed(1)}`
     + `${cfg.maxLoad != null ? ` (ceiling ${cfg.maxLoad})` : ''}`];
-  out.unshift(...alertLines(scanAlerts({ s, cfg, hist, m, t }), t));
+  out.unshift(...alertLines(scanAlerts({ s, cfg, hist, m, t }).filter(a => onBoard(a, t)), t));
   const asks = forYou(cfg, t), notes = notesForYou();
   const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
   if (asks || notes) out.unshift(`${[asks && plural(asks, 'question'), notes && plural(notes, 'note')].filter(Boolean).join(' and ')} for you: dibs ${notes ? 'threads' : 'questions'}`);
@@ -742,7 +742,7 @@ function plainStatus(s, cfg, hist, m, t, rc, away, broken, me) {
   const agent = !!me.agent;
   const out = [bold(headline(p))];
   // What's wrong comes before anything else, so it can't be missed.
-  const alerted = alertLines(scanAlerts({ s, cfg, hist, m, t }), t);
+  const alerted = alertLines(scanAlerts({ s, cfg, hist, m, t }).filter(a => onBoard(a, t)), t);
   if (alerted.length) out.push('', ...alerted, '');
   // An agent reading the board wants its own place first.
   if (agent) {

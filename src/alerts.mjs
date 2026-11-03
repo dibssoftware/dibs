@@ -305,7 +305,7 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
   }
   for (const [k, g] of failed) {
     const loud = g.cmd && g.n >= REPEATS;
-    out.push({ id: `failed:${hash(k)}`, cause: 'ended', level: loud ? 'warn' : 'note', at: g.first, who: g.who, ...(!loud && { quiet: true }),
+    out.push({ id: `failed:${hash(k)}`, cause: 'ended', level: loud ? 'warn' : 'note', at: g.first, last: g.at, who: g.who, ...(!loud && { quiet: true }),
       title: `${g.who}'s ${what(g)} failed${g.n > 1 ? ` ${g.n} times in a row, last` : ''} at ${stamp(g.at, t)} (exit ${g.code})`,
       fix: `${g.who} is the one to fix it; this closes when the same command passes.` });
   }
@@ -455,6 +455,12 @@ export function dismiss(which, t = now()) {
     return ids;
   }) || [];
 }
+
+// The plain board is what agents read between steps: a failure, a stop or a
+// lost job is on it for this long after it happened, then only in the alerts
+// (the page, the app, dibs alerts), which the person reads.
+export const BOARD_KEEP = 30 * MIN;
+export const onBoard = (a, t = now()) => a.cause !== 'ended' || t - (a.last ?? a.since) < BOARD_KEEP;
 
 // The board's lines for the alerts: each open one with its fix, worst first,
 // then the ones resolved lately, with when.

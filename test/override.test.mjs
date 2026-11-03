@@ -167,7 +167,8 @@ test('a resource marked pausable: false is not paused without --force, and the r
   assert.equal(stopped(pgid), false);
   assert.equal(await runs(job), true);
   assert.equal(owner(h, ['pause', String(id), '--force']).code, 0);
-  assert.ok(stopped(pgid));
+  // The stop lands as the signal is handled; ps can show it a moment later on a busy machine.
+  await until(() => stopped(pgid));
   assert.equal(owner(h, ['resume', String(id)]).code, 0);
   await until(() => noneStopped(pgid));
 });
