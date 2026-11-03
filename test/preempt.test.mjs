@@ -13,6 +13,7 @@ import { pressureOnce, diskOnce } from '../src/cool.mjs';
 import { verdict, remaining, pausedFor, used } from '../src/schedule.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { withState } from '../src/state.mjs';
+import { inKernelOrStopped } from '../src/platform.mjs';
 
 const WIN = process.platform === 'win32';
 
@@ -100,6 +101,13 @@ test('pressure: two critical readings in a row pause, six normal ones resume, a 
   assert.deepEqual(feed([0, 2, 0, 2]), [null, null, null, null]);   // flapping does nothing
 });
 
+// 2026-11-03: under a DMG build a paused low job's shell sat in U (macOS's uninterruptible wait,
+// its writes throttled behind the build's), so it read as still running and the pause as never landing.
+test('a process in the kernel counts as stopped: a stop already sent takes it as it leaves (D on Linux, U on macOS)', () => {
+  for (const st of ['T', 'T+', 'Z', 'D', 'U', 'UN', 'Us']) assert.equal(inKernelOrStopped(st), true, st);
+  for (const st of ['R', 'S', 'Ss', 'SN', 'R+', 'I']) assert.equal(inKernelOrStopped(st), false, st);
+});
+
 test('an urgent waiter pauses a low job, borrows its slot, and resumes it when done', { skip: WIN }, async t => {
   const h = home(tmp(t));
   const low = counter(t, h, 'lo', 't');
@@ -109,7 +117,7 @@ test('an urgent waiter pauses a low job, borrows its slot, and resumes it when d
   const gate = path.join(h, 'urgent-may-finish');
   const urgent = spawnDibs(t, h, ['t', '-p', 'urgent', '-m', 'prod is down', '--', 'sh', '-c', `while [ ! -f '${gate}' ]; do sleep 0.1; done`], { agent: 'boss' });
   await until(() => board(h).held.some(l => l.who === 'boss'));
-  assert.ok(stopped(pgid), 'the low job is stopped');
+  // The stop goes out once the state is written, so the board can show boss a moment before it lands.
   await paused(low);
   const l = low.lease();
   assert.ok(l.pausedAt);
@@ -134,7 +142,11 @@ test('the low job resumes when the urgent job crashes, on the next state read', 
   const urgent = spawnDibs(t, h, ['t', '-p', 'high', '-m', 'release', '--', 'sleep', '30'], { agent: 'boss' });
   await until(() => board(h).held.some(l => l.who === 'boss'));
   // The stop signal goes out once the state is written, so the board can show boss a moment before it lands.
-  await until(() => stopped(low.lease().pgid));
+  await until(() => stopped(low.lease().pgid)).catch(e => {
+    const b = board(h);
+    throw new Error(`${e.message}\nleases: ${JSON.stringify(b.held.map(l => ({ who: l.who, prio: l.prio, pausedAt: l.pausedAt, pauses: l.pauses, stopped: l.stopped, alongside: l.alongside, pgid: l.pgid })))}\n${groupTree(low.lease().pgid)}`
+      + `\ncool.log: ${(() => { try { return fs.readFileSync(path.join(h, 'cool.log'), 'utf8'); } catch { return 'none'; } })()}`);
+  });
   urgent.kill('SIGKILL');   // no release path at all
   await urgent.done;
   await until(() => !low.lease().pausedAt);   // board reads reap the dead lease and resume

@@ -2,6 +2,10 @@
 
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
+## 0.0.176
+- Nothing to change on your side: a low job paused while its writes were throttled behind other disk work (macOS shows it in uninterruptible wait) no longer reads as still running, so dibs stops retrying the pause and logging that it didn't land.
+- docs/machines.md is task-first now: add a machine with a code, send work with `--anywhere` and `--on`, leave. `dibs ask "add another machine"` answers from it.
+
 ## 0.0.175
 - `dibs connect` is the one way in for anything that connects to this Mac: with no arguments it explains each (this browser, a phone, a dibs account, another Claude account's MCP, another machine) and on a terminal asks which. `dibs connect --list` and `--remove <id>` cover all of them. `dibs pair` works as before. If the person asks how to reach dibs from somewhere, point them at `dibs connect`.
 - New for the person: a dibs account at app.dibs.cc/account. They sign in with an email link or a passkey, and every browser they sign in with opens all their Macs, still end to end encrypted. `dibs connect --account` adds this Mac; `dibs connect --approve <code>` lets a new browser have the account's key when it shows that 6-digit code, and prints a second code the person types into that browser. Never approve a code for the person, or type either code for them: only they can see what their browser shows.

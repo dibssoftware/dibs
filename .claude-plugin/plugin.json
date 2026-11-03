@@ -1,6 +1,6 @@
 {
   "name": "dibs",
-  "version": "0.0.175",
+  "version": "0.0.176",
   "description": "A hook that sends heavy Bash commands (xcodebuild, simctl, test suites, deploys) through dibs, guards leased files and caps subagents across sessions, and a skill that tells agents how to use it",
   "author": {
     "name": "dibs maintainers"

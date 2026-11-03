@@ -24,7 +24,9 @@ export const wait = ms => new Promise(r => setTimeout(r, ms));
 const groupStates = pgid => (pgid ? spawnSync('ps', ['-o', 'stat=', '-g', String(pgid)], { encoding: 'utf8' }).stdout.split('\n').map(x => x.trim()).filter(Boolean) : []);
 // A child that exited under a stopped parent stays a zombie (Z) until it's reaped: that counts as stopped.
 // D (in the kernel) counts as stopped: a stop already sent takes it as it leaves (src/platform.mjs runningIn).
-export const allStopped = pgid => { const s = groupStates(pgid); return s.some(x => x.includes('T')) && s.every(x => /[TZD]/.test(x)); };
+// U is macOS's D: a writer throttled while other work writes (src/platform.mjs inKernelOrStopped,
+// not imported here: no src module may load before this file has set DIBS_HOME).
+export const allStopped = pgid => { const s = groupStates(pgid); return s.some(x => x.includes('T')) && s.every(x => /[TZDU]/.test(x)); };
 export const noneStopped = pgid => groupStates(pgid).every(x => !x.includes('T'));
 // Every process in the group at background priority (background QoS on macOS, ps pri 4; nice 10
 // on Linux), or none of them. A group that's gone is neither.

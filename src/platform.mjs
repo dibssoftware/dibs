@@ -227,15 +227,19 @@ export function stopTree(id, signal = 'SIGTERM') {
 
 // Pids in these process groups that are still running: not stopped (T), not
 // a zombie (Z, an exited child its stopped parent hasn't reaped), and not in
-// the kernel (D): a SIGSTOP already sent stops it before it runs any of its own
-// code again. On Linux dash's loop shell sits in D while it waits on a vfork
-// child the stop caught (2026-10-19). One ps call for all of them. Windows
-// can't stop a tree, so there's nothing to check.
+// the kernel (D on Linux, U on macOS): a SIGSTOP already sent stops it before it
+// runs any of its own code again. On Linux dash's loop shell sits in D while it
+// waits on a vfork child the stop caught (2026-10-19). On macOS a low job's
+// writes are throttled while other work writes, and it sits in U: a third of the
+// time beside two dd loops, and long enough under a DMG build that a pause read as
+// never landing (2026-11-03). One ps call for all of them. Windows can't stop a
+// tree, so there's nothing to check.
+export const inKernelOrStopped = stat => /[TZDU]/.test(stat || '');
 export function runningIn(groups) {
   if (WIN || !groups.length) return [];
   const want = new Set(groups.map(Number));
   return run('ps', ['-A', '-o', 'pid=,pgid=,stat=']).split('\n').map(l => l.trim().split(/\s+/))
-    .filter(([pid, pgid, stat]) => pid && want.has(Number(pgid)) && !/[TZD]/.test(stat || '')).map(([pid]) => Number(pid));
+    .filter(([pid, pgid, stat]) => pid && want.has(Number(pgid)) && !inKernelOrStopped(stat)).map(([pid]) => Number(pid));
 }
 
 // Lower a running process's priority: background QoS on macOS (efficiency

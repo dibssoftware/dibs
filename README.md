@@ -14,7 +14,7 @@ curl -fsSL https://dibs.cc/install.sh | sh
 
 It downloads the release tarball from dibs.cc, checks its sha256, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and exits nonzero, having installed nothing. Each release's tarball and sum are at `https://dibs.cc/releases/dibs-v<version>.tar.gz` and `.tar.gz.sha256`.
 
-Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.175/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
+Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.176/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
 
 ## The first five commands
 
