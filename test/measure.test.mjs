@@ -55,12 +55,13 @@ test('a job using more than it asked for is flagged on the board, and its next r
   const l = board(h, opts).held[0];
   assert.equal(l.mem, 6 * G);
   assert.equal(l.asked, 0.1 * G);
-  // Said before the lease is taken, but the pipe is only read while this test waits.
-  await until(() => /used up to 6\.0 GB of memory \(it asks for 0\.1 GB\) in recent runs, so dibs plans for that/.test(flat(again.err)));
   assert.match(sync(h, ['--detail'], opts).out, /\[uses ~6\.0G \(asked 0\.1G\)\]/);
   assert.match(sync(h, ['--detail'], opts).out, /handed out: memory 6\.0G/);
   fs.writeFileSync(path.join(cwd, 'stop'), '');
   assert.equal(await again.done, 0);
+  // dibs learns it silently: the run itself says nothing about it (it came on every merge, 2026-11-03), the history has it.
+  assert.doesNotMatch(flat(again.err), /used up to|pass --mem/);
+  assert.ok(fs.readFileSync(path.join(h, 'events.jsonl'), 'utf8').includes('"kind":"sized"'));
 });
 
 test('a run that fails, or whose dibs is killed, still teaches its size: the next run is planned at it, over an explicit --mem', { skip: WIN }, async t => {
