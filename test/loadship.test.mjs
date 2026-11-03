@@ -192,7 +192,8 @@ test("a job whose turn here is further off than shipping it plus its run time go
   const { h, boatDir, hot, proj } = await setup(t, { config: { maxLoad: null, resources: { test: { slots: 1, mem: '1G', cpu: 1 } } }, machine: { load: 0 } });
   const long = bg(t, h, ['run', 'test', '--est', '10m', '-m', 'long', '--', 'sh', '-c', 'while [ ! -f stop ]; do sleep 0.2; done'], { ...hot, cwd: proj, agent: 'long' });
   await until(() => board(h).held.some(l => l.who === 'long'));
-  const job = bg(t, h, ['run', 'test', '--est', '10s', '-m', 'quick', '--', 'sh', '-c', 'echo "ran on $HOME"'], { ...hot, cwd: proj, agent: 'quick' });
+  // 30 s: long enough to stay out of the quick lane (under 15 s it would start here at once), short beside a 10-minute wait.
+  const job = bg(t, h, ['run', 'test', '--est', '30s', '-m', 'short', '--', 'sh', '-c', 'echo "ran on $HOME"'], { ...hot, cwd: proj, agent: 'short' });
   assert.equal(await job.done, 0, job.err);
   assert.match(job.out, new RegExp(`ran on ${boatDir}/vm-${ID}`), 'it ran on the VM');
   assert.match(job.err, /its turn here is about .* off, longer than sending it and running it there, so it goes to boat-1/s);
