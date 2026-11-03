@@ -230,6 +230,25 @@ export function holdingOf(s, q, cfg, t = now()) {
 // A job running on top of a full resource (src/overlap.mjs) doesn't take a slot.
 export const used = (s, r) => s.leases.filter(l => l.res.includes(r) && !coveredNow(s, l, r) && !lent(l, r) && !onTop(l, r)).length;
 
+// A resource that's one at a time per project (exclusiveBy: "repo", deploys by default):
+// slots is per project, and across caps every project's together. A 6-second web deploy
+// waited behind another project's TestFlight upload in the one deploy slot, and the person
+// had to tell its agent to go around dibs (2026-11-03). A config that says only slots: 1
+// keeps the default's exclusiveBy and across, so it reads per project too.
+const byRepo = (cfg, r) => resCfg(cfg, r).exclusiveBy === 'repo';
+// A lease's or waiter's project (src/files.mjs projectKey), or its folder before dibs recorded one.
+export const laneOf = x => x.repo || x.cwd || null;
+// The leases holding r's slots that q waits on: on a per-project resource, only its own project's.
+const holdersFor = (s, q, r, cfg) => s.leases.filter(l => l.res.includes(r) && !coveredNow(s, l, r) && !lent(l, r) && !onTop(l, r)
+  && (!byRepo(cfg, r) || laneOf(l) === laneOf(q)));
+// Free slots of r for q, and whether the cap across projects is what's full.
+export function roomFor(s, q, r, cfg) {
+  const c = resCfg(cfg, r);
+  if (!byRepo(cfg, r)) return { open: c.slots - used(s, r), across: false };
+  const mine = c.slots - holdersFor(s, q, r, cfg).length, all = (c.across ?? c.slots) - used(s, r);
+  return { open: Math.min(mine, all), across: all < mine };
+}
+
 // Time a lease should end. Without history, assume it runs at least UNKNOWN_RUN.
 const endOf = (l, hist, t) => t + (remaining(l, hist, t) ?? Math.max(UNKNOWN_RUN - (t - l.start - pausedFor(l, t)), MIN_LEFT));
 // When a lease's slot of r frees. A slot lent to an urgent job goes back to the
@@ -571,8 +590,10 @@ function soonestStart(s, q, cfg, hist, t = now()) {
   const mine = holdsOf(s, q);
   let at = t;
   for (const r of q.res) {
-    if (!mine.has(r) && used(s, r) >= resCfg(cfg, r).slots)
-      at = Math.max(at, Math.min(...s.leases.filter(l => l.res.includes(r) && !lent(l, r) && !onTop(l, r)).map(l => slotEnd(s, l, hist, t, r))));
+    if (!mine.has(r) && roomFor(s, q, r, cfg).open <= 0) {
+      const across = roomFor(s, q, r, cfg).across;
+      at = Math.max(at, Math.min(...s.leases.filter(l => l.res.includes(r) && !lent(l, r) && !onTop(l, r) && (across || !byRepo(cfg, r) || laneOf(l) === laneOf(q))).map(l => slotEnd(s, l, hist, t, r))));
+    }
   }
   if (overBudget(s, q, cfg)) at = Math.max(at, budgetFrees(s, q, cfg, hist, t));
   return at;
@@ -837,15 +858,17 @@ function decide(s, me, cfg, hist, t) {
       continue;
     }
     if (quick) continue;
-    const open = resCfg(cfg, r).slots - used(s, r);
+    const { open, across } = roomFor(s, me, r, cfg);
     if (open <= 0) {
       // Full, but the machine may have room for one more on top (src/overlap.mjs).
       const a = alongside(s, me, r, cfg, hist, t, ahead);
       if (a?.ok) { side.push(a); continue; }
-      return { ok: false, rule: 'slot', why: `${r} is in use`, on: r, ...(a && { alongside: a.why }) };
+      const why = !byRepo(cfg, r) ? `${r} is in use` : across ? `${r} is in use by ${resCfg(cfg, r).across} projects at once, the most at a time` : `${r} is in use for this project`;
+      return { ok: false, rule: 'slot', why, on: r, ...(a && { alongside: a.why }) };
     }
-    // Waiters ahead that will start before you'd finish take the open slots first.
-    const before = ahead.filter(q => q.res.includes(r) && blocks(q));
+    // Waiters ahead that will start before you'd finish take the open slots first; on a
+    // per-project resource, only this project's (the cap across projects is room enough for the rest).
+    const before = ahead.filter(q => q.res.includes(r) && blocks(q) && (!byRepo(cfg, r) || laneOf(q) === laneOf(me)));
     if (before.length >= open) return { ok: false, rule: 'ahead', why: `${tag(before[0])} is ahead of you for ${r}`, on: r, ahead: before[0] };
   }
   // Learned clashes: a job that runs SLOW_PAIR times as slow beside one running now, or
@@ -895,7 +918,7 @@ function decide(s, me, cfg, hist, t) {
   // A light job may pass one stuck on the budget, but not once that one has
   // waited long, unless it'll be done before that one could start. Waiters
   // stuck on something else (machine memory, disk) don't hold anyone up.
-  const head = ahead.find(q => q.res.every(r => used(s, r) < resCfg(cfg, r).slots) && !neverFits(cfg, q) && overBudget(s, q, cfg));
+  const head = ahead.find(q => q.res.every(r => roomFor(s, q, r, cfg).open > 0) && !neverFits(cfg, q) && overBudget(s, q, cfg));
   if (head && t - head.enq > ms(cfg.starveAfter) && blocks(head))
     return { ok: false, rule: 'ahead', why: `${tag(head)} has waited ${dur(t - head.enq)}, so it goes first`, ahead: head, starved: true };
   let budget = overBudget(s, me, cfg, side.length > 0, breaker, t);
@@ -942,24 +965,27 @@ function decide(s, me, cfg, hist, t) {
 export function forecastDetail(s, cfg, hist, t = now(), extra = null) {
   const free = {};
   const open = () => ({ at: t, sure: true, after: null });
-  const slotsFor = r => {
-    if (!free[r]) {
+  // A per-project resource's slots are kept per project (byRepo): the cap across projects isn't forecast.
+  const slotsFor = (r, q) => {
+    const lane = byRepo(cfg, r) ? laneOf(q) : null;
+    const k = lane == null ? r : `${r}\0${lane}`;
+    if (!free[k]) {
       // A file lease waits on any lease of an overlapping path, not just the same name.
-      const busy = s.leases.filter(l => l.res.some(x => clash(x, r)) && !coveredNow(s, l, r) && !lent(l, r) && !onTop(l, r))
+      const busy = s.leases.filter(l => l.res.some(x => clash(x, r)) && !coveredNow(s, l, r) && !lent(l, r) && !onTop(l, r) && (lane == null || laneOf(l) === lane))
         .map(l => ({ at: slotEnd(s, l, hist, t, r), sure: l.kind !== 'hold' && remaining(l, hist, t) != null, after: l }));
       const n = Math.max(resCfg(cfg, r).slots - busy.length, 0);
-      free[r] = [...busy, ...Array.from({ length: n }, open)].sort((a, b) => a.at - b.at);
+      free[k] = [...busy, ...Array.from({ length: n }, open)].sort((a, b) => a.at - b.at);
     }
-    return free[r];
+    return free[k];
   };
   const out = new Map();
   const line = (extra ? [...s.queue, extra] : [...s.queue]).filter(q => q.pid || q === extra);
   for (const q of line.sort(byRank(hist, t))) {
-    const firsts = q.res.map(r => slotsFor(r)[0] ?? open());
+    const firsts = q.res.map(r => slotsFor(r, q)[0] ?? open());
     const startAt = Math.max(t, ...firsts.map(f => f.at));
     const unsure = firsts.find(f => f.at > t && !f.sure);
     const end = { at: startAt + expected(q, hist), sure: !unsure && known(q, hist), after: q };
-    for (const r of q.res) { const sl = slotsFor(r); sl.shift(); sl.push({ ...end }); sl.sort((a, b) => a.at - b.at); }
+    for (const r of q.res) { const sl = slotsFor(r, q); sl.shift(); sl.push({ ...end }); sl.sort((a, b) => a.at - b.at); }
     out.set(q.id, { at: startAt, sure: !unsure, after: unsure?.after || null });
   }
   return out;

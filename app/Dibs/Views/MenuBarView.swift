@@ -92,6 +92,20 @@ struct MenuBarView: View {
                         .padding(.horizontal, Space.l)
                         .padding(.vertical, Space.s)
                 }
+                // dibs's alerts that need the person, with their fix; failed jobs stay in the window.
+                ForEach(store.openAlerts.filter { $0.level != "note" }.prefix(3)) { alert in
+                    Divider().overlay(Palette.hairline)
+                    VStack(alignment: .leading, spacing: Space.xs) {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                            StateDot(kind: alert.level == "urgent" ? .running : .waiting)
+                            Text(alert.title).font(Typeface.headline).foregroundStyle(Palette.ink).lineLimit(3)
+                        }
+                        Text("Fix: \(alert.fix)").font(Typeface.small).foregroundStyle(Palette.ink2).lineLimit(3)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Space.l)
+                    .padding(.vertical, Space.m)
+                }
                 ForEach(store.needs.prefix(3)) { need in
                     Divider().overlay(Palette.hairline)
                     NeedBody(need: need, compact: true)

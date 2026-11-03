@@ -57,6 +57,15 @@ struct HomeView: View {
                 }
                 if let who = chosen, store.ownerActions { CapRow(who: who) }
             }
+            let alerts = store.dibsAlerts.filter { chosen == nil || $0.who == nil || $0.who == chosen }
+            if !alerts.isEmpty {
+                let open = alerts.filter(\.open).count
+                PageSection("Alerts", note: open == 0 ? "All resolved" : "\(open) open") {
+                    VStack(alignment: .leading, spacing: Space.m) {
+                        ForEach(alerts) { AlertCard(alert: $0) }
+                    }
+                }
+            }
             if !needs.isEmpty {
                 PageSection("Needs you", note: needs.count == 1 ? "1 thing" : "\(needs.count) things") {
                     VStack(alignment: .leading, spacing: Space.m) {
@@ -103,6 +112,64 @@ struct HomeView: View {
             return Text("\(first) First to finish: \(Text(store.displayName(soon.who)).fontWeight(.semibold).foregroundStyle(Palette.ink)) around \(Format.clock(end)).")
         }
         return Text(first)
+    }
+}
+
+// One of dibs's alerts: a dot for how bad, what's wrong, why, and the one
+// fix. Once resolved it stays a quiet line saying when, for a couple of hours.
+struct AlertCard: View {
+    @Environment(Store.self) private var store
+    let alert: DibsAlert
+
+    var body: some View {
+        if let gone = alert.resolvedDate {
+            HStack(alignment: .firstTextBaseline, spacing: Space.s + 2) {
+                StateDot(kind: .busy)
+                Text("\(alert.title).").foregroundStyle(Palette.ink3).lineLimit(2)
+                Spacer(minLength: Space.m)
+                Text("\(alert.dismissed == true ? "Dismissed" : "Resolved") \(Format.clock(gone))")
+                    .font(Typeface.small).foregroundStyle(Palette.ink3).fixedSize()
+            }
+            .padding(.horizontal, Space.l + 2)
+        } else {
+            VStack(alignment: .leading, spacing: Space.s) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s + 2) {
+                    StateDot(kind: alert.level == "urgent" ? .running : alert.level == "warn" ? .waiting : .idle)
+                    Text(alert.title)
+                        .font(Typeface.headline)
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: Space.m)
+                    Text("since \(Format.clock(alert.sinceDate))")
+                        .font(Typeface.small).foregroundStyle(Palette.ink3).fixedSize()
+                }
+                let more = [alert.why.map { "Why: \($0.prefix(1).uppercased())\($0.dropFirst())" }, alert.detail].compactMap { $0 }.joined(separator: " ")
+                if !more.isEmpty {
+                    Text(more).foregroundStyle(Palette.ink2).fixedSize(horizontal: false, vertical: true).copyable(more)
+                }
+                Text("\(Text("Fix: ").fontWeight(.semibold).foregroundStyle(Palette.ink))\(alert.fix)")
+                    .foregroundStyle(Palette.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .copyable(alert.fix)
+                HStack(spacing: Space.s) {
+                    Button("Dismiss") { Task { await store.dismiss(alert) } }
+                        .buttonStyle(InkButton())
+                        .disabled(store.running.contains("alert-\(alert.id)"))
+                        .help("Clears it for a day. If the cause is still there after that, it comes back.")
+                    if alert.job != nil {
+                        Button("See the queue") { store.section = .queues }
+                            .buttonStyle(.plain)
+                            .font(Typeface.small)
+                            .foregroundStyle(Palette.ink2)
+                    }
+                }
+                .padding(.top, 2)
+            }
+            .padding(.horizontal, Space.l + 2)
+            .padding(.vertical, Space.l)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .card()
+        }
     }
 }
 

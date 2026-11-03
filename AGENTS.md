@@ -56,6 +56,7 @@ Always run the suite through dibs: it spawns real processes and coordinators, an
 | `DIBS_FAKE_MACHINE` | JSON overriding memory, disk, load and swap readings |
 | `DIBS_FAKE_SIMCTL` | JSON file that plays CoreSimulator for the simulator pool |
 | `DIBS_FAKE_FOOTPRINT` | JSON file of `{ pid: bytes }` read in place of real memory footprints; pids not in it read 0 |
+| `DIBS_FAKE_MEMORY` | JSON file of `{ pid: bytes }` read in place of top's MEM plus CMPRS for every process, for the memory alert's list of what to close (src/alerts.mjs) |
 | `DIBS_SAMPLE_MS` | how often leases are measured (default 10s), so a test sees a measurement quickly |
 | `DIBS_SCRATCH` | where `dibs setup scratch --check` looks for the scratch volume |
 | `DIBS_FAKE_ENOSPC` | a file: while it exists, state writes fail as ENOSPC would. It lists the steps that fail (`lock`, `state`, `notes`), or none for all |
@@ -78,6 +79,7 @@ Always run the suite through dibs: it spawns real processes and coordinators, an
 | `DIBS_HOG_MIN` | bytes a temp session folder must hold before a low disk notice names it (default 2 GB), so a test's small folders count |
 | `DIBS_CLAUDE_TMP` | stands for `/tmp` when the guard looks for Claude Code's temp folder (`claude-<uid>` under it), so tests never touch the real one |
 | `DIBS_NO_SESSION`, `DIBS_AGENT`, `DIBS_AS` | who dibs thinks is calling |
+| `DIBS_REPO` | the project a job belongs to, for resources one at a time per project (deploys); a worker sets it to the sender's origin for a job from another machine, whose copy has no .git |
 | `DIBS_VIA` | the paired browser a page action came through the relay from (src/web.mjs sets it); the person's actions are then recorded as "the person via <device>". Ignored for an agent |
 | `CLAUDE_CODE_SESSION_ID` | the Claude Code session, which matches the guard's notes on which subagent took a file lease. test/helpers.mjs clears it |
 | `AI_AGENT`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CODEX_THREAD_ID`, `CURSOR_AGENT`, `GEMINI_CLI`, `OPENCODE` | any of them makes a call an agent's (AGENT_ENV in src/owner.mjs). test/helpers.mjs clears them; set one per test |
@@ -132,6 +134,7 @@ src/owner.mjs       actor and logChange: who is calling (an agent's session name
 src/measure.mjs     measuring what running leases really use, and the learned sizes
 src/events.mjs      the event log (events.jsonl): lease starts and ends, waits, pauses, load samples, overrides; event() appends one
 src/history.mjs     dibs history: busy time, waits and who waited, by resource, agent and hour, from the event log
+src/alerts.mjs      dibs alerts: what's wrong and its fix (long waits, memory, idle slots, failed and lost jobs, dibs itself, disk), alerts.json, shown on the board, the page and the app
 src/scratch.mjs     dibs setup scratch: the capped scratch volume's admin commands and --check
 src/simpool.mjs     sim-own: the pool of simulators, dibs sims
 src/simctl.mjs      the simctl calls the pool makes (test/fake-simctl.mjs stands in under DIBS_FAKE_SIMCTL)

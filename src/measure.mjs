@@ -54,10 +54,17 @@ export function treeOf(l, s, procs) {
   // runs on one held simulator each counting it charged it twice.
   const first = d => !(s.leases || []).some(x => x.kind === 'run' && x.id < l.id && x.spid === l.spid && x.covered?.includes(d.res));
   const udids = (s.pool || []).filter(d => d.udid && (d.lease === l.id || (holds.has(d.lease) && l.covered?.includes(d.res) && first(d)))).map(d => d.udid);
-  if (!udids.length) return pids;
+  // The shared simulator (sim) is whichever booted one the pool didn't make. A
+  // job holding it does its work there, outside its own groups: on 2026-11-02 a
+  // TestFlight ship measured 0.1 GB and no CPU for 40 minutes while it ran in
+  // the simulator, so dibs took it for idle and planned it at nothing.
+  const pooled = (s.pool || []).map(d => d.udid).filter(Boolean);
+  const shared = l.res?.includes('sim') || (l.covered?.includes('sim') && first({ res: 'sim' }));
+  if (!udids.length && !shared) return pids;
   const kids = new Map();
   for (const p of procs) { if (!kids.has(p.ppid)) kids.set(p.ppid, []); kids.get(p.ppid).push(p.pid); }
-  const stack = procs.filter(p => /\blaunchd_sim\b/.test(p.args) && udids.some(u => p.args.includes(`/${u}/`))).map(p => p.pid);
+  const mine = p => (udids.some(u => p.args.includes(`/${u}/`)) || (shared && !pooled.some(u => p.args.includes(`/${u}/`))));
+  const stack = procs.filter(p => /\blaunchd_sim\b/.test(p.args) && mine(p)).map(p => p.pid);
   while (stack.length) {
     const pid = stack.pop();
     if (pids.has(pid)) continue;

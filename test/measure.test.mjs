@@ -14,7 +14,7 @@ import { hardware } from '../src/config.mjs';
 import { pstart } from '../src/proc.mjs';
 import { withState } from '../src/state.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
-import { commandKey } from '../src/acquire.mjs';
+import { commandKey, markIdle } from '../src/acquire.mjs';
 import { typical } from '../src/schedule.mjs';
 
 const WIN = process.platform === 'win32';
@@ -213,6 +213,29 @@ test("a lease's tree is its process groups, plus its own simulator's processes, 
   const held = [{ name: 'dibs-pool-1', udid: UDID, res: 'sim-own', lease: 3 }];
   assert.ok(treeOf(run, { leases: [hold], pool: held }, PROCS).has(301));
   assert.ok(!treeOf({ ...run, covered: undefined }, { leases: [hold], pool: held }, PROCS).has(301));
+});
+
+test("a job holding the shared simulator counts that simulator's processes, but not a pool simulator's", () => {
+  // The TestFlight ship of 2026-11-02: its work ran in the booted simulator, so it measured 0.1 GB and no CPU.
+  const ship = { id: 7, kind: 'run', pgid: 100, res: ['sim', 'deploy'] };
+  const pool = [{ name: 'dibs-pool-2', udid: OTHER, res: 'sim-own', lease: 8 }];
+  const tree = treeOf(ship, { leases: [ship], pool }, PROCS);
+  assert.ok(tree.has(300) && tree.has(301), 'the booted simulator and the app in it');
+  assert.ok(!tree.has(400), "a pool simulator is its own job's");
+  assert.ok(!treeOf({ ...ship, res: ['deploy'] }, { leases: [], pool }, PROCS).has(301), 'a job without sim gets none');
+  // Under a session's hold of sim, the first run that covers it.
+  const run = { id: 9, kind: 'run', pgid: 100, spid: 42, covered: ['sim'] };
+  assert.ok(treeOf(run, { leases: [{ id: 3, kind: 'hold', pid: 42, res: ['sim'] }, run], pool }, PROCS).has(301));
+});
+
+test("a run whose work is in the simulator isn't idle while the simulator works", () => {
+  const ship = { id: 7, kind: 'run', pgid: 100, res: ['sim'], start: 0 };
+  const quiet = PROCS.map(p => (p.pgid === 100 ? { ...p, cpu: 0 } : p));
+  const s = { leases: [ship], queue: [], pool: [] };
+  markIdle(s, quiet);
+  assert.equal(ship.idleSince, undefined, 'the simulator used CPU');
+  markIdle(s, quiet.map(p => ({ ...p, cpu: 0 })));
+  assert.ok(ship.idleSince, 'nothing anywhere used CPU');
 });
 
 test("a dibs run nested in another is measured once, as itself, not again in the run around it", () => {

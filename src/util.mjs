@@ -49,7 +49,12 @@ export async function inProcessAsync(fn) {
   throwing++;
   try { return await fn(); } finally { throwing--; }
 }
+// What die() last said and the code it exited with, for bin/dibs.mjs's record
+// of a lost job or a crash: a command that exits 76 on its own is neither.
+export let lastDie = '', lastDieCode = null;
 export function die(msg, code = 2) {
+  lastDie = String(msg);
+  lastDieCode = code;
   if (throwing) throw Object.assign(new Error(msg), { status: code === 75 ? 503 : 500, exitCode: code, ...(code === 75 && { retryAfter: RETRY_AFTER }) });
   const red = !CALM.has(code) && !process.env.NO_COLOR && (!!process.env.FORCE_COLOR || (process.stderr.isTTY && process.env.TERM !== 'dumb'));
   process.stderr.write(`${red ? '\x1b[31mdibs:\x1b[39m' : 'dibs:'} ${msg}\n`);

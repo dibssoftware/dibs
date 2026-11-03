@@ -148,7 +148,7 @@ enum Plain {
         case "xcode-build": "This Mac only runs a couple of app builds at once, because each one uses a lot of memory"
         case "playwright": "This Mac only runs a couple of browser tests at once, because each one opens its own browser"
         case "test": "This Mac only runs a few test runs at once, so it doesn't slow to a crawl"
-        case "deploy": "Only one deploy runs at a time, so two releases don't clash"
+        case "deploy": "Only one deploy per project runs at a time, so two releases of it don't clash"
         case "heavy": "Only one heavy job runs at a time, so the Mac stays usable"
         default: res.hasPrefix("quota:") ? "Agents share a limited number of calls to \(name(res).replacingOccurrences(of: " budget", with: ""))"
             : "Only so many agents can use \(inSentence(res)) at once"

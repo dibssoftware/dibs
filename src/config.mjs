@@ -58,7 +58,7 @@ export const DEFAULT_CONFIG = {
     // pressure. Not a deploy (half-done, with remote timeouts running) or the
     // simulator (the app in it isn't in the job's process tree).
     // exclusive: never two at once, however much room the machine has (overlap).
-    // The one booted simulator has one screen; two deploys race each other.
+    // The one booted simulator has one screen; two deploys of one project race each other.
     // rerun: a job here can be stopped and run again from the start without harm,
     // so a run paused for low disk whose memory is going to swap can be stopped
     // and put back at the front of its line (src/preempt.mjs diskRequeue). Not a
@@ -73,7 +73,10 @@ export const DEFAULT_CONFIG = {
     'xcode-build': { slots: 2, mem: '4G', cpu: 4, disk: '4G', os: 'macos', pausable: false, rerun: true },
     playwright:    { slots: 2, mem: '3G', cpu: 2, disk: '3G', pausable: true, rerun: true },
     test:          { slots: 3, mem: '2G', cpu: 3, pausable: true, rerun: true },
-    deploy:        { slots: 1, mem: '0.5G', cpu: 1, pausable: false, exclusive: true },
+    // One deploy at a time per project, up to across at once (exclusiveBy: src/schedule.mjs roomFor):
+    // two projects' deploys don't touch each other, and a 6-second web deploy waited behind another
+    // project's TestFlight upload (2026-11-03). slots is per project, so a config's slots: 1 reads so too.
+    deploy:        { slots: 1, mem: '0.5G', cpu: 1, pausable: false, exclusive: true, exclusiveBy: 'repo', across: 3 },
     heavy:         { slots: 1, mem: '4G', cpu: 4, disk: '10G', pausable: true, rerun: true },
   },
   // A name dibs doesn't know is often someone's lock ("one migration at a time"), so it never overlaps.
@@ -104,6 +107,8 @@ export function loadConfig() {
   for (const [k, v] of Object.entries(merged.resources)) {
     if (v.onRelease != null && typeof v.onRelease !== 'string') die(`resources.${k}.onRelease in ${paths.config} is a shell command, as a string`);
     if (v.onReleaseTimeout != null) ms(v.onReleaseTimeout);
+    if (v.exclusiveBy != null && v.exclusiveBy !== 'repo') die(`resources.${k}.exclusiveBy in ${paths.config} is "repo" (one at a time per project), or null`);
+    if (v.across != null && !(Number.isInteger(v.across) && v.across > 0)) die(`resources.${k}.across in ${paths.config} is how many projects may use it at once, a whole number above 0`);
   }
   merged.profiles = checkProfiles(c.profiles, merged.resources);
   if (c.pace) Object.assign(merged, paced(c).knobs);

@@ -234,7 +234,13 @@ final class Store {
                 return n
             }
             .filter { !gotIt.contains($0.id) }
+            // An alert about the same job says more, with its fix (dibsAlerts).
+            .filter { need in need.row?.leaseID.map { !alertedJobs.contains($0) } ?? true }
     }
+    // dibs's alerts (src/alerts.mjs): open ones worst first, then the ones resolved lately.
+    var dibsAlerts: [DibsAlert] { board?.alerts ?? [] }
+    var openAlerts: [DibsAlert] { dibsAlerts.filter(\.open) }
+    private var alertedJobs: Set<Int> { Set(openAlerts.compactMap(\.job)) }
     // Waits the person said they'd seen ("Got It"); each one stays cleared until that wait ends.
     var gotIt: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "gotIt") ?? []) {
         didSet { UserDefaults.standard.set(Array(gotIt), forKey: "gotIt") }
@@ -264,7 +270,8 @@ final class Store {
     }
     // The one-way questions waiting on the person: the badge, the menu bar.
     var asks: [ChatItem] { Chat.waiting(chat) }
-    var status: Status { Status.of(counters: counters, needs: needs.count + asks.count) }
+    // A failed job is on the list, but not something that "needs you" right now.
+    var status: Status { Status.of(counters: counters, needs: needs.count + asks.count + openAlerts.filter { $0.level != "note" }.count) }
     var waitingCount: Int { board?.waiting.count ?? 0 }
     var openQuestions: [Question] { (questions?.open ?? []).filter { !settled.contains($0.id) } }
 
@@ -436,7 +443,10 @@ final class Store {
         await notifier.checkAllowed()
         notificationsOff = notifier.allowed == false
         let enabled = Set(Alert.Kind.allCases).subtracting(muted)
-        notifier.post(Alerts.candidates(needs) + (accountList?.alerts ?? []), enabled: enabled)
+        // A dibs that sends alerts says waits, stuck jobs and a full disk itself, with their fixes.
+        let covered: Set<Need.Kind> = board?.alerts == nil ? [] : [.stuck, .idle, .disk]
+        notifier.post(Alerts.candidates(needs.filter { !covered.contains($0.kind) }) + (accountList?.alerts ?? []), enabled: enabled)
+        notifier.post(alerts: dibsAlerts, enabled: enabled)
         let asks = asks
         notifier.ask(asks.map { (item: $0, name: chatName($0)) }, enabled: enabled.contains(.question))
         NSApp?.dockTile.badgeLabel = asks.isEmpty ? nil : "\(asks.count)"
@@ -623,6 +633,8 @@ final class Store {
             }
             accountJoin = (link, .now)
             NSWorkspace.shared.open(url)
+            // The browser comes forward on its own, so the click can look like it did nothing here.
+            lastAction = "Opened dibs connect in your browser."
         } catch let e as CLIError {
             actionError = e.kind == .unsupported ? "This dibs (\(version ?? "unknown version")) has no accounts yet. Update dibs to 0.0.175 or newer." : plain(e, who: nil)
         } catch {}
@@ -808,6 +820,11 @@ final class Store {
             }
         }
         await report(act(["stop", String(id)], key: row.id, done: row.held ? "Stopped \(who)." : "Took \(who) out of the queue."), who: who)
+    }
+
+    // Closes an alert for a day; if its cause is still there after that, it opens again.
+    func dismiss(_ alert: DibsAlert) async {
+        await report(act(["alerts", "dismiss", alert.id], key: "alert-\(alert.id)", done: "Dismissed for a day: \(alert.title)."))
     }
 
     func cap(_ agent: String, at prio: Prio?) async {

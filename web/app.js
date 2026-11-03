@@ -369,15 +369,20 @@
     const jobs = pick.flatMap(a => a.jobs);
     const running = jobs.filter(j => j.state !== 'waiting').length, waiting = jobs.length - running;
     const working = pick.filter(a => stateOf(a, t) !== 'idle').length;
-    const needs = needsOf(data.jobs, t).filter(n => !gotIt.has(n.id) && (!chosen || n.who === chosen));
+    const alerts = (data.alerts || []).filter(a => !chosen || a.who == null || a.who === chosen);
+    const open = alerts.filter(a => !a.resolvedAt);
+    // An alert about a job says more than its Needs card would, so the card goes.
+    const alerted = new Set(open.map(a => a.job).filter(x => x != null));
+    const needs = needsOf(data.jobs, t).filter(n => !gotIt.has(n.id) && (!chosen || n.who === chosen) && !(n.job && alerted.has(n.job.id)));
     const asks = side.questions ? side.questions.open : data.questions;
     // The Mac app's headline: does anything need the person. An agent picked: its name.
-    const n = needs.length + (chosen ? 0 : asks);
+    const n = needs.length + open.filter(a => a.level !== 'note').length + (chosen ? 0 : asks);
     $('title').textContent = chosen || (n ? `${n} thing${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you` : 'Nothing needs you');
     // Red when something waits on the person, as the Mac app's headline.
     $('title').classList.toggle('hot', !chosen && n > 0);
     summary(jobs, running, waiting, working, data.agents.length);
     capRow();
+    alertsSection(alerts, t);
     needsSection(needs, t);
     schedule(pick, t);
     fileLocks(pick, t);
@@ -575,7 +580,7 @@
     'xcode-build': 'This Mac only runs a couple of app builds at once, because each one uses a lot of memory',
     playwright: 'This Mac only runs a couple of browser tests at once, because each one opens its own browser',
     test: "This Mac only runs a few test runs at once, so it doesn't slow to a crawl",
-    deploy: "Only one deploy runs at a time, so two releases don't clash",
+    deploy: "Only one deploy per project runs at a time, so two releases of it don't clash",
     heavy: 'Only one heavy job runs at a time, so the Mac stays usable',
   };
   const whyRes = r => WHY[r] || (r.startsWith('quota:') ? `Agents share a limited number of calls to ${resName(r).replace(' budget', '')}` : `Only so many agents can use ${inSentence(r)} at once`);
@@ -677,6 +682,41 @@
   }
 
   let stopArmed = null;
+  // ---- Alerts: what's wrong and its one fix (src/alerts.mjs), the same list as dibs alerts ----
+
+  // Red for what holds a person up or breaks dibs, yellow for what's slow, grey for a
+  // job that failed; green once it's resolved.
+  const ALERT_DOT = { urgent: 'running', warn: 'waiting', note: 'idle' };
+  function alertsSection(alerts, now) {
+    $('alerts-sec').hidden = !alerts.length;
+    if (!alerts.length) return;
+    const open = alerts.filter(a => !a.resolvedAt);
+    $('alerts-note').textContent = open.length ? `${open.length} open` : 'All resolved';
+    $('alerts').replaceChildren(...alerts.map(a => {
+      const card = el('article', `need card${a.resolvedAt ? ' done' : ''}`);
+      const head = el('div', 'need-head');
+      const title = el('h3', 'need-title');
+      title.append(el('span', `dot ${a.resolvedAt ? 'busy' : ALERT_DOT[a.level] || 'idle'}`), ' ', el('b', null, a.title));
+      head.append(title, el('span', 'need-ago', a.resolvedAt ? `resolved ${clockOf(a.resolvedAt)}` : now - a.since < 6e4 ? 'just now' : `since ${clockOf(a.since)}`));
+      card.append(head);
+      if (a.resolvedAt) return card;
+      const more = [a.why && `Why: ${upper(a.why.replace(/\.$/, ''))}.`, a.detail].filter(Boolean).join(' ');
+      if (more) card.append(el('p', 'need-text', more));
+      const fix = el('p', 'need-text');
+      fix.append(el('b', null, 'Fix: '), a.fix);
+      card.append(fix);
+      const acts = el('div', 'need-acts');
+      const b = button('btn', 'Dismiss', () => post('/api/alerts/dismiss', { id: a.id }, `alert-${a.id}`));
+      b.title = 'Clears it for a day. If the cause is still there after that, it comes back.';
+      b.disabled = busy.has(`alert-${a.id}`);
+      acts.append(b);
+      if (a.job != null) acts.append(button('link', 'See the queue', () => go('queues', '')));
+      card.append(acts);
+      return card;
+    }));
+  }
+  const clockOf = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
   function needsSection(needs, now) {
     $('needs-sec').hidden = !needs.length;
     if (!needs.length) return;
@@ -1964,7 +2004,7 @@
     join.append(el('span', 'l-main', a.accounts.length ? 'Add this Mac to another dibs account.' : 'Add this Mac to your dibs account, so any browser you sign in with opens it.'));
     const jb = button(`btn small${a.accounts.length ? '' : ' primary'}`, 'Add this Mac', async () => {
       const r = await post('/api/accounts/join', {}, 'join-account');
-      if (r?.link) { joinLink = { ...r, at: Date.now() }; window.open(r.link, '_blank', 'noreferrer'); drawn = null; renderView(); }
+      if (r?.link) { joinLink = { ...r, at: Date.now() }; window.open(r.link, '_blank', 'noreferrer'); toast('Opened dibs connect in your browser.'); drawn = null; renderView(); }
     });
     jb.disabled = busy.has('join-account');
     join.append(jb);

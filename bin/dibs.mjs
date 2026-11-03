@@ -19,7 +19,8 @@ import { remoteRun, join, machines } from '../src/remote.mjs';
 import { sims } from '../src/simpool.mjs';
 import { question, questions, answer, hoursCmd } from '../src/questions.mjs';
 import { say, tell, threads, noticesFor } from '../src/talk.mjs';
-import { bytes, ms, deadline, die, noSpace, fullDisk, setCaller } from '../src/util.mjs';
+import { bytes, ms, deadline, die, noSpace, fullDisk, setCaller, lastDie, lastDieCode } from '../src/util.mjs';
+import { event } from '../src/events.mjs';
 import { fileRes, isFiles, resList } from '../src/files.mjs';
 import { boost, pause, resume, stop, cap } from '../src/override.mjs';
 import { later } from '../src/later.mjs';
@@ -88,6 +89,8 @@ ask without joining the queue
   dibs when <res>[,<res>]                  when you'd get it if you asked now
   dibs why [--detail]                      why you're waiting, in sentences (--detail: how your place was worked out)
   dibs mine [<res>]                        what you hold and wait for (exit 1 if nothing: "do I hold sim?")
+  dibs alerts [--json] [--all]             what's wrong, each with its fix: long waits, memory holding work back, stuck or failed
+                                           jobs, dibs's services and hook, a full disk. dibs alerts dismiss <id|all> closes one for a day
   dibs history [--since 7d] [--json]       what happened: busy time, waits and who waited, by resource, agent and hour
   dibs stats [--json]                      waits against run times, today and the last 7 days: median and 90% by resource
   dibs stats --me | --agent <name> [--since 30d] [--json]
@@ -332,7 +335,7 @@ const ALIASES = { done: 'release', renew: 'hold', news: 'changes', cool: 'thrott
 const VERBS = new Set(['run', 'hold', 'release', 'when', 'why', 'mine', 'who', 'yield', 'ask', 'requests', 'port', 'throttle', 'changes', 'status', 'help',
   'machines', 'serve', 'join', 'leave', 'worker', 'service', 'invite', 'kick', 'limit', 'guard', 'sims', 'pace', 'setup', 'history', 'stats',
   'question', 'questions', 'answer', 'hours', 'say', 'tell', 'threads', 'boost', 'pause', 'resume', 'stop', 'cap', 'later',
-  'progress', 'web', 'pair', 'relay', 'connect']);
+  'progress', 'web', 'pair', 'relay', 'connect', 'alerts']);
 
 // A job sent from another machine ends when the worker that started it does,
 // even if the worker was killed outright and couldn't say so.
@@ -393,6 +396,7 @@ async function main() {
     argv = process.argv.slice(2);
     verb = argv[0];
   }
+  calledVerb = verb;
   const cfg = loadConfig();
   // Services, jobs sent from another machine and scheduled ones have nobody to read the notes.
   // A thin waiter's turn has had them already, when it got in line.
@@ -453,6 +457,7 @@ async function main() {
     case 'setup': { const o = parse(rest); return (await lazy('scratch')).setup(o.res, o); }
     case 'history': return (await lazy('history')).history(parse(rest), cfg);
     case 'stats': return (await lazy('stats')).stats(rest, cfg);
+    case 'alerts': return (await lazy('alerts')).alerts(rest, cfg);
     case 'question': return question(rest, cfg);
     case 'questions': return questions(rest, cfg);
     case 'answer': return answer(rest);
@@ -506,4 +511,16 @@ const crash = e => die(`dibs itself crashed (a bug in dibs, not in your command;
 // A full disk is no bug: say what to do, with the exit code agents know (74), not a stack.
 const fail = e => (noSpace(e) ? die(fullDisk(e), 74) : crash(e));
 process.on('uncaughtException', fail);
+
+// A job lost on its way to or on another machine (76, 77) and dibs's own crash
+// (70) go in the event log, so the person hears of them (src/alerts.mjs), not
+// only the agent whose tool call ended.
+let calledVerb = '';
+process.on('exit', code => {
+  if (code !== lastDieCode || !(code === CRASHED || ((code === 76 || code === 77) && calledVerb === 'run'))) return;
+  try {
+    event({ kind: code === CRASHED ? 'crash' : 'lost', code, verb: calledVerb, who: identity().who,
+      cmd: process.argv.slice(2).join(' ').slice(0, 160), why: lastDie.split('\n')[0].slice(0, 300) });
+  } catch {}
+});
 main().catch(fail);

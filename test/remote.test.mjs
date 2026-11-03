@@ -149,8 +149,9 @@ describe('a job sent to another machine', () => {
 
   test("it waits its turn in that machine's own line", async t => {
     const order = path.join(tmp(t), 'order'), gate = path.join(tmp(t), 'gate');
+    // The same project as the job sent: deploys are one at a time per project, and a job sent carries its sender's.
     const holder = bg(t, g.ha, ['run', 'deploy', '--', 'sh', '-c', `echo held >> ${order}; while [ ! -e ${gate} ]; do sleep 0.05; done`],
-      { agent: 'local-agent' });
+      { agent: 'local-agent', cwd: g.proj });
     await until(() => fs.existsSync(order));
     const job = bg(t, g.hc, ['run', 'deploy', '--on', 'alpha', '--', 'sh', '-c', `echo after >> ${order}`], { cwd: g.proj });
     await until(() => /waiting/.test(job.err));

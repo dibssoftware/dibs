@@ -159,6 +159,24 @@ export function removeService(k) {
   if (state(k) !== 'not installed') remove(k);
 }
 
+// Each installed service for the alerts (src/alerts.mjs): whether it runs, how
+// many times launchd has started it, and how it last exited. Not installed: left out.
+export function serviceHealth() {
+  const out = {};
+  for (const k of Object.keys(KINDS)) {
+    if (OS === 'macos') {
+      if (!fs.existsSync(plist(k))) continue;
+      const txt = sh(LAUNCHCTL, ['print', `gui/${uid()}/${label(k)}`]);
+      const exit = txt.match(/last exit code = (-?\d+)/)?.[1];
+      out[k] = { what: KINDS[k].what, running: /\bpid = \d+/.test(txt), runs: Number(txt.match(/\bruns = (\d+)/)?.[1] || 0), exit: exit == null ? null : Number(exit) };
+    } else if (OS === 'linux') {
+      if (!fs.existsSync(unit(k))) continue;
+      out[k] = { what: KINDS[k].what, running: sh('systemctl', ['--user', 'is-active', `dibs-${k}.service`]).trim() === 'active', runs: 0, exit: null };
+    }
+  }
+  return out;
+}
+
 function state(k) {
   if (OS === 'macos') {
     if (!fs.existsSync(plist(k))) return 'not installed';

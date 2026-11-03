@@ -693,6 +693,9 @@ button.lrow:hover { background: var(--hover); }
 /* Needs you: the app's NeedCard. */
 .needs { display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
 .need { padding: 16px 20px; }
+.need.done { background: transparent; padding-top: 10px; padding-bottom: 10px; }
+.need.done .need-title, .need.done .need-title b { color: var(--ink-3); font-weight: 550; }
+.need-title .dot { display: inline-block; vertical-align: 1px; margin-right: 4px; }
 .need-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .need-title { margin: 0; font-size: 15px; font-weight: 650; color: var(--ink-2); }
 .need-title b { color: var(--ink); font-weight: 650; }

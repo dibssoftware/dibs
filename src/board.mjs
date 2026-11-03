@@ -63,8 +63,10 @@ export function boardOf(s, cfg, hist, t = now(), me = null) {
       blocked: q.pid ? waitingOn(s, q, cfg, hist, t) : null, capped: cappedLine(q) || null,
       purpose: q.purpose, ...you(q) })),
     free: Object.keys(cfg.resources).map(r => {
-      const left = resCfg(cfg, r).slots - used(s, r);
-      return left > 0 ? `${r}${resCfg(cfg, r).slots > 1 ? `(${left})` : ''}` : null;
+      // A per-project resource is free for other projects up to its cap across them (src/schedule.mjs roomFor).
+      const c = resCfg(cfg, r), slots = c.exclusiveBy === 'repo' ? c.across ?? c.slots : c.slots;
+      const left = slots - used(s, r);
+      return left > 0 ? `${r}${slots > 1 ? `(${left})` : ''}` : null;
     }).filter(Boolean),
     quotas: quotasNow(s, cfg, t),
     agents: agentsNow(cfg),

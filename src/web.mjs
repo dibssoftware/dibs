@@ -318,6 +318,9 @@ export function snapshot(j, t = now()) {
     machine: { memFree: m.memFree ?? null, diskFree: m.diskFree ?? null, swapUsed: m.swapUsed ?? null, load: m.load ?? null, cores: m.cores ?? null },
     hold: j.hold || '', limits: j.limits || '', questions: j.questions || 0, notes: j.notes || 0, jobs, later,
     caps: Object.entries(j.caps || {}).map(([who, c]) => ({ who, prio: c.prio, by: c.by || null })),
+    // What's wrong and what fixes it (src/alerts.mjs), open ones first.
+    alerts: (j.alerts || []).map(a => ({ id: a.id, cause: a.cause, level: a.level, title: a.title, why: a.why || null, detail: a.detail || null, fix: a.fix,
+      job: a.job ?? null, who: a.who || null, since: a.since, resolvedAt: a.resolvedAt || null, dismissed: !!a.dismissed })),
   };
 }
 
@@ -576,6 +579,7 @@ export async function api({ method = 'GET', path: where = '/', body = null, sess
       if (!(await known()).has(who)) return { status: 404, json: { error: `dibs hasn't seen an agent called ${who} in the last 30 days.` } };
       return act(['cap', who, prioOf(a.prio, ['off'])]);
     }
+    if (route === '/api/alerts/dismiss') return act(['alerts', 'dismiss', /^[\w:#.-]{1,80}$/.test(String(a.id)) ? String(a.id) : bad('dismiss an alert by its id')]);
     const qa = route.match(/^\/api\/questions\/([^/]+)\/(answer|dismiss)$/);
     if (qa) return qa[2] === 'answer' ? act(['answer', qidOf(qa[1]), words(textOf(a.text, MAX_MESSAGE, 'the answer'))]) : act(['questions', 'dismiss', qidOf(qa[1])]);
     if (route === '/api/tell') return act(['tell', nameOf(a.to), words(textOf(a.text, MAX_MESSAGE, 'the message'))]);

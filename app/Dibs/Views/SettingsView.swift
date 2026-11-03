@@ -132,6 +132,9 @@ struct SettingsView: View {
                     toggle("Work has waited a long time", .stuck)
                     toggle("A job looks stuck while others wait", .idle)
                     toggle("The disk is too full for work to start", .disk)
+                    toggle("Memory or swap holds work back", .memory)
+                    toggle("A job failed, was stopped or was lost", .ended)
+                    toggle("dibs itself has a problem", .broken)
                     toggle("A browser wants your account's key", .account)
                 }
                 .card()

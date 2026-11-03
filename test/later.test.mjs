@@ -63,7 +63,8 @@ test('--in fires on time and the run waits its turn in the normal queue, output 
   const h = tmp(t), dir = tmp(t, 'proj');
   await runner(t, h);
   const g = gate(t, dir);
-  const blocker = bg(t, h, ['run', 'deploy', '--', ...g.cmd], { agent: 'web-app' });
+  // The same project: deploys are one at a time per project (exclusiveBy repo).
+  const blocker = bg(t, h, ['run', 'deploy', '--', ...g.cmd], { agent: 'web-app', cwd: dir });
   await until(() => g.started());
   const id = schedule(h, 'ios-agent', ['deploy', '--in', '1s', '-m', 'ship it', '--', 'sh', '-c', 'echo to-out; echo to-err >&2'], { cwd: dir });
   // waiting means its dibs run has started, which can be just before it's in line.

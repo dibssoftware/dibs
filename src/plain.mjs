@@ -10,7 +10,7 @@
 import { IDLE_MEM_FREE, verdict, forecastDetail, expected, known, remaining, rankParts, byRank, recentUse, coveredNow, memUsed, memHolders, shownFree, NOT_PRIORITY, swapping, diskSqueeze, overLoad, STALL } from './schedule.mjs';
 import { quotaBlock, isQuota, QUOTA } from './quota.mjs';
 import { isFiles, short, elsewhere } from './files.mjs';
-import { machine } from './config.mjs';
+import { machine, resCfg } from './config.mjs';
 import { hogHint } from './hogs.mjs';
 import { gb, clock, now, bytes, inClaudeCode, agentLabel } from './util.mjs';
 
@@ -378,8 +378,10 @@ export function plainBoard(s, cfg, hist, t = now(), m = machine(), me = null) {
       && rows.every(({ q, p }) => p.startsIn != null && known(q, hist));
     l.clearsIn = !l.serving.length && !l.waiting.length ? 0
       : sure ? Math.max(0, ...l.serving.map(x => x.endsIn), ...rows.map(({ q, p }) => p.startsIn + expected(q, hist))) : null;
+    // One deploy per project (exclusiveBy repo): a deploy running is no reason for another project's to wait.
+    const perProject = resCfg(cfg, l.res).exclusiveBy === 'repo';
     l.summary = !l.serving.length && !l.waiting.length ? 'Free'
-      : [l.serving.length ? `${l.serving.length} in use` : 'Free', l.waiting.length ? `${l.waiting.length} waiting` : '',
+      : [l.serving.length ? (perProject ? `${l.serving.length} deploying (one per project, up to ${resCfg(cfg, l.res).across ?? resCfg(cfg, l.res).slots} at once)` : `${l.serving.length} in use`) : 'Free', l.waiting.length ? `${l.waiting.length} waiting` : '',
         l.clearsIn ? `clear in ${about(l.clearsIn)}` : ''].filter(Boolean).join(', ');
   }
   lines.sort((a, b) => b.serving.length + b.waiting.length - a.serving.length - a.waiting.length || a.i - b.i);

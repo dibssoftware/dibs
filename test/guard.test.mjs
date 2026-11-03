@@ -161,6 +161,12 @@ const LEFT_ALONE = [
   'echo done # then npm test',
 ];
 
+test('a command in a { ...; } group is caught like any other, and the hook no longer overflows on the braces', () => {
+  const out = respond({ tool_name: 'Bash', tool_input: { command: '{ npm test; } 2>&1 | tail -5' }, permission_mode: 'bypassPermissions' });
+  assert.match(out.hookSpecificOutput.updatedInput.command, /^\{ dibs run test -m '[^']*' -- npm test; \} 2>&1 \| tail -5$/);
+  assert.equal(respond({ tool_name: 'Bash', tool_input: { command: '{ ls; echo done; }' }, permission_mode: 'bypassPermissions' }), null, 'nothing heavy in it');
+});
+
 test('catches heavy commands and wraps exactly the command that needs the turn', () => {
   for (const [cmd, want] of CAUGHT) assert.equal(check(cmd)?.command, want, cmd);
 });

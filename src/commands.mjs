@@ -9,7 +9,7 @@ import { identity, isMine, tag } from './proc.mjs';
 import { launch, stopTree, processes, descendants, which, starts, scoped, watchdog, OS } from './platform.mjs';
 import { withState, withStateIfRoom, history, record, KEEP_PLACE } from './state.mjs';
 import { acquire, markIdle, idleFor, describeLease, commandKey, holdUntil, outerLease, defaultMaxWait, HOLD_CAP } from './acquire.mjs';
-import { rank, rankParts, byRank, forecast, verdict, remaining, used, sum, lent, pausedFor, overLoad, loadWhy, loadAhead, holdingOf, swapping, swapWhy, diskSqueeze, BACKGROUND } from './schedule.mjs';
+import { rank, rankParts, byRank, forecast, verdict, remaining, used, sum, lent, pausedFor, overLoad, loadWhy, loadAhead, holdingOf, swapping, swapWhy, diskSqueeze, BACKGROUND, roomFor } from './schedule.mjs';
 import { noticeHandler } from './preempt.mjs';
 import { checkout, checkin, jobSize } from './simpool.mjs';
 import { bytes, dur, gb, clock, die, say, now, ms, sleep, SIGNALS, signalExit, noSpace, inClaudeCode, OFF_LIMITS } from './util.mjs';
@@ -22,12 +22,13 @@ import { forYou } from './questions.mjs';
 import { notesForYou } from './talk.mjs';
 import { remoteConf, shortHost } from './remote.mjs';
 import { sample, sized, grewLine, grewPlain, tellOverAsk } from './measure.mjs';
-import { clash, isFiles, short, takeAgent, callKey, sameAgent, fileKey, shellRes } from './files.mjs';
+import { clash, isFiles, short, takeAgent, callKey, sameAgent, fileKey, shellRes, projectKey } from './files.mjs';
 import { sideBySide } from './overlap.mjs';
 import { laterBoard, laterLines, laterPlain } from './later.mjs';
 import { noticeScan, NOTICE_EVERY, twinOf } from './notices.mjs';
 import { answer, ISSUES } from './answers.mjs';
 import { event } from './events.mjs';
+import { scan as scanAlerts, alertLines } from './alerts.mjs';
 
 const REQUESTS = path.join(HOME, 'requests.jsonl');
 // Exit codes dibs gives its own meaning (AGENTS.md).
@@ -535,7 +536,11 @@ export function who(o, cfg) {
     const n = named(cfg, r);
     const room = isFiles(r) ? 'nobody has these files or any that overlap them' : `${resCfg(cfg, r).slots - used(s, r)} of ${resCfg(cfg, r).slots} free`;
     const hold = isFiles(r) ? '' : machineHold(s, cfg);
-    const using = held.length ? usingText(held.map(l => ({ who: l.who, hold: l.kind === 'hold', ...ends(l, hist, t) })), n) : `free (${room})${hold ? `, but nothing new starts until ${hold}` : ''}`;
+    // One per project: say whether it's this folder's project holding it, or others, beside which it starts.
+    const perProject = !isFiles(r) && resCfg(cfg, r).exclusiveBy === 'repo' && held.length
+      ? (roomFor(s, { repo: projectKey(process.cwd()), cwd: process.cwd() }, r, cfg).open > 0 ? ' (other projects: one from this folder starts beside them)' : '')
+      : '';
+    const using = held.length ? `${usingText(held.map(l => ({ who: l.who, hold: l.kind === 'hold', ...ends(l, hist, t) })), n)}${perProject}` : `free (${room})${hold ? `, but nothing new starts until ${hold}` : ''}`;
     rows.push([n.label, using, next.length ? nextText(next) : 'Nobody waiting',
       ...held.map(l => dim(`${l.who}: ${l.purpose ? `"${l.purpose}", ` : ''}${l.cmd ? `running ${l.cmd.slice(0, 40)}` : 'reserved'}, started ${t - l.start < 6e4 ? 'just now' : `${minutes(t - l.start)} ago`}`
         + `${isFiles(r) ? ` (${s.leases.filter(x => x.who === l.who).flatMap(x => x.res.filter(y => clash(y, r))).map(x => short(x).slice('files:'.length)).join(', ')})` : ''}`))]);
@@ -683,6 +688,8 @@ export function boardJson(s, cfg, { hist = history(), m = machine(), t = now(), 
     notes: notesForYou(),
     caps: s.caps || {},
     later: laterBoard(t),
+    // What's wrong, each with its fix (src/alerts.mjs): open ones, then those resolved lately.
+    alerts: scanAlerts({ s, cfg, hist, m, t }),
     ...(away ? { elsewhere: away } : {}),
   };
 }
@@ -706,6 +713,7 @@ export async function status(o, cfg) {
   const out = [`${others ? `${rc.name} (this one)  ` : ''}${cfg.pace ? `pace ${cfg.pace}, ` : ''}${handedOut(b)}    `
     + `machine: ${m.memFree}% memory free, disk ${m.diskFree == null ? 'unknown' : `${gb(m.diskFree)} free`}, swap ${gb(m.swapUsed)}, load ${m.load.toFixed(1)}`
     + `${cfg.maxLoad != null ? ` (ceiling ${cfg.maxLoad})` : ''}`];
+  out.unshift(...alertLines(scanAlerts({ s, cfg, hist, m, t }), t));
   const asks = forYou(cfg, t), notes = notesForYou();
   const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
   if (asks || notes) out.unshift(`${[asks && plural(asks, 'question'), notes && plural(notes, 'note')].filter(Boolean).join(' and ')} for you: dibs ${notes ? 'threads' : 'questions'}`);
@@ -733,6 +741,9 @@ function plainStatus(s, cfg, hist, m, t, rc, away, broken, me) {
   const p = plainBoard(s, cfg, hist, t, m, me);
   const agent = !!me.agent;
   const out = [bold(headline(p))];
+  // What's wrong comes before anything else, so it can't be missed.
+  const alerted = alertLines(scanAlerts({ s, cfg, hist, m, t }), t);
+  if (alerted.length) out.push('', ...alerted, '');
   // An agent reading the board wants its own place first.
   if (agent) {
     for (const q of s.queue.filter(q => q.pid && ours(q, me))) {

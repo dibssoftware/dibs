@@ -16,6 +16,7 @@ import { dur, gb, size, die, say, sleep, now, clock, when, SIGNALS } from './uti
 import { VERSION } from './version.mjs';
 import { bold, dim } from './style.mjs';
 import { rulesAbove, readRules, ruleAllows, isRuleFile, isCode, normCode, codeKey, codeProof } from './trust.mjs';
+import { projectKey } from './files.mjs';
 import { jobSize } from './simpool.mjs';
 import { defaultMaxWait } from './acquire.mjs';
 import { logChange } from './owner.mjs';
@@ -336,7 +337,7 @@ export async function remoteRun(o, cfg) {
   const job = await call(rc, 'POST', '/jobs', {
     ...need, machine: place.machine, cmd: o.cmd, cwdRel: wc.cwdRel, files: wc.files, bring,
     who: id.who, agent: id.agent, label: id.label, purpose: o.purpose || '', prio: o.prio, by: o.by, est: o.est,
-    disk: o.disk, ports: o.ports,
+    disk: o.disk, ports: o.ports, repo: projectKey(process.cwd()),   // its project, which one-per-project resources go by there
     // Decided here: the worker isn't in a Claude Code session, but this end, which waits for it, may be.
     ...((o.maxWait ?? defaultMaxWait()) === Infinity ? { wait: true } : { maxWait: o.maxWait }),
     askedMem: o.mem ?? null,   // what --mem said; need.mem is the resource default when it said nothing

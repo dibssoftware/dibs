@@ -317,6 +317,20 @@ const folded = s => (FOLD ? s.normalize('NFC').toLowerCase() : s);
 // the path as it is.
 const trees = new Map();   // folder -> [the worktree it's in, that repo's main worktree], or null outside git
 
+// The project a folder belongs to, for a resource that's one at a time per project
+// (exclusiveBy: "repo", deploys): its repo's origin URL, the same in every clone and
+// worktree of it; else that repo's main worktree; else the folder itself.
+export function projectKey(dir) {
+  const abs = path.resolve(dir);
+  const wt = worktreeOf(real(abs));
+  if (!wt) return abs;
+  try {
+    const url = fs.readFileSync(path.join(wt[1], '.git', 'config'), 'utf8').match(/\[remote "origin"\][^[]*?\burl\s*=\s*(\S+)/)?.[1];
+    if (url) return url;
+  } catch {}
+  return wt[1];
+}
+
 function worktreeOf(dir) {
   if (trees.has(dir)) return trees.get(dir);
   let st = null, found = null;

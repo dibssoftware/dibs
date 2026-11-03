@@ -146,7 +146,11 @@ export function split(src) {
   const word = i => (w ||= { text: '', start: i, quoted: false, opaque: false });
   const end = () => {
     if (!w) return;
-    if (!w.quoted && (w.text === '{' || w.text === '}')) { cut(); return; }
+    // A group's brace ends the simple command before it. The word is dropped
+    // before cutting: cut() ends the current word first, and ending this one
+    // again called cut() again, without end (every { ...; } overflowed the stack
+    // until 0.0.178, and the hook let those commands through unguarded).
+    if (!w.quoted && (w.text === '{' || w.text === '}')) { w = null; cut(); return; }
     w.redir = redir; redir = false;
     seg.push(w); w = null;
   };
@@ -347,8 +351,12 @@ export function check(cmd, { rules = RULES, dibs = 'dibs' } = {}) {
 
 // The hook never stops a session over its own failure, but leaves one line
 // here so the failure isn't invisible. Writing it may fail too; nothing to do then.
-function logError(e) {
-  try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${String(e?.message || e).split('\n')[0]}\n`); } catch {}
+// Where in dibs it broke and on what kind of call, never the command itself
+// (it can hold secrets): enough to find the bug, as `dibs alerts` reports it.
+function logError(e, input) {
+  const at = String(e?.stack || '').split('\n').find(l => l.includes('/src/'))?.match(/\/(src\/[\w.]+:\d+)/)?.[1];
+  const on = input?.hook_event_name ? ` [${input.hook_event_name}${input.tool_name ? ` ${input.tool_name}` : ''}]` : '';
+  try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${String(e?.message || e).split('\n')[0]}${at ? ` at ${at}` : ''}${on}\n`); } catch {}
 }
 
 function dibsConfig() {
@@ -429,13 +437,13 @@ export async function hook() {
     input = JSON.parse(fs.readFileSync(0, 'utf8'));
     if (AGENT_EVENT(input)) out = (await import('./agents.mjs')).agentHook(input, dibsConfig());
     else if (!STOP_EVENT(input) && !START_EVENT(input)) out = respond(input, guardConfig(), dibsCommand());
-  } catch (e) { logError(e); }
+  } catch (e) { logError(e, input); }
   // A new session, or a subagent's first start, hears the few rules that keep it out of trouble (src/primer.mjs).
-  try { if (START_EVENT(input)) out = (await import('./primer.mjs')).primer(input, out); } catch (e) { logError(e); }
+  try { if (START_EVENT(input)) out = (await import('./primer.mjs')).primer(input, out); } catch (e) { logError(e, input); }
   try {
     if (queuedFor(input)) out = (await import('./talk.mjs')).deliver(input, out);
     else if (input?.hook_event_name === 'SubagentStop' && talked(input)) (await import('./talk.mjs')).finished(input);
-  } catch (e) { logError(e); }
+  } catch (e) { logError(e, input); }
   if (out) process.stdout.write(JSON.stringify(out) + '\n');
 }
 

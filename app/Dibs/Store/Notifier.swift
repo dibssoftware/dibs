@@ -6,6 +6,7 @@ import UserNotifications
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private var gate = AlertGate()
+    private var alertGate = AlertCauseGate()
     var onOpen: (Store.Section) -> Void = { _ in }
     // A browser waiting for the account key: Settings, scrolled to its group.
     var onAccounts: () -> Void = {}
@@ -47,12 +48,28 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 case .ship: "\(alerts.count) deploys can't start yet"
                 case .disk: "The disk is too full for work to start"
                 case .account: "\(alerts.count) browsers want your account's key"
+                case .memory: "Memory is holding work back"
+                case .ended: "\(alerts.count) jobs failed or were lost"
+                case .broken: "dibs has \(alerts.count) problems"
                 }
                 content.body = alerts.map(\.title).joined(separator: "\n")
             }
             content.sound = kind == .question || kind == .account ? .default : nil
             if kind == .account { content.userInfo = ["open": "accounts"] }
             content.threadIdentifier = kind.rawValue
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        }
+    }
+
+    // dibs's own alerts (src/alerts.mjs): what's wrong and its fix, each once,
+    // at most one notification per cause every 30 minutes (AlertCauseGate).
+    func post(alerts: [DibsAlert], enabled: Set<Need.Kind>) {
+        for (cause, list) in alertGate.pass(alerts, now: .now, enabled: enabled) {
+            let content = UNMutableNotificationContent()
+            content.title = list.count == 1 ? list[0].title : "\(list.count) problems: \(list[0].title)"
+            content.body = list.count == 1 ? "Fix: \(list[0].fix)" : list.map(\.title).joined(separator: "\n")
+            content.sound = list.contains { $0.level == "urgent" } ? .default : nil
+            content.threadIdentifier = "alert-\(cause)"
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
     }

@@ -2,6 +2,13 @@
 
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
+## 0.0.178
+- Deploys are one at a time per project now, not per machine. A deploy from another repo starts beside one that's running (up to 3 projects at once); a second deploy of the same repo still waits its turn. The project is the repo's origin URL (the same in every clone and worktree), or the folder outside git. Keep wrapping deploys in `dibs run deploy`: nobody needs to go around dibs for a quick deploy stuck behind another project's long upload.
+- dibs says out loud what goes wrong, to the person, not only to the agent whose job it is: the board, `dibs --json` (`alerts`), the dibs page and the Mac app (with a notification, at most one per cause every 30 minutes) show each problem with its cause and the one fix, until it resolves, then when it did. `dibs alerts` lists them; `dibs alerts dismiss <id>` closes one for a day. The causes: a job waiting past 10 minutes and three times its usual wait (worst when it's high, urgent or has `--by`), memory pressure or swap holding jobs back for 10 minutes (with the five biggest memory users on the machine, apps dibs didn't start included, and what to close), a slot held by a job that has used no CPU for 20 minutes while others wait, jobs that failed, were stopped, or were lost on another machine (exit 76 or 77), dibs's own crashes (exit 70), a service that's down or that launchd restarted, the Claude Code hook failing, and free disk under the floor. Nothing for you to do, except: don't dismiss alerts the person should see.
+- A job holding `sim` is measured with the simulator's own processes now, and counts as working while the simulator works. Before, a TestFlight ship running in the simulator read 0.1 GB and idle, and its slot looked stuck.
+- The hook no longer crashes on a command with a `{ ...; }` group. Those ran without dibs's checks; now `{ npm test; } 2>&1 | tail` is caught like `npm test`.
+- New for the person: Add this Mac says "Opened dibs connect in your browser." in the Mac app and on the page, so the click doesn't look like it did nothing.
+
 ## 0.0.177
 - New for the person, nothing for agents to do: the Mac app's Settings and the dibs page's Settings show the dibs accounts this Mac is on and the browsers waiting for its approval, with Refuse and Approve (which asks for the code the browser shows). `dibs connect --accounts [--json]` lists the same, and `dibs connect --refuse <id>` turns a browser down. Never approve or refuse one for the person.
 

@@ -14,7 +14,7 @@ curl -fsSL https://dibs.cc/install.sh | sh
 
 It downloads the release tarball from dibs.cc, checks its sha256, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and exits nonzero, having installed nothing. Each release's tarball and sum are at `https://dibs.cc/releases/dibs-v<version>.tar.gz` and `.tar.gz.sha256`.
 
-Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.177/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
+Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.178/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
 
 ## The first five commands
 
@@ -121,6 +121,8 @@ dibs hours 09:00-23:00  # outside your hours, questions below urgent wait for th
 dibs threads            # one thread per agent: its notes and questions, your messages; dibs threads read <agent>
 dibs tell web-app "use the staging database"   # reaches the agent on its next tool call, or as it finishes its turn
 dibs tell desk "why is my build waiting?"      # the agent config.json names as "desk" answers you with dibs say --to person
+dibs alerts             # what's wrong and the one fix for each: long waits, memory holding work back (and what to close), stuck jobs, failed or lost jobs, dibs itself, a full disk
+dibs alerts dismiss <id>   # close one for a day; it comes back if its cause is still there
 dibs history            # the last 7 days: busy time, waits and who waited, by resource, agent and hour
 dibs stats              # waits against run times, today and the last 7 days: the share of jobs that waited longer than they ran
 dibs stats --me         # your own: jobs, run and wait time, failures by exit code, what held you back, top commands, ETAs met (--agent <name>, --since 30d, --json)
@@ -150,7 +152,7 @@ dibs pair                    # a one-time code, e.g. K7QM-4XNA: one use, 10 minu
 
 Open http://127.0.0.1:7421 and type the code. The rail on the left switches between views:
 
-- **Now**: every agent's running and waiting jobs on a timeline that spans only the time something is in, file locks, tasks with their ETAs, and every `dibs progress` post, live. Click a job to make it go first, give it back its normal place, let others go first, pause, resume or stop it (stop asks twice). Pick an agent to hold all its jobs back (`dibs cap`).
+- **Now**: alerts first: anything wrong, why, and the one fix, until it resolves (then when it did). Then every agent's running and waiting jobs on a timeline that spans only the time something is in, file locks, tasks with their ETAs, and every `dibs progress` post, live. Click a job to make it go first, give it back its normal place, let others go first, pause, resume or stop it (stop asks twice). Pick an agent to hold all its jobs back (`dibs cap`).
 - **Questions**: what agents asked you at one-way doors. Answer with an option or your own words, or say not now.
 - **Messages**: one thread per agent. What you send reaches the agent with its next tool call.
 - **Stats**: run and wait time by agent and by resource, how often jobs waited longer than they ran, failures by exit code, what held jobs back, top commands, ETAs met, a daily trend, a day-by-hour heatmap, and the machine's load, memory and disk over time. Agents get the same numbers from `dibs stats --me`.
@@ -199,7 +201,7 @@ Inside Claude Code, `dibs run` waits as long as it takes: when the tool call hit
 | xcode-build | 2 | 4G | 4 | 4G | no |
 | playwright | 2 | 3G | 2 | 3G | yes |
 | test | 3 | 2G | 3 | | yes |
-| deploy | 1 | 0.5G | 1 | | no |
+| deploy | 1 per project (its repo's origin, or the folder outside git), up to 3 projects at once (`exclusiveBy: "repo"`, `across: 3`) | 0.5G | 1 | | no |
 | heavy | 1 | 4G | 4 | 10G | yes |
 | any other name | 1 | 1G | 1 | | no |
 | `files:<path or glob>` | one holder per path | 0 | 0 | | no |

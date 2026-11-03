@@ -8,7 +8,9 @@ struct Need: Identifiable, Sendable {
     enum Kind: String, CaseIterable, Sendable {
         // idle: a running job that looks stuck while others wait for it.
         // account: a browser of a dibs account this Mac is on waits for its key (Settings).
-        case question, note, ship, stuck, idle, disk, account
+        // memory, ended, broken: dibs's alerts (DibsAlert) about memory holding work back,
+        // jobs that failed or were lost, and dibs itself in trouble.
+        case question, note, ship, stuck, idle, disk, account, memory, ended, broken
     }
 
     var kind: Kind

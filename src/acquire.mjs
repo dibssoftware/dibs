@@ -7,9 +7,9 @@ import { identity, pstart, tag } from './proc.mjs';
 import { processes, parent, OS } from './platform.mjs';
 import { withState, history, KEEP_PLACE } from './state.mjs';
 import { preempt } from './preempt.mjs';
-import { isFiles, short, shellRes } from './files.mjs';
+import { isFiles, short, shellRes, projectKey } from './files.mjs';
 import { jobSize } from './simpool.mjs';
-import { sized, grewLine, grewPlain } from './measure.mjs';
+import { sized, grewLine, grewPlain, treeOf } from './measure.mjs';
 import { isQuota, quotaProblem, quotaBlock, takeQuota } from './quota.mjs';
 import { capWaiter } from './override.mjs';
 import { verdict, forecast, expected, remaining, byRank, holdingOf, PRIORITY_SHIFT, PRIORITIES, NEEDS_REASON, used, overBy, STALL, neverFits, explicitAsk, capToMachine } from './schedule.mjs';
@@ -88,13 +88,15 @@ const again = () => `dibs ${quoted(process.argv.slice(2))}`;
 // inside withState, so the first-seen time is kept between calls.
 // Every process group the run spans counts: a test runner's workers split off
 // into groups of their own, and a run whose own group sleeps while they work isn't idle.
+// A simulator the run is using counts too (src/measure.mjs treeOf): its work runs there.
 export function markIdle(s, procs) {
   const runs = s.leases.filter(l => l.kind === 'run' && l.pgid && !l.pausedAt);   // a paused job is quiet on purpose
   if (!runs.length) return;
-  const cpu = new Map();
-  for (const p of procs || processes()) cpu.set(p.pgid, (cpu.get(p.pgid) || 0) + p.cpu);
+  procs ||= processes();
+  const cpu = new Map(procs.map(p => [p.pid, p.cpu]));
   for (const l of runs) {
-    const used = [l.pgid, ...(l.groups || [])].reduce((a, g) => a + (cpu.get(g) || 0), 0);
+    let used = 0;
+    for (const pid of treeOf(l, s, procs)) used += cpu.get(pid) || 0;
     if (used < 1) l.idleSince ||= now();
     else delete l.idleSince;
   }
@@ -355,6 +357,7 @@ export function decide(s, w) {
   if (v.covered.length) lease.covered = v.covered;
   if (v.alongside) lease.alongside = v.alongside;
   if (v.trial) lease.trial = true;
+  if (cur.repo) lease.repo = cur.repo;
   if (v.loadPast) Object.assign(lease, { loadPast: true, loadWaited: v.loadWaited });
   // The stall breaker's clock (schedule.mjs) runs from the last start the gates allowed.
   if (v.breaker) lease.breaker = true;
@@ -622,7 +625,10 @@ export async function acquire(o, kind, cfg) {
     else {
       q = { id: ++s.seq, ticket, res, mem, cpu, disk, asked, askedCpu, usual, pid, pstart: myStart, enq: now(), polledAt: now(),
             who: id.who, agent: id.agent, label: id.label, spid: id.spid, purpose: o.purpose || '', cmd, key, kind,
-            agentId: o.agentId, sessionId: process.env.CLAUDE_CODE_SESSION_ID, cwd: process.cwd(), ppid: callerPid() };
+            agentId: o.agentId, sessionId: process.env.CLAUDE_CODE_SESSION_ID, cwd: process.cwd(), ppid: callerPid(),
+            // Its project, for resources one at a time per project (deploys): a job sent from another machine
+            // carries its sender's (DIBS_REPO, src/worker.mjs), since its copy here has no .git.
+            repo: process.env.DIBS_REPO || projectKey(process.cwd()) };
       if (outer) q.outer = outer.id;
       if (sent) q.sent = true;   // placed here by the coordinator for its size (neverFits)
       s.queue.push(q);

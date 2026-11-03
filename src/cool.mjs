@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOME, machine, loadConfig } from './config.mjs';
-import { withState, history } from './state.mjs';
+import { withState, history, peek } from './state.mjs';
 import { singleInstance } from './proc.mjs';
 import { processes, lower, memPressure, isDibs } from './platform.mjs';
 import { hogsOnce, hogHint } from './hogs.mjs';
@@ -19,6 +19,7 @@ import { event } from './events.mjs';
 import { notify } from './talk.mjs';
 import { watchBroker } from './broker.mjs';
 import { progressScan } from './notices.mjs';
+import { scan as scanAlerts } from './alerts.mjs';
 import { say, sleep, now, noSpace, gb } from './util.mjs';
 
 const PIDFILE = path.join(HOME, 'cool.pid');
@@ -145,6 +146,8 @@ export async function throttle(o, cfg) {
     try { throttleOnce(cfg, seen); pressureOnce(cfg, track); diskOnce(cfg, track); } catch (e) { if (!noSpace(e)) throw e; }
     // Not awaited: measuring a full temp folder can take a minute, and this loop keeps the machine's pace meanwhile.
     hogsOnce(cfg, machine());
+    // Alerts open and close even while nobody looks at the board (src/alerts.mjs); the scan itself keeps its pace.
+    scanAlerts({ s: peek(), cfg, hist: history() });
     // Open progress tasks gone quiet or past their ETA: their agents hear about it (src/notices.mjs).
     if (now() - nudged >= SAMPLE_EVERY) { nudged = now(); progressScan(); }
     if (now() - sampled >= SAMPLE_EVERY) {

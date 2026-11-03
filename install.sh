@@ -28,7 +28,7 @@ set -eu
 main() {
 # Release settings. DEFAULT_VERSION is set at each release; release.sh writes
 # DEFAULT_SHA256 into the copy dibs.cc serves.
-DEFAULT_VERSION="v0.0.177"
+DEFAULT_VERSION="v0.0.178"
 DEFAULT_SHA256=""
 DEFAULT_BASE="https://dibs.cc/releases"
 # Node 20 is the oldest that has every built-in dibs uses.

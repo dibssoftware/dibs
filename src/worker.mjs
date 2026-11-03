@@ -306,7 +306,7 @@ function start(rc, job, running, cfg, name) {
     fs.mkdirSync(cwd, { recursive: true });
     // Through bin/dibs.mjs's sh lines, so the job waits thin here like a local one (Node on Windows).
     const argv = OS === 'windows' ? [process.execPath, ...LEAN, BIN] : ['/bin/sh', BIN];
-    const env = { ...process.env, DIBS_AGENT: `${job.agent || job.who}@${job.from}`, DIBS_NO_SESSION: '1', DIBS_REMOTE_JOB: String(job.id) };
+    const env = { ...process.env, DIBS_AGENT: `${job.agent || job.who}@${job.from}`, DIBS_NO_SESSION: '1', DIBS_REMOTE_JOB: String(job.id), ...(typeof job.repo === 'string' && job.repo && { DIBS_REPO: job.repo }) };
     delete env.DIBS_AS;
     child = spawn(argv[0], [...argv.slice(1), ...runArgs(job)], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: OS !== 'windows', windowsHide: true });
     child.stdout.on('data', d => pending.push([1, d]));

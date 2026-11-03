@@ -502,7 +502,7 @@ export function makeServer({ token, log = () => {}, self = null, joinUrl = () =>
         const give = ready ? w.pending.splice(0).map(id => jobs.get(id)).filter(j => j && j.state === 'queued') : [];
         for (const j of give) Object.assign(j, { state: 'running', started: now() });
         return { cancel, jobs: give.map(j => ({ ...pub(j), cwdRel: j.cwdRel, files: j.files, bring: j.bring, root: j.root, label: j.label,
-          prio: j.prio, by: j.by, est: j.est, mem: j.mem, askedMem: j.askedMem, cpu: j.cpu, disk: j.disk, ports: j.ports, wait: j.wait, maxWait: j.maxWait, stayOn: j.stayOn, rule: j.rule })) };
+          prio: j.prio, by: j.by, est: j.est, mem: j.mem, askedMem: j.askedMem, cpu: j.cpu, disk: j.disk, ports: j.ports, wait: j.wait, maxWait: j.maxWait, stayOn: j.stayOn, rule: j.rule, repo: j.repo })) };
       };
       hooks.up?.(w);
       let a = answer();
