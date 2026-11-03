@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { HOME, G, tmp, sync as dibs, bg as spawnDibs, until, board, track, wait, flat, allStopped, noneStopped, groupTree } from './helpers.mjs';
+import { HOME, G, tmp, sync as dibs, bg as spawnDibs, until, board, track, wait, flat, allStopped, noneStopped, groupTree, posixOnly } from './helpers.mjs';
 import { pausable, preempt, pressureStep, flush, diskStep, diskPausesPerPass } from '../src/preempt.mjs';
 import { pstart } from '../src/proc.mjs';
 import { pressureOnce, diskOnce } from '../src/cool.mjs';
@@ -31,7 +31,7 @@ const sync = (h, agent, args) => dibs(h, args, { agent });
 // A job that counts as fast as it can, so a stopped one is easy to see.
 function counter(t, h, agent, res, prio = 'low') {
   const file = path.join(h, `count-${agent}`);
-  const p = spawnDibs(t, h, [res, '-p', prio, '--', 'sh', '-c', `i=0; while :; do i=$((i+1)); echo $i > ${file}; sleep 0.05; done`], { agent });
+  const p = spawnDibs(t, h, [res, '-p', prio, '--', 'sh', '-c', `i=0; while :; do i=$((i+1)); echo $i > '${file}'; sleep 0.05; done`], { agent });
   p.count = () => { try { return Number(fs.readFileSync(file, 'utf8')) || 0; } catch { return 0; } };
   p.lease = () => board(h).held.find(l => l.who === agent);
   p.agent = agent;
@@ -111,7 +111,7 @@ test('a process in the kernel counts as stopped: a stop already sent takes it as
   for (const st of ['R', 'S', 'Ss', 'SN', 'R+', 'I']) assert.equal(inKernelOrStopped(st), false, st);
 });
 
-test('an urgent waiter pauses a low job, borrows its slot, and resumes it when done', { skip: WIN }, async t => {
+test('an urgent waiter pauses a low job, borrows its slot, and resumes it when done', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(tmp(t));
   const low = counter(t, h, 'lo', 't');
   await until(() => low.lease()?.pgid);
@@ -138,7 +138,7 @@ test('an urgent waiter pauses a low job, borrows its slot, and resumes it when d
   assert.match(low.err, /paused your job for boss \(urgent: "prod is down"\)/);
 });
 
-test('the low job resumes when the urgent job crashes, on the next state read', { skip: WIN }, async t => {
+test('the low job resumes when the urgent job crashes, on the next state read', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(tmp(t));
   const low = counter(t, h, 'lo', 't', 'idle');
   await until(() => low.lease()?.pgid);
@@ -157,7 +157,7 @@ test('the low job resumes when the urgent job crashes, on the next state read', 
   await runs(low);
 });
 
-test('normal work and opted-out resources are never paused', { skip: WIN }, async t => {
+test('normal work and opted-out resources are never paused', async t => {
   const h = home(tmp(t));
   const normal = counter(t, h, 'norm', 't', 'normal');
   const optout = counter(t, h, 'dep', 'd', 'low');
@@ -171,7 +171,7 @@ test('normal work and opted-out resources are never paused', { skip: WIN }, asyn
   assert.ok(board(h).held.every(l => !l.pausedAt));
 });
 
-test('nothing pauses when pausing would not let the waiter start', { skip: WIN }, async t => {
+test('nothing pauses when pausing would not let the waiter start', async t => {
   const h = home(tmp(t));
   const jobs = [counter(t, h, 'a', 't2'), counter(t, h, 'b', 't2'), counter(t, h, 'n', 'd', 'normal')];
   await until(() => jobs.every(p => p.lease()?.pgid));
@@ -181,7 +181,7 @@ test('nothing pauses when pausing would not let the waiter start', { skip: WIN }
   for (const p of jobs) await runs(p);
 });
 
-test('only as many jobs pause as the waiter needs', { skip: WIN }, async t => {
+test('only as many jobs pause as the waiter needs', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(tmp(t));
   const a = counter(t, h, 'a', 't2'), b = counter(t, h, 'b', 't2');
   await until(() => [a, b].every(p => p.lease()?.pgid));
@@ -195,7 +195,7 @@ test('only as many jobs pause as the waiter needs', { skip: WIN }, async t => {
   await runs(a); await runs(b);
 });
 
-test('memory pressure pauses idle and low jobs, biggest first, and resumes them when it eases', { skip: WIN }, async t => {
+test('memory pressure pauses idle and low jobs, biggest first, and resumes them when it eases', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   // pressureOnce works on the in-process state, so the jobs share the in-process home.
   const h = home(HOME);
   const cfg = JSON.parse(JSON.stringify({ ...DEFAULT_CONFIG, resources: { ...DEFAULT_CONFIG.resources, ...CONFIG.resources } }));
@@ -237,7 +237,7 @@ test('memory pressure pauses idle and low jobs, biggest first, and resumes them 
   assert.equal(stopped(lease('big').pgid), false);
 });
 
-test('free disk under minDisk with swap still growing pauses running work below high, newest first, two a pass when it falls fast, and resumes it once there is room', { skip: WIN }, async t => {
+test('free disk under minDisk with swap still growing pauses running work below high, newest first, two a pass when it falls fast, and resumes it once there is room', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   // diskOnce works on the in-process state, so the jobs share the in-process home.
   const h = HOME;
   const resources = { ...CONFIG.resources, w: { slots: 4, mem: '0.1G', cpu: 1, pausable: true }, hi: { slots: 1, mem: '0.1G', cpu: 1, pausable: true } };
@@ -316,7 +316,7 @@ test('a paused lease lends only the slots its waker needs; its other slots stay 
   assert.equal(verdict(s, { id: 3, res: ['b'], enq: T, key: 'x', pid: 1, mem: 0, cpu: 1 }, MERGED, [], T).rule, 'slot');
 });
 
-test('a run its own hold covers is never picked to pause: that frees no slot', () => {
+test('a run its own hold covers is never picked to pause: that frees no slot', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   const T = 1e12;
   const hold = { id: 1, kind: 'hold', res: ['t2'], pid: 50, mem: 0, cpu: 1, start: 0, expires: T * 2 };
   const covered = fakeRun({ id: 2, res: ['t2'], spid: 50, covered: ['t2'], start: 30 });   // newest, so first in line without the fix
@@ -329,7 +329,7 @@ test('a run its own hold covers is never picked to pause: that frees no slot', (
   assert.equal(covered.pauses, undefined);
 });
 
-test('pause signals go out only once the state that explains them is written', { skip: WIN }, async () => {
+test('pause signals go out only once the state that explains them is written', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async () => {
   const job = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
   const gone = new Promise(r => job.on('exit', r));
   try {
@@ -356,7 +356,7 @@ test('pause signals go out only once the state that explains them is written', {
   }
 });
 
-test('a paused lease whose owner died takes its stopped groups with it', { skip: WIN }, async t => {
+test('a paused lease whose owner died takes its stopped groups with it', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const job = track(t, spawn('sleep', ['30'], { detached: true, stdio: 'ignore' }));
   t.after(() => job.kill('SIGKILL'));   // stopped, it would sit out a SIGTERM
   process.kill(-job.pid, 'SIGSTOP');
@@ -372,7 +372,7 @@ test('a paused lease whose owner died takes its stopped groups with it', { skip:
   await until(() => job.exitCode !== null || job.signalCode !== null, 3000);
 });
 
-test('a lease whose process number now belongs to someone else stops nothing', { skip: WIN }, async () => {
+test('a lease whose process number now belongs to someone else stops nothing', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async () => {
   const other = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
   const gone = new Promise(r => other.on('exit', r));
   try {

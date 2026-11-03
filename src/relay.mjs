@@ -28,7 +28,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { HOME } from './config.mjs';
-import { die, now, log, sleep, dur } from './util.mjs';
+import { die, now, log, sleep, dur, lockHeld, unlock } from './util.mjs';
 import { makeAlive, singleInstance } from './proc.mjs';
 import { qr, render } from './qr.mjs';
 import { logChange } from './owner.mjs';
@@ -160,7 +160,7 @@ function locked(fn) {
   const t0 = now();
   for (;;) {
     try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (!lockHeld(e)) throw e;
       try {
         if (now() - fs.statSync(LOCK).mtimeMs > 5000) {
           const aside = `${LOCK}.stale.${process.pid}`;
@@ -180,7 +180,7 @@ function locked(fn) {
     fs.writeFileSync(tmp, JSON.stringify(w), { mode: 0o600 });
     fs.renameSync(tmp, FILE);
     return out;
-  } finally { fs.rmSync(LOCK, { recursive: true, force: true }); }
+  } finally { unlock(LOCK); }
 }
 
 // A one-time pairing link. The secret is shown once and only its derived pieces are kept.

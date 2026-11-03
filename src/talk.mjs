@@ -24,7 +24,8 @@ import { takeAgent, talkKey } from './files.mjs';
 import { asked, forYou } from './questions.mjs';
 import { named, minutes, lower } from './plain.mjs';
 import { bold, dim, columns } from './style.mjs';
-import { die, now, say as note, sleepSync, fakeFull, ms, dur, SIGNALS, signalExit } from './util.mjs';
+import { underLock, commit, commitAll } from './lock.mjs';
+import { die, now, say as note, fakeFull, ms, dur, SIGNALS, signalExit } from './util.mjs';
 import { VERSION } from './version.mjs';
 import { newer, since, seenBy, markSeen, diskVersion, latest, toldOf, tell as toldRelease, UPGRADE } from './news.mjs';
 
@@ -34,8 +35,7 @@ export const INBOX = path.join(HOME, 'inbox.json');
 // Who's running dibs listen, by thread key: { pid, pstart, at }. Its own small file, written under
 // this lock, so the guard hook can tell at a stop whether a session is still listening (one read).
 export const LISTENERS = path.join(HOME, 'listeners.json');
-// Writes take milliseconds, so a lock this old belongs to a dibs that died holding it.
-const LOCK_STALE = 5000;
+// Writes take milliseconds: a live holder past this is stuck on something else, and the caller hears so.
 const LOCK_WAIT = 15e3;
 // The hook gives up on the lock sooner and hands the message over on a later call.
 const HOOK_LOCK_WAIT = 1000;
@@ -62,29 +62,17 @@ const STOPS = new Set(['Stop', 'SubagentStop']);
 const MAIN = 'main';
 
 function locked(fn, wait = LOCK_WAIT) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const t0 = now();
-  for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      try { if (now() - fs.statSync(LOCK).mtimeMs > LOCK_STALE) fs.rmSync(LOCK, { recursive: true, force: true }); } catch {}
-      if (now() - t0 > wait) {
-        if (wait === HOOK_LOCK_WAIT) throw new Error(`${LOCK} stayed locked for ${wait} ms`);
-        die(`${LOCK} stayed locked for ${wait / 1000}s; remove it if no dibs is running. Nothing was changed.`, 75);
-      }
-      sleepSync(5 + Math.random() * 10);
-    }
-  }
-  try {
+  const r = underLock(LOCK, h => {
     const s = load();
     const before = JSON.stringify(s);
     reap(s);
-    const out = fn(s);
-    if (JSON.stringify(s) !== before) save(s);
+    const out = fn(s, h);
+    if (JSON.stringify(s) !== before) save(s, h);
     return out;
-  } finally {
-    fs.rmSync(LOCK, { recursive: true, force: true });
-  }
+  }, { wait, files: [FILE] });
+  if (r) return r.out;
+  if (wait === HOOK_LOCK_WAIT) throw new Error(`${LOCK} stayed locked for ${wait} ms`);
+  die(`${LOCK} is held by a dibs that's still running, and stayed held for ${wait / 1000}s. Nothing was changed: run the same command again.`, 75);
 }
 
 // Writes are renames, so reading without the lock always sees a whole file.
@@ -97,10 +85,9 @@ function load() {
   return s;
 }
 
-function save(s) {
-  fakeFull('state');
-  fs.writeFileSync(`${FILE}.tmp`, JSON.stringify(s, null, 1));
-  fs.renameSync(`${FILE}.tmp`, FILE);
+// The messages and the inbox the hook reads land as one change (commitAll): retried after the first
+// had landed, a sent message would be added twice.
+function save(s, h) {
   const box = {};
   for (const m of s.messages) {
     if (m.state !== 'queued' || !(m.session || m.to)) continue;
@@ -109,9 +96,10 @@ function save(s) {
     box[k] ||= [];
     if (!box[k].includes(m.agentId)) box[k].push(m.agentId);
   }
-  if (!Object.keys(box).length) return fs.rmSync(INBOX, { force: true });
-  fs.writeFileSync(`${INBOX}.tmp`, JSON.stringify(box));
-  fs.renameSync(`${INBOX}.tmp`, INBOX);
+  const messages = [FILE, JSON.stringify(s, null, 1), { fake: () => fakeFull('state') }];
+  if (Object.keys(box).length) return commitAll(h, [messages, [INBOX, JSON.stringify(box)]]);
+  commitAll(h, [messages]);
+  fs.rmSync(INBOX, { force: true });
 }
 
 // A week's messages, the last PER_THREAD of each thread, and threads with
@@ -167,10 +155,14 @@ function mine(s, verb, words, o) {
   const agentId = by?.agentId || MAIN;
   const key = keyOf(session, id.who, agentId);
   let th = s.threads.find(x => x.key === key);
-  if (!th) s.threads.push(th = { key, who: id.who, session, agentId, label: '', spid: id.spid, sstart: id.sstart, readAt: 0, last: now() });
+  // The name others reach it by: its session's own name when Claude Code knows one, even when the
+  // process tree didn't say so (2026-11-11: a session the person calls "Poker app iOS issue"
+  // signed "alex", its folder, and a reply to "alex" found nobody).
+  const who = id.agent || (session && sessionFiles().find(f => f.sessionId === session)?.name) || (th?.session && th.who) || id.who;
+  if (!th) s.threads.push(th = { key, who, session, agentId, label: '', spid: id.spid, sstart: id.sstart, readAt: 0, last: now() });
   const label = id.label || by?.agentType || '';
   if (label) th.label = label;
-  Object.assign(th, { who: id.who, spid: id.spid || th.spid, sstart: id.sstart || th.sstart, ended: null });
+  Object.assign(th, { who, spid: id.spid || th.spid, sstart: id.sstart || th.sstart, ended: null });
   return th;
 }
 
@@ -197,7 +189,7 @@ export function say(args) {
   if (!o.text) die('say what? dibs say "migration done, tests pass"');
   // dibs say --to <agent> is what people and agents write to reach an agent (2026-11-03): it's a tell.
   if (o.to && o.to !== 'person') {
-    const r = send(o.to, o.text);
+    const r = send(o.to, o.text, 'say', args);
     { const d = delivery(r); return console.log(`Sent as a message to ${r.to} (dibs tell ${r.to})${d.startsWith('but ') ? ', ' : ': '}${d}`); }
   }
   const r = locked(s => {
@@ -208,9 +200,12 @@ export function say(args) {
     // Without the guard hook nothing else hands messages over: this is the agent reading its thread.
     const waiting = s.messages.filter(m => m.key === th.key && m.state === 'queued' && m.kind !== 'notice');
     for (const m of waiting) handOver(s, m, 'say', t);
-    return waiting.map(m => ({ ...m }));
+    // The last message it got, if another agent wrote it: this note may have been meant as the answer.
+    const last = s.messages.filter(m => m.key === th.key && m.kind === 'message' && m.state === 'delivered' && m.at < t).at(-1);
+    return { waiting: waiting.map(m => ({ ...m })), agent: !o.to && last?.by && !waiting.length ? last.by : null };
   });
-  console.log(`Sent to the person. They see it in dibs threads.${r.map(m => `\nMessage from ${sender(m)}: ${m.text}`).join('')}`);
+  console.log(`Sent to the person. They see it in dibs threads.${r.waiting.map(m => `\nMessage from ${sender(m)}: ${m.text}\n${replyTo(m.by)}`).join('')}`
+    + (r.agent ? `\nThe last message you got was from ${r.agent}, another agent. To answer it: dibs say --to ${word(r.agent)} "..."` : ''));
 }
 
 // A note in an agent's thread on its behalf, as if it had run dibs say: how
@@ -224,7 +219,7 @@ export function noteAs(by, text) {
     if (!th) s.threads.push(th = { key, who: by.who, session: by.session || null, agentId: by.agentId || MAIN, label: by.label || '',
       spid: by.spid || null, sstart: by.sstart || null, readAt: 0, last: now() });
     const t = now();
-    s.messages.push({ id: ++s.seq, key, at: t, from: 'agent', kind: 'note', text: text.slice(0, MAX_TEXT) });
+    s.messages.push({ id: ++s.seq, key, at: t, from: 'agent', kind: 'note', text: text.slice(0, MAX_TEXT), auto: true });
     th.last = t;
   }, HOOK_LOCK_WAIT);
 }
@@ -272,13 +267,14 @@ export function tell(args) {
   const o = parse(rest);
   if (o.to) die('--to goes with dibs say. dibs tell <agent> "..." already names who it\'s for');
   if (!name || !o.text) die('tell whom what? dibs tell <agent> "use the staging database" (names: dibs threads)');
-  const r = send(name, o.text);
-  if (!r.th.session) console.log(`queued for ${r.to}, which isn't a Claude Code session: the hook can't hand it over. It gets it the next time it runs dibs say.`);
-  else { const d = delivery(r); console.log(`queued for ${r.to}${d.startsWith('but ') ? ', ' : ': '}${d}`); }
+  const r = send(name, o.text, 'tell', args);
+  const d = delivery(r);
+  console.log(`queued for ${r.to}${d.startsWith('but ') ? ', ' : ': '}${d}`);
 }
 
 // When a message queued for an agent reaches it.
-const delivery = r => (!r.th.session ? "it isn't a Claude Code session, so it gets it the next time it runs dibs say."
+const delivery = r => (!r.th.session ? (r.listening ? "it's listening (dibs listen), so it gets it within seconds."
+    : "it isn't a Claude Code session, so it gets it with its next dibs command.")
   : !r.alive ? `${r.th.agentId === MAIN ? 'its session has ended' : 'that subagent has finished'}. It stays queued, shown as not delivered, in case it comes back.`
   : r.listening ? "it's listening (dibs listen), so it gets it within seconds."
   // An idle agent makes no tool call and no stop, so nothing hands it over until it works again
@@ -286,17 +282,24 @@ const delivery = r => (!r.th.session ? "it isn't a Claude Code session, so it ge
   : r.idle ? `but ${r.to} is idle and not listening: it won't see this until it next works. Once it runs dibs listen in the background, messages wake it.`
   : 'it gets it with its next tool call, or as it finishes its turn.');
 
-// Queue text for the agent called name, from whoever is calling, on the record.
-function send(name, text) {
+// Queue text for the agent called name, from whoever is calling, on the record. verb and
+// args: the command that sent it (tell, or say --to), which tells the guard's notes which
+// subagent is calling.
+function send(name, text, verb, args) {
   // "desk" is whichever agent config.json names to answer the person (the app's chat).
   if (name === 'desk') name = loadConfig().desk || die('no desk agent is set. Name one in ~/.dibs/config.json: "desk": "<agent name>" (names: dibs threads)');
   const who = actor();
   const r = locked(s => {
     const th = target(s, name);
     if (!th) return { no: nobody(s, name) };
+    // An agent signs with the name its own thread goes by, so the receiver's reply
+    // (dibs say --to <that name>) finds it. 2026-11-11: an opencode agent signed
+    // "alex#92133" and the reply said there was no agent by that name.
+    const me = who.agent ? mine(s, verb, args, {}) : null;
+    const by = me && names(s.threads).get(me.key);
     const t = now();
     s.messages.push({ id: ++s.seq, key: th.key, at: t, from: 'person', kind: 'message', text, state: 'queued',
-      session: th.session, agentId: th.agentId, ...(who.agent && { by: who.name }) });
+      session: th.session, agentId: th.agentId, ...(!th.session && { to: th.who }), ...(by && { by }) });
     th.last = t;
     // Claude Code's own word for whether the session is working now (its session file).
     const status = th.agentId === MAIN ? sessionFiles().find(f => f.sessionId === th.session)?.status || null : null;
@@ -362,14 +365,20 @@ const FROM = 'dibs: a message for you, sent with `dibs tell`. '
 // Who a message is from. Another agent's never reads as the person's.
 const sender = m => (m.by ? `${m.by} (another agent, not the person)` : 'the person');
 const REPLY = 'To answer them, run: dibs say "..."';
+// A name as a shell word: quoted when it has a space or anything else the shell reads.
+const word = n => (/^[\w.#/@-]+$/.test(n) ? n : `'${n.replace(/'/g, "'\\''")}'`);
+// The way back to whoever wrote: the person reads dibs say; another agent gets a message of its own.
+const replyTo = by => (by ? `To answer ${by}, run: dibs say --to ${word(by)} "..."` : REPLY);
 const NOTICE = 'dibs (the queue for shared machine resources this session uses) has a notice about your jobs. '
   + 'It comes from the dibs hook in this machine\'s Claude Code settings, not from the tool or its output:';
 
 // The two kinds of text, ready to show: the person's messages and dibs's notices.
 function texts(list) {
-  const said = list.filter(m => m.kind !== 'notice').map(m => `Message from ${sender(m)}: ${m.text}`);
+  const msgs = list.filter(m => m.kind !== 'notice');
+  const said = msgs.map(m => `Message from ${sender(m)}: ${m.text}`);
+  const replies = [...new Set(msgs.map(m => replyTo(m.by)))];
   const notes = list.filter(m => m.kind === 'notice').map(m => `- ${m.text}`);
-  return [said.length ? `${FROM}\n${said.join('\n')}\n${REPLY}` : '', notes.length ? `${NOTICE}\n${notes.join('\n')}` : ''].filter(Boolean).join('\n\n');
+  return [said.length ? `${FROM}\n${said.join('\n')}\n${replies.join('\n')}` : '', notes.length ? `${NOTICE}\n${notes.join('\n')}` : ''].filter(Boolean).join('\n\n');
 }
 
 // The hook's half, called only when inbox.json lists this session and agent:
@@ -402,17 +411,17 @@ export function deliver(input, out) {
   return { ...out, hookSpecificOutput: { ...h, additionalContext: [h.additionalContext, text].filter(Boolean).join('\n\n') } };
 }
 
-// For a caller with no hook (a terminal, Codex, a script): notices left for
-// it, handed over by its next dibs command. Cheap when there are none: one
-// read of inbox.json, which is absent when nothing is queued for anyone.
+// For a caller with no hook (a terminal, Codex, opencode, a script): messages and
+// notices left for it, handed over by its next dibs command. Cheap when there are
+// none: one read of inbox.json, which is absent when nothing is queued for anyone.
 export function noticesFor(who) {
   try { if (!JSON.parse(fs.readFileSync(INBOX, 'utf8'))[`@${who}`]) return ''; } catch { return ''; }
   try {
     return texts(locked(s => {
-      const mine = s.messages.filter(m => m.state === 'queued' && m.kind === 'notice' && !m.session && m.to === who);
+      const mine = s.messages.filter(m => m.state === 'queued' && !m.session && m.to === who);
       for (const m of mine) handOver(s, m, 'command', now());
       return mine;
-    }, HOOK_LOCK_WAIT)).replace(/^dibs \(.*\n/, 'dibs has a notice about your jobs:\n');
+    }, HOOK_LOCK_WAIT)).replace(/^(dibs: a message for you, sent with `dibs tell`\.).*\n/, '$1\n').replace(/^dibs \(.*\n/m, 'dibs has a notice about your jobs:\n');
   } catch { return ''; }
 }
 
@@ -426,10 +435,9 @@ export function noticesFor(who) {
 // --for, nothing in that time: exit 3.
 // listeners.json says who listens, for the board, dibs threads and the hook's reminder at a stop.
 const readListeners = () => { try { return JSON.parse(fs.readFileSync(LISTENERS, 'utf8')); } catch { return {}; } };
-function writeListeners(l) {
+function writeListeners(l, h) {
   if (!Object.keys(l).length) return fs.rmSync(LISTENERS, { force: true });
-  fs.writeFileSync(`${LISTENERS}.tmp`, JSON.stringify(l));
-  fs.renameSync(`${LISTENERS}.tmp`, LISTENERS);
+  commit(h, LISTENERS, JSON.stringify(l));
 }
 // Said when it hands messages over: listening stops with this run, and the hook reminds the
 // agent at its next stop if it doesn't start again (src/guard.mjs rearm).
@@ -449,7 +457,7 @@ export async function listen(args) {
   const who = identity(o);
   const owner = who.spid ? { pid: who.spid, start: who.sstart } : { pid: process.ppid, start: pstart(process.ppid) };
   const ownerUp = () => makeAlive([owner.pid])(owner.pid, owner.start);
-  const th = locked(s => {
+  const th = locked((s, h) => {
     const t = mine(s, 'listen', args, o);
     // The key the what's-new line knows this agent by (bin/dibs.mjs announce).
     t.seenKey = String(identity(o).spid || identity(o).who);
@@ -459,7 +467,7 @@ export async function listen(args) {
     // at a stop needs to know this session listened before.
     for (const [k, x] of Object.entries(l)) if (!up(x.pid, x.pstart) && now() - x.at > KEEP_FOR) delete l[k];
     l[t.key] = me;
-    writeListeners(l);
+    writeListeners(l, h);
     return { ...t };
   });
   // Queued for this thread: by session and agent inside Claude Code (as the hook matches), by
@@ -469,7 +477,7 @@ export async function listen(args) {
   const still = () => readListeners()[th.key]?.pid === me.pid;
   // Gone from the list only when killed: one that ran its course stays, so the hook can tell
   // the agent at its stop that it isn't listening any more.
-  const leave = () => { try { locked(() => { const l = readListeners(); if (l[th.key]?.pid === me.pid) { delete l[th.key]; writeListeners(l); } }, HOOK_LOCK_WAIT); } catch {} };
+  const leave = () => { try { locked((s, h) => { const l = readListeners(); if (l[th.key]?.pid === me.pid) { delete l[th.key]; writeListeners(l, h); } }, HOOK_LOCK_WAIT); } catch {} };
   // Killed (the agent stopped its background task): no listener left behind on the board.
   for (const sig of SIGNALS) process.on(sig, () => { leave(); process.exit(signalExit(sig)); });
   const end = now() + o.for;
@@ -585,6 +593,67 @@ const workingId = d => (d ? `${d.using ? 'using' : 'waiting for'} ${d.res.join('
 const workingPlain = (d, cfg) => (!d ? 'idle' : d.using ? `${d.res.map(r => lower(named(cfg, r).doing)).join(' and ')}${why(d)}`
   : `waiting in ${d.res.map(r => named(cfg, r).queue).join(' and ')}${why(d)}`);
 
+// A note dibs wrote in an agent's thread on its behalf (noteAs: how a dibs later run ended, a
+// boat VM the checker stopped). It's dibs talking, not the agent, so the person sees it with
+// dibs's notices, never as unread conversation (2026-11-11: 46 of alex-1a's 46 unread were
+// "l446 (post-merge QUICK ...) finished: exit 0"). Notes from before the flag go by their wording.
+const LATER_NOTE = /^l\d+ \(.*\) (finished|was skipped|didn't start|was lost)\b[\s\S]*Log: \S*later\/l\d+\.log$/;
+const isAuto = m => m.kind === 'note' && (m.auto || LATER_NOTE.test(m.text));
+
+// A note an agent signed with its own name ("alex-d7 to Atlas team-lead: ...",
+// "alex-d7 here, answering ..."): written for another agent with plain dibs say, which
+// goes to the person. Until 2026-11-11 the hook told agents to answer every message that way.
+// Nobody signs a note in their own thread to the person, so it goes with what agents tell each
+// other, not the person's conversation or unread.
+const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const isAside = (m, th) => m.kind === 'note' && !!th?.who && new RegExp(`^${esc(th.who)}( to | here\\b|:)`).test(m.text);
+
+// How a message sent now would reach the thread's agent, in one word the page and the app put
+// into plain words: listening (within seconds), working (with its next tool call or as it
+// finishes its turn), idle (not until it works again: it isn't listening), ended (its session
+// or subagent is gone; the message waits), command (not a Claude Code session: its next dibs command).
+function reacher(threads, on) {
+  const alive = liveness(threads);
+  const status = new Map(sessionFiles().map(f => [f.sessionId, f.status]));
+  return th => (!th.session ? (on.has(th.key) ? 'listening' : 'command') : !alive(th) ? 'ended' : on.has(th.key) ? 'listening'
+    : th.agentId === MAIN && status.get(th.session) === 'idle' ? 'idle' : 'working');
+}
+
+// The name a thread key goes by, for a message whose thread record is gone or never existed
+// (dibs's notices make none): its session's main thread's name, the session's own name, or the
+// name in the key. files: sessionFiles().
+function nameOfKey(s, named, key, files) {
+  if (named.has(key)) return named.get(key);
+  const [first, agentId] = key.split('|');
+  const main = s.threads.find(th => th.session === first && th.agentId === MAIN);
+  const who = main ? named.get(main.key) : files.find(f => f.sessionId === first)?.name || (/^[0-9a-f-]{36}$/.test(first) ? 'an agent' : first);
+  return agentId && agentId !== MAIN ? `${who}/${agentId.replace(/^a/, '').replace(/-[0-9a-f]{8,}$/, '')}` : who;
+}
+
+// What agents tell each other, and what dibs tells agents: two streams the person can look
+// at, apart from their own conversations. An agent's message to another is stored in the
+// receiver's thread as dibs tell left it (from 'person', by the sender), so older clients keep
+// reading it as "sent by <agent>, not you".
+const STREAM = 80;
+function streams(s) {
+  const named = names(s.threads);
+  const files = sessionFiles();
+  const delivery = m => ({ state: m.state || null, ...(m.deliveredAt && { deliveredAt: m.deliveredAt, via: m.via || null }) });
+  const byKey = new Map(s.threads.map(th => [th.key, th]));
+  // An aside went to the person's thread; it was meant for the agent that last wrote to this one.
+  const lastFrom = (m) => s.messages.filter(x => x.key === m.key && x.by && x.at < m.at).at(-1)?.by || null;
+  // A sender's name that reaches nobody now: signed before senders signed with their thread's name.
+  const known = new Set([...named.values(), ...files.map(f => f.name).filter(Boolean)]);
+  const gone = n => (n && !known.has(n) ? { fromGone: true } : {});
+  const between = s.messages.filter(m => (m.kind === 'message' && m.by) || isAside(m, byKey.get(m.key))).slice(-STREAM)
+    .map(m => (m.kind === 'note'
+      ? { id: `m${m.id}`, at: m.at, from: nameOfKey(s, named, m.key, files), to: lastFrom(m), text: m.text, state: null, viaSay: true }
+      : { id: `m${m.id}`, at: m.at, from: m.by, ...gone(m.by), to: nameOfKey(s, named, m.key, files), text: m.text, ...delivery(m) }));
+  const fromDibs = s.messages.filter(m => m.kind === 'notice' || isAuto(m)).slice(-STREAM)
+    .map(m => ({ id: `m${m.id}`, at: m.at, to: m.to || nameOfKey(s, named, m.key, files), kind: m.kind, text: m.text, ...(m.kind === 'notice' ? delivery(m) : { state: null }) }));
+  return { between, fromDibs };
+}
+
 // Every thread as the app and dibs threads --json see it, newest activity first.
 function view(s, t = now()) {
   let st = {};
@@ -592,9 +661,11 @@ function view(s, t = now()) {
   const threads = [...s.threads];
   const byKey = new Map(threads.map(th => [th.key, th]));
   // dibs's notices (bookings, stuck jobs, --mem advice) are for the agent's hook only, never the person's threads.
-  const lines = new Map(threads.map(th => [th.key, s.messages.filter(m => m.key === th.key && m.kind !== 'notice').map(m => ({
+  // dibs's notes for an agent (isAuto) go with the notices, in streams().
+  const lines = new Map(threads.map(th => [th.key, s.messages.filter(m => m.key === th.key && m.kind !== 'notice' && !isAuto(m) && !isAside(m, th)).map(m => ({
     id: `m${m.id}`, at: m.at, from: m.from, kind: m.kind, text: m.text, options: null, questionId: null,
     state: m.kind === 'message' ? m.state : null, ...(m.about ? { about: `m${m.about}` } : {}),
+    ...(m.kind === 'message' && m.deliveredAt && { deliveredAt: m.deliveredAt, via: m.via || null }),
     ...(m.kind === 'note' && (m.reply ? { reply: true } : { fyi: true })), ...(m.by ? { by: m.by } : {}) }))]));
   // Questions join their asker's thread, made here if it has said nothing yet.
   for (const q of asked(t)) {
@@ -616,9 +687,10 @@ function view(s, t = now()) {
   const alive = liveness(threads);
   const desk = deskName();
   const on = listening();
+  const reach = reacher(threads, on);
   return threads.map(th => {
     const messages = lines.get(th.key).sort((a, b) => a.at - b.at);
-    return { agent: th.who, label: th.label || '', session: th.session, agentId: th.agentId, to: named.get(th.key), alive: alive(th),
+    return { agent: th.who, label: th.label || '', session: th.session, agentId: th.agentId, to: named.get(th.key), alive: alive(th), reach: reach(th),
       ...(desk && named.get(th.key) === desk && { desk: true }),
       working: doing(th, st) || !on.has(th.key) ? workingId(doing(th, st)) : 'listening', doing: doing(th, st), ...(on.has(th.key) && { listening: true }), unread: messages.filter(m => m.from === 'agent' && m.kind !== 'delivered' && m.at > (th.readAt || 0)).length,
       last: th.last, messages };
@@ -626,13 +698,12 @@ function view(s, t = now()) {
 }
 
 // What `dibs threads --json` prints. dibs web reads it without the lock; the reaping isn't saved.
-export function threadsJson(t = now(), list = null) {
-  if (!list) {
-    const s = load();
+export function threadsJson(t = now(), s = null) {
+  if (!s) {
+    s = load();
     reap(s);
-    list = view(s, t);
   }
-  return { threads: list.map(({ doing, ...th }) => th), desk: deskName(), needsYou: forYou(loadConfig(), t) };
+  return { threads: view(s, t).map(({ doing, ...th }) => th), desk: deskName(), needsYou: forYou(loadConfig(), t), ...streams(s) };
 }
 
 // For the board: notes the person hasn't read. Read without the lock; the reaping isn't saved.
@@ -641,7 +712,8 @@ export function notesForYou() {
   const s = load();
   reap(s);
   const readAt = new Map(s.threads.map(th => [th.key, th.readAt || 0]));
-  return s.messages.filter(m => m.kind === 'note' && m.at > (readAt.get(m.key) ?? 0)).length;
+  const byKey = new Map(s.threads.map(th => [th.key, th]));
+  return s.messages.filter(m => m.kind === 'note' && !isAuto(m) && !isAside(m, byKey.get(m.key)) && m.at > (readAt.get(m.key) ?? 0)).length;
 }
 
 // The agent config.json names to answer the person ("desk"), or null.
@@ -657,8 +729,9 @@ export function threads(args) {
   const bad = args.find(a => a !== '--json');
   if (bad) die(`unknown ${bad.startsWith('-') ? 'flag' : 'word'} ${bad}. Try: dibs threads [--json], dibs threads read <agent>`);
   const t = now();
-  const list = view(locked(s => s), t);
-  if (json) return console.log(JSON.stringify(threadsJson(t, list), null, 1));
+  const s = locked(x => x);
+  if (json) return console.log(JSON.stringify(threadsJson(t, s), null, 1));
+  const list = view(s, t);
   const cfg = loadConfig();
   const unread = list.reduce((n, th) => n + th.unread, 0);
   if (!list.length) return console.log('No threads yet. Agents start one with dibs say or dibs question.');
@@ -667,7 +740,7 @@ export function threads(args) {
     const lastLine = th.messages.filter(m => m.kind !== 'delivered').at(-1);
     const flags = [th.unread ? `${th.unread} unread` : '', th.messages.some(m => m.state === 'queued') ? 'your message is not delivered yet' : ''].filter(Boolean).join(', ');
     return [th.to, `${th.alive ? (th.listening && !th.doing ? 'listening for messages' : workingPlain(th.doing, cfg)) : 'not running'}, last heard ${ago(t, th.last)}${flags ? ` (${flags})` : ''}.`,
-      lastLine ? dim(`${lastLine.from === 'person' ? 'You' : lastLine.from === 'dibs' ? 'dibs' : 'They'}: ${lastLine.text}`) : ''];
+      lastLine ? dim(`${lastLine.from === 'person' ? lastLine.by || 'You' : lastLine.from === 'dibs' ? 'dibs' : 'They'}: ${lastLine.text}`) : ''];
   })));
   out.push('', dim('Read one: dibs threads read <agent>. Write to one: dibs tell <agent> "..."'));
   console.log(out.join('\n'));
@@ -696,7 +769,7 @@ function read(args) {
   for (const th of r.list) {
     out.push(bold(`${th.to}: ${th.alive ? (th.listening && !th.doing ? 'listening for messages' : workingPlain(th.doing, loadConfig())) : 'not running (your messages wait for it)'}.`));
     for (const m of th.messages.slice(-RECENT)) {
-      const who = m.from === 'person' ? 'you' : m.from === 'dibs' ? 'dibs told them' : 'them';
+      const who = m.from === 'person' ? (m.by ? `${m.by}, another agent,` : 'you') : m.from === 'dibs' ? 'dibs told them' : 'them';
       const what = m.kind === 'question' ? `asked (#${m.questionId}, ${m.state}): ${m.text}${m.options ? `  (${m.options.join(' / ')})` : ''}`
           + `${m.recommend ? `  they recommend ${m.recommend}${m.why ? `: ${m.why}` : ''}` : ''}${m.cantUndo ? `. Can't be undone: ${m.cantUndo}` : ''}`
         : m.kind === 'decided' ? `decided it themselves, a two-way door (#${m.questionId}): ${m.text} -> ${m.answer}${m.why ? ` (${m.why})` : ''}. To change it, tell them`

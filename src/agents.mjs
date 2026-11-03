@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOME } from './config.mjs';
 import { identity, makeAlive } from './proc.mjs';
-import { now, sleepSync, fakeFull } from './util.mjs';
+import { now, sleepSync, fakeFull, lockHeld, unlock } from './util.mjs';
 
 const FILE = path.join(HOME, 'agents.json');
 const LOCK = path.join(HOME, 'agents.lock');
@@ -44,7 +44,7 @@ function locked(fn) {
   const t0 = now();
   for (;;) {
     try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (!lockHeld(e)) throw e;
       try { if (now() - fs.statSync(LOCK).mtimeMs > LOCK_STALE) fs.rmSync(LOCK, { recursive: true, force: true }); } catch {}
       if (now() - t0 > LOCK_WAIT) throw new Error(`${LOCK} stayed locked for ${LOCK_WAIT} ms`);
       sleepSync(5 + Math.random() * 10);
@@ -63,7 +63,7 @@ function locked(fn) {
     }
     return out;
   } finally {
-    fs.rmSync(LOCK, { recursive: true, force: true });
+    unlock(LOCK);
   }
 }
 

@@ -5,12 +5,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE } from './helpers.mjs';
+import { G, MACHINE, posixOnly } from './helpers.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { verdict } from '../src/schedule.mjs';
 import { settle, diskPause, pressurePause, preempt, ownerPause, flush } from '../src/preempt.mjs';
 
-const WIN = process.platform === 'win32';
 const T = Date.now();
 const MIN = 6e4;
 const cfg = { ...DEFAULT_CONFIG, budget: '11G', cores: 10, resources: { ...DEFAULT_CONFIG.resources,
@@ -32,7 +31,7 @@ function going(s) {
 }
 const ownerStopped = l => !!l.pauses?.some(p => p.owner);
 
-test('a run ending while the others are paused: the one closest to done resumes at once', { skip: WIN }, () => {
+test('a run ending while the others are paused: the one closest to done resumes at once', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   // The Mac at 20:51:58: one Playwright run paused, one running, and a deploy (never paused) beside them.
   const deploy = run({ id: 4580, res: ['d'], start: T - 46 * MIN });
   const a = run({ id: 4702, est: 10 * MIN, start: T - 6 * MIN });
@@ -49,7 +48,7 @@ test('a run ending while the others are paused: the one closest to done resumes 
   flush(false);
 });
 
-test('a job about to finish is never paused: finishing frees more than pausing', { skip: WIN }, () => {
+test('a job about to finish is never paused: finishing frees more than pausing', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   const hist = [{ key: 'w|job2', dur: 10 * MIN }];
   const s = { leases: [run({ id: 1, start: T - 2 * MIN }), run({ id: 2, start: T - 9.5 * MIN }), run({ id: 3, est: 60e3, start: T - 30e3 })], queue: [] };
   // Newest first would be 3, then 2; both are under 2 minutes from done.
@@ -83,7 +82,7 @@ function rng(seed) {
   return () => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x / 2 ** 32; };
 }
 
-test('random runs, ends, disk and memory readings, urgent arrivals and owner pauses: something is always running', { skip: WIN }, () => {
+test('random runs, ends, disk and memory readings, urgent arrivals and owner pauses: something is always running', () => {
   const was = process.env.DIBS_FAKE_MACHINE;
   process.env.DIBS_FAKE_MACHINE = JSON.stringify({ ...MACHINE, memTotal: 64 * G, memFree: 60, swapGrowth: 0, diskDrain: 0, diskFree: 500 * G });
   try {

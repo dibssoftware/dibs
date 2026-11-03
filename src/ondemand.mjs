@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
+import { runnable } from './platform.mjs';
 import { fileURLToPath } from 'node:url';
 import { HOME } from './config.mjs';
 import { event } from './events.mjs';
@@ -186,7 +187,8 @@ const hhmm = (t = now()) => new Date(t).toTimeString().slice(0, 5);
 export function boat(args, { timeout = 60e3 } = {}) {
   return new Promise(resolve => {
     // --no-update first: after `--` it would go to the command run on the VM.
-    execFile(process.env.DIBS_BOAT || 'boat', ['--no-update', ...args], { timeout, maxBuffer: 16 * 1024 ** 2, encoding: 'utf8' }, (e, out, err) => {
+    const [cmd, ...argv] = runnable([process.env.DIBS_BOAT || 'boat', '--no-update', ...args]);
+    execFile(cmd, argv, { timeout, maxBuffer: 16 * 1024 ** 2, encoding: 'utf8', windowsVerbatimArguments: cmd === 'cmd.exe', windowsHide: true }, (e, out, err) => {
       const r = { code: e ? (typeof e.code === 'number' ? e.code : 1) : 0, out: out || '', err: (err || e?.message || '').trim() };
       const j = args[0] === 'exec' && !args.includes('--detach') ? json(r.out) : null;
       if (j && typeof j.stdout === 'string') Object.assign(r, { out: j.stdout, err: (j.stderr || r.err).trim(), code: j.exitCode ?? r.code });
@@ -288,7 +290,8 @@ export function ondemand(list, srv, { port, tick = TICK, log: say = log, clock =
   // The reverse forward lives as long as the VM is up, started again if it drops.
   const forward = vm => {
     if (vm.forward || !['waking', 'running'].includes(vm.state)) return;
-    const p = spawn(process.env.DIBS_BOAT || 'boat', ['--no-update', 'forward', vm.id, '--reverse', '--local', String(port)], { stdio: 'ignore' });
+    const [cmd, ...argv] = runnable([process.env.DIBS_BOAT || 'boat', '--no-update', 'forward', vm.id, '--reverse', '--local', String(port)]);
+    const p = spawn(cmd, argv, { stdio: 'ignore', windowsVerbatimArguments: cmd === 'cmd.exe', windowsHide: true });
     vm.forward = p;
     p.on('exit', () => { vm.forward = null; if (['waking', 'running'].includes(vm.state)) setTimeout(() => forward(vm), 2000).unref(); });
     p.on('error', () => {});

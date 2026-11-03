@@ -8,7 +8,7 @@ import net from 'node:net';
 import path from 'node:path';
 import crypto from 'node:crypto';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, bg, until, port, group, machinesOf, PERSON } from './helpers.mjs';
+import { tmp, sync, bg, until, port, group, machinesOf, PERSON, posixOnly } from './helpers.mjs';
 import { tarCreate, tarExtract } from '../src/remote.mjs';
 import { makeServer } from '../src/serve.mjs';
 
@@ -27,7 +27,7 @@ test('a .dibs.json inside the project holds when its machine goes quiet: the job
   assert.doesNotMatch(p.out, /ran on/);
 });
 
-test('a machine lost while running a job: the sender gets 77 (it may have run), not 76', async t => {
+test('a machine lost while running a job: the sender gets 77 (it may have run), not 76', { skip: posixOnly('the test freezes a machine with SIGSTOP, which Windows does not have') }, async t => {
   const g = await group(t, { timing: { workerLost: 4000 } });
   const p = bg(t, g.hc, ['run', 'test', '--on', 'alpha', '--', 'sh', '-c', 'echo started; sleep 60'], { cwd: g.proj });
   await until(() => p.out.includes('started'));
@@ -110,10 +110,11 @@ test('dibs refuses to send a home folder to another machine', async t => {
   const g = await group(t);
   const home = tmp(t, 'home');
   fs.writeFileSync(path.join(home, 'notes.txt'), 'x');
-  const on = sync(g.hc, ['run', 'test', '--on', 'alpha', '--', 'true'], { cwd: home, env: { HOME: home } });
+  // Windows reads the home folder from USERPROFILE.
+  const on = sync(g.hc, ['run', 'test', '--on', 'alpha', '--', 'true'], { cwd: home, env: { HOME: home, USERPROFILE: home } });
   assert.equal(on.code, 2);
   assert.match(on.err, /is your home folder or above it/);
-  const any = sync(g.hc, ['run', 'test', '--anywhere', '--', 'echo', 'here'], { cwd: home, env: { HOME: home } });
+  const any = sync(g.hc, ['run', 'test', '--anywhere', '--', 'echo', 'here'], { cwd: home, env: { HOME: home, USERPROFILE: home } });
   assert.equal(any.code, 0, any.err);
   assert.equal(any.out, 'here\n');
 });

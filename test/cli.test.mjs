@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
 import { spawnSync } from 'node:child_process';
-import { tmp, sync as dibs, bg, until, board, allLow, BIN, MACHINE, G, env } from './helpers.mjs';
+import { tmp, sync as dibs, bg, until, board, allLow, BIN, MACHINE, G, env, posixOnly } from './helpers.mjs';
 import { freeDisk } from '../src/platform.mjs';
 import { VERSION } from '../src/version.mjs';
 
@@ -83,7 +83,7 @@ test('flags before the resource still run the command', t => {
 
 // At background priority a busy machine can leave the job without a core for a minute and more
 // (2026-11-01, an Xcode build alongside the suite): seen lowered, it's boosted to finish.
-test('low priority runs the command at background priority and still passes its output and code through', { skip: process.platform === 'win32' }, async t => {
+test('low priority runs the command at background priority and still passes its output and code through', { skip: posixOnly('the test reads priorities by process group with ps -g') }, async t => {
   const h = tmp(t);
   const gate = path.join(h, 'gate');
   const p = bg(t, h, ['t', '-p', 'low', '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done; echo low; exit 4`], { agent: 'a' });
@@ -143,12 +143,12 @@ test('outside an agent session, hold and release from the same folder match', t 
 test('when, who and why answer without joining the line', async t => {
   const h = tmp(t);
   assert.match(sync(h, 'a', ['when', 't']).out, /^Free now: t\. Take it: dibs run t -- <command>/);
-  bg(t, h, ['run', 't', '-m', 'long one', '--', 'sleep', '30'], { agent: 'a' });
+  bg(t, h, ['run', 't', '-m', 'long one', '--', 'sleep', '120'], { agent: 'a' });
   await until(() => board(h).held.length === 1);
   const w = JSON.parse(sync(h, 'b', ['when', 't', '--json']).out);
   assert.equal(w.freeNow, false);
   assert.equal(w.blockedBy, 'slot');
-  assert.match(sync(h, 'b', ['who', 't']).out, /^t {3}a is using it, time left unknown\n {4}Nobody waiting\n {4}a: "long one", running sleep 30/);
+  assert.match(sync(h, 'b', ['who', 't']).out, /^t {3}a is using it, time left unknown\n {4}Nobody waiting\n {4}a: "long one", running sleep 120/);
   assert.match(sync(h, 'b', ['when', 't']).out, /^You'd be next in the t queue, as soon as a finishes\.\n  You'd wait for a's long one to finish\.\nTo join the queue: dibs run t -- <command>\n$/);
   assert.equal(board(h).waiting.length, 0, 'asking put nobody in line');
   bg(t, h, ['run', 't', '--', 'true'], { agent: 'b' });
@@ -188,7 +188,7 @@ test('dibs inside a dibs run that has the resource goes straight ahead', t => {
   assert.match(p.out, /^\d+ \d+\n$/, p.err);
 });
 
-// Since 0.0.179 low disk is waited out (test/diskfloor.test.mjs); a run that doesn't wait still says why it didn't run.
+// Since 0.0.180 low disk is waited out (test/diskfloor.test.mjs); a run that doesn't wait still says why it didn't run.
 test('not enough disk with --no-wait exits 74 and runs nothing', t => {
   const r = sync(tmp(t), 'a', ['sim', '--no-wait', '--', 'echo', 'ran'], { env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 1e9 }) } });
   assert.equal(r.code, 74);
@@ -231,28 +231,33 @@ function patched(t, h, patch, args) {
 test('a stale lock replaced by a fresh one before the takeover: the fresh one is never taken from its writer', t => {
   const h = tmp(t);
   const lock = path.join(h, 'lock');
-  // Stale and pid-less, as a writer that died before writing its pid leaves it.
+  // Stale: an older dibs's lock whose writer died.
   fs.mkdirSync(lock);
-  const old = new Date(Date.now() - 10e3);
-  fs.utimesSync(lock, old, old);
+  fs.writeFileSync(path.join(lock, 'pid'), '999999');
   const log = path.join(h, 'fresh.json');
-  // Just before this dibs moves the stale lock aside, another writer's fresh lock replaces it
-  // (still without its pid). Record when that fresh lock is removed, and how old it was then.
+  // Just before this dibs claims the stale lock, another writer's fresh lock replaces it, held by a
+  // live process for 4 s. The claim must find it isn't the lock it judged, and wait its turn.
   const r = patched(t, h, `
-const rename = fs.renameSync, rm = fs.rmSync;
-let fresh = null;
+import { spawn } from 'node:child_process';
+const rename = fs.renameSync;
+let fresh = false;
 fs.renameSync = (a, b) => {
-  if (a === LOCK && !fresh && String(b).includes('.stale-')) { fs.rmdirSync(LOCK); fs.mkdirSync(LOCK); fresh = { ino: fs.statSync(LOCK).ino, at: Date.now() }; }
+  if (!fresh && a === LOCK + '/pid' && String(b).startsWith(LOCK + '/owner.')) {
+    fresh = true;
+    fs.rmSync(LOCK, { recursive: true, force: true });
+    fs.mkdirSync(LOCK);
+    const kid = spawn('sleep', ['4'], { stdio: 'ignore' });
+    kid.unref();
+    fs.writeFileSync(LOCK + '/pid', String(kid.pid));
+    fs.writeFileSync(LOCK + '/owner.' + kid.pid + '.0.x', '');
+    fs.writeFileSync(${JSON.stringify(log)}, String(Date.now()));
+  }
   return rename(a, b);
-};
-fs.rmSync = (p, o) => {
-  try { if (fresh && !fresh.gone && fs.statSync(p).ino === fresh.ino) { fresh.gone = Date.now() - fresh.at; fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(fresh)); } } catch {}
-  return rm(p, o);
 };`, ['t', '--', 'echo', 'ran']);
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, 'ran\n');
-  const fresh = JSON.parse(fs.readFileSync(log, 'utf8'));
-  assert.ok(fresh.gone >= 2900, `the fresh lock was taken ${fresh.gone} ms after it was made, before it could look stale`);
+  const waited = Date.now() - Number(fs.readFileSync(log, 'utf8'));
+  assert.ok(waited >= 3500, `it went ahead ${waited} ms after the fresh lock was made, while its writer still lived`);
 });
 
 test('a lock taken from this dibs before its pid went in: it waits its turn again, no crash', t => {
@@ -341,7 +346,7 @@ test('one broken line in the run history leaves the rest of it in use', async t 
 });
 
 // 2026-10-21: brew upgrade replaced Cellar/node/25.9.0_2, and the services, started by that path, couldn't restart.
-test("services start Node through a link that follows upgrades when there is one, not the versioned folder", async t => {
+test("services start Node through a link that follows upgrades when there is one, not the versioned folder", { skip: posixOnly("Homebrew's Cellar is macOS and Linux only") }, async t => {
   const { stableNode } = await import('../src/service.mjs');
   const root = tmp(t, 'brew');
   const real = path.join(root, 'Cellar', 'node', '25.9.0_2', 'bin', 'node');
@@ -357,7 +362,7 @@ test("services start Node through a link that follows upgrades when there is one
 
 // 2026-10-22: launchctl bootout returned before the worker was gone, the bootstrap after it failed
 // with "5: Input/output error", and reinstalling the services left the worker and throttle down.
-test('dibs service install waits for launchd to let the old service go before loading the new one', { skip: process.platform !== 'darwin' }, t => {
+test('dibs service install waits for launchd to let the old service go before loading the new one', { skip: process.platform !== 'darwin' && 'launchd is macOS only' }, t => {
   const home = tmp(t), agents = tmp(t, 'agents'), bin = tmp(t, 'fakebin');
   const loaded = path.join(bin, 'loaded');
   fs.writeFileSync(loaded, '');

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, bg, until, board, HOOK } from './helpers.mjs';
+import { tmp, sync, bg, until, board, HOOK, realPath } from './helpers.mjs';
 
 const S = 'session-1';
 const env = { CLAUDE_CODE_SESSION_ID: S };
@@ -25,7 +25,7 @@ const bgAs = (t, home, agent, type, args) => { note(home, agent, type, args); re
 test("a subagent's board, why and mine are its own; a sibling's job is named, never the session it shares", async t => {
   const home = tmp(t);
   fs.writeFileSync(`${home}/config.json`, JSON.stringify({ resources: { test: { slots: 1 } } }));
-  bgAs(t, home, 'agent-a', 'fix-guard', ['run', 'test', '-m', 'guard tests', '--', 'sleep', '30']);
+  bgAs(t, home, 'agent-a', 'fix-guard', ['run', 'test', '-m', 'guard tests', '--', 'sleep', '120']);
   // Its command started, not just its lease granted: until then mine and the board have no job to show.
   await until(() => board(home).held[0]?.pgid);
   const b = bgAs(t, home, 'agent-b', 'fix-talk', ['run', 'test', '-m', 'talk tests', '--', 'true']);
@@ -44,13 +44,13 @@ test("a subagent's board, why and mine are its own; a sibling's job is named, ne
   assert.doesNotMatch(why, /SendMessage|dibs yield pm/, 'no hint to ask itself to yield');
 
   const mineA = as(home, 'agent-a', 'fix-guard', ['mine']).out;
-  assert.match(mineA, /^You're running tests \(#\d+, "guard tests"\): sleep 30/m);
+  assert.match(mineA, /^You're running tests \(#\d+, "guard tests"\): sleep 120/m);
   assert.doesNotMatch(mineA, /queue/, "its sibling's wait isn't its own");
   assert.equal(as(home, 'agent-b', 'fix-talk', ['mine', 'test']).code, 0);
   assert.doesNotMatch(as(home, 'agent-b', 'fix-talk', ['mine']).out, /You're running/);
 
   const detail = as(home, 'agent-b', 'fix-talk', ['--detail']).out;
-  assert.match(detail, /sleep 30 {2}#1 {2}<- your session$/m);
+  assert.match(detail, /sleep 120 {2}#1 {2}<- your session$/m);
   assert.match(detail, /talk tests.* {2}#2 {2}<- you$/m);
   const plain = as(home, 'agent-b', 'fix-talk', []).out;
   assert.equal(plain.split('\n').filter(l => /^You: /.test(l)).length, 1, 'one "You:" line, its own');
@@ -62,7 +62,7 @@ test("a subagent's board, why and mine are its own; a sibling's job is named, ne
 test('a general-purpose sibling goes by its -m reason, else the start of its id, on the board and in why', async t => {
   const home = tmp(t);
   fs.writeFileSync(`${home}/config.json`, JSON.stringify({ resources: { test: { slots: 1 } } }));
-  bgAs(t, home, 'a1f00ba4c9d2e7', 'general-purpose', ['run', 'test', '-m', 'lint pass', '--', 'sleep', '30']);
+  bgAs(t, home, 'a1f00ba4c9d2e7', 'general-purpose', ['run', 'test', '-m', 'lint pass', '--', 'sleep', '120']);
   await until(() => board(home).held.length === 1);
   bgAs(t, home, 'a77e10aa3b6c55', 'general-purpose', ['run', 'test', '--', 'true']);
   await until(() => board(home).waiting.length === 1);
@@ -80,7 +80,7 @@ function noteRaw(home, agent, type, command) {
 }
 
 test("two subagents' interleaved holds are each stamped with the agent that ran it, or with nobody when it can't be told", t => {
-  const home = tmp(t), R = fs.realpathSync(home);
+  const home = tmp(t), R = realPath(home);
   const stamps = () => Object.fromEntries(board(home).held.map(l => [l.res.join(','), l.agentId ?? null]));
   // Both hooks run before either dibs does, and webreader's note is the newer one.
   noteRaw(home, 'adesignplus-1', 'designplus', 'dibs hold "files:$R/drag.ts" -m "designplus: drag"');

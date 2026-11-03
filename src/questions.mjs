@@ -24,7 +24,7 @@ import { defaultMaxWait } from './acquire.mjs';
 import { event } from './events.mjs';
 import { takeAgent, talkKey } from './files.mjs';
 import { messageAsker } from './talk.mjs';
-import { clock, die, dur, ms, now, say, sleep, sleepSync, fakeFull } from './util.mjs';
+import { clock, die, dur, ms, now, say, sleep, sleepSync, fakeFull, lockHeld, unlock } from './util.mjs';
 import { bold, dim, amber, wrap } from './style.mjs';
 
 const FILE = path.join(HOME, 'questions.json');
@@ -50,7 +50,7 @@ function locked(fn) {
   const t0 = now();
   for (;;) {
     try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (!lockHeld(e)) throw e;
       try { if (now() - fs.statSync(LOCK).mtimeMs > LOCK_STALE) fs.rmSync(LOCK, { recursive: true, force: true }); } catch {}
       if (now() - t0 > LOCK_WAIT) die(`${LOCK} stayed locked for ${LOCK_WAIT / 1000}s; remove it if no dibs is running. Nothing was changed.`, 75);
       sleepSync(5 + Math.random() * 10);
@@ -68,7 +68,7 @@ function locked(fn) {
     }
     return out;
   } finally {
-    fs.rmSync(LOCK, { recursive: true, force: true });
+    unlock(LOCK);
   }
 }
 

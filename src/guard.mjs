@@ -12,6 +12,10 @@ import { tmpGuard, fileGuard, resList } from './files.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK_BIN = path.join(ROOT, 'bin', 'dibs-guard.mjs');
+// Claude Code runs hooks and Bash commands through Git Bash on Windows, where a
+// .mjs doesn't run by name: there node runs it, from a path written with /.
+const WIN = process.platform === 'win32';
+const viaNode = file => (WIN ? `node ${quote(file.replace(/\\/g, '/'))}` : quote(file));
 // The same folder as config.mjs's HOME, worked out here because the hook loads no other module.
 const DIBS_HOME = process.env.DIBS_HOME || path.join(os.homedir(), '.dibs');
 const CONFIG = path.join(DIBS_HOME, 'config.json');
@@ -316,7 +320,8 @@ export function rulesFrom(guardCfg) {
   return { ...RULES, ...(guardCfg?.rules || {}) };
 }
 
-const quote = s => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+// A ~ inside a word stays as typed (Windows short names: C:/Users/RUNNER~1); only a leading one expands.
+const quote = s => (/^[\w@%+=:,./-][\w@%+=:,./~-]*$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
 // What to do with a command: null to leave it alone, or the rewritten command
 // and what was caught.
@@ -379,7 +384,7 @@ const AGENT_EVENT = input => ['Agent', 'Task'].includes(input?.tool_name) || ['S
 function dibsCommand() {
   for (const dir of (process.env.PATH || '').split(path.delimiter))
     if (dir && fs.existsSync(path.join(dir, 'dibs'))) return 'dibs';
-  return quote(path.join(ROOT, 'bin', 'dibs.mjs'));
+  return viaNode(path.join(ROOT, 'bin', 'dibs.mjs'));
 }
 
 // Rewrite only where "allow" approves nothing the session wouldn't have run
@@ -541,7 +546,7 @@ export function installed(file = SETTINGS) {
   return ours(readSettings(file)).flatMap(g => g.hooks).find(isGuard) || null;
 }
 
-export function install(file = SETTINGS, command = quote(HOOK_BIN)) {
+export function install(file = SETTINGS, command = viaNode(HOOK_BIN)) {
   const s = readSettings(file);
   const had = installed(file);
   if (complete(s, command)) return `already installed in ${file}`;

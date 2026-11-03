@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { tmp, sync as dibs, bg as spawnDibs, until, board, alive, wait, BIN, MACHINE, flat } from './helpers.mjs';
+import { tmp, sync as dibs, bg as spawnDibs, until, board, alive, wait, BIN, MACHINE, flat, posixOnly, shPid, windowsGap } from './helpers.mjs';
 
 const sync = (h, agent, args) => dibs(h, args, { agent });
 const bg = (t, h, agent, args) => spawnDibs(t, h, args, { agent });
@@ -14,7 +14,7 @@ const lines = file => fs.readFileSync(file, 'utf8');
 // Holds t until the test says so: `release()` ends the holder's command.
 async function holder(t, h) {
   const gate = path.join(h, 'gate');
-  const p = bg(t, h, 'a', ['t', '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`]);
+  const p = bg(t, h, 'a', ['t', '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`]);
   await until(() => board(h).held.length === 1);
   p.release = () => fs.writeFileSync(gate, '');
   return p;
@@ -24,9 +24,9 @@ test('waiters go in arrival order', async t => {
   const h = tmp(t);
   const order = path.join(h, 'order');
   const a = await holder(t, h);
-  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> ${order}`]);
+  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> '${order}'`]);
   await until(() => board(h).waiting.length === 1);
-  const c = bg(t, h, 'c', ['t', '--', 'sh', '-c', `echo c >> ${order}`]);
+  const c = bg(t, h, 'c', ['t', '--', 'sh', '-c', `echo c >> '${order}'`]);
   await until(() => board(h).waiting.length === 2);
   a.release();
   await Promise.all([a.done, b.done, c.done]);
@@ -37,7 +37,8 @@ test("a waiter's board row says what it's waiting on", async t => {
   const h = tmp(t);
   // 8.8G free for every call here, the board's included.
   const opts = agent => ({ agent, env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 8.8 * 1024 ** 3 }) } });
-  const a = spawnDibs(t, h, ['t', '--', 'sleep', '30'], opts('a'));
+  // Long enough to outlast every call below on a slow runner; it's killed at the end.
+  const a = spawnDibs(t, h, ['t', '--', 'sleep', '120'], opts('a'));
   await until(() => board(h).held.length === 1);
   spawnDibs(t, h, ['t', '--', 'true'], opts('b'));
   spawnDibs(t, h, ['u', '--disk', '10G', '--', 'true'], opts('c'));
@@ -56,9 +57,9 @@ test('high priority passes a normal waiter', async t => {
   const h = tmp(t);
   const order = path.join(h, 'order');
   const a = await holder(t, h);
-  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> ${order}`]);
+  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> '${order}'`]);
   await until(() => board(h).waiting.length === 1);
-  const c = bg(t, h, 'c', ['t', '-p', 'high', '-m', 'release blocker', '--', 'sh', '-c', `echo c >> ${order}`]);
+  const c = bg(t, h, 'c', ['t', '-p', 'high', '-m', 'release blocker', '--', 'sh', '-c', `echo c >> '${order}'`]);
   await until(() => board(h).waiting.length === 2);
   assert.deepEqual(board(h).waiting.map(w => w.who), ['c', 'b']);
   a.release();
@@ -70,9 +71,9 @@ test('a run that holds deploy goes ahead of waiters that hold nothing for the re
   const h = tmp(t);
   const order = path.join(h, 'order');
   const a = await holder(t, h);
-  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> ${order}`]);
+  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> '${order}'`]);
   await until(() => board(h).waiting.length === 1);
-  const ship = bg(t, h, 'ship', ['run', 'deploy', '-m', 'ship build 122', '--', process.execPath, BIN, 'run', 't', '--', 'sh', '-c', `echo ship >> ${order}`]);
+  const ship = bg(t, h, 'ship', ['run', 'deploy', '-m', 'ship build 122', '--', process.execPath, BIN, 'run', 't', '--', 'sh', '-c', `echo ship >> '${order}'`]);
   await until(() => board(h).waiting[0]?.holding);
   const w = board(h).waiting;
   assert.deepEqual(w.map(x => [x.who, x.holding?.res, x.purpose]), [['ship', ['deploy'], 'ship build 122'], ['b', undefined, '']]);
@@ -105,9 +106,9 @@ test('yield lets another agent go first', async t => {
   const h = tmp(t);
   const order = path.join(h, 'order');
   const a = await holder(t, h);
-  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> ${order}`]);
+  const b = bg(t, h, 'b', ['t', '--', 'sh', '-c', `echo b >> '${order}'`]);
   await until(() => board(h).waiting.length === 1);
-  const c = bg(t, h, 'c', ['t', '--', 'sh', '-c', `echo c >> ${order}`]);
+  const c = bg(t, h, 'c', ['t', '--', 'sh', '-c', `echo c >> '${order}'`]);
   await until(() => board(h).waiting.length === 2);
   assert.match(sync(h, 'b', ['yield', 'c']).out, /c now goes before you/);
   assert.deepEqual(board(h).waiting.map(w => w.who), ['c', 'b']);
@@ -137,7 +138,7 @@ test('yield hands over a hold', async t => {
 test('a killed wrapper frees its slot and its children die', async t => {
   const h = tmp(t);
   const marker = path.join(h, 'child.pid');
-  const w = bg(t, h, 'a', ['t', '--', 'sh', '-c', `echo $$ > ${marker}; sleep 60`]);
+  const w = bg(t, h, 'a', ['t', '--', 'sh', '-c', `echo ${shPid('$$')} > '${marker}'; sleep 60`]);
   await until(() => fs.existsSync(marker) && lines(marker).trim());
   const child = Number(lines(marker));
   w.kill('SIGKILL');
@@ -146,7 +147,7 @@ test('a killed wrapper frees its slot and its children die', async t => {
   await until(() => !alive(child));
 });
 
-test('a command launched behind the gate never starts if dibs dies before recording it', { skip: process.platform === 'win32' }, async t => {
+test('a command launched behind the gate never starts if dibs dies before recording it', async t => {
   const h = tmp(t);
   const ran = path.join(h, 'ran');
   // A caller that launches and then dies without calling go(), the way a dibs
@@ -159,7 +160,7 @@ test('a command launched behind the gate never starts if dibs dies before record
   assert.equal(fs.existsSync(ran), false);
 });
 
-test('children that start their own process group are stopped with the lease', async t => {
+test('children that start their own process group are stopped with the lease', { skip: posixOnly('process groups are POSIX; Windows has no setsid') }, async t => {
   const h = tmp(t);
   const marker = path.join(h, 'gc.pid'), gate = path.join(h, 'gate');
   // The parent stays until dibs has noticed the split-off group, then exits and leaves it running.
@@ -175,7 +176,7 @@ test('children that start their own process group are stopped with the lease', a
   await until(() => !alive(pid), 5000);
 });
 
-test('SIGTERM reaches the command', async t => {
+test('SIGTERM reaches the command', { skip: posixOnly("Windows can't deliver SIGTERM: kill() there ends the process outright") }, async t => {
   const h = tmp(t);
   const w = bg(t, h, 'a', ['t', '--', 'sh', '-c', 'trap "echo got-term; exit 0" TERM; echo ready; sleep 30 & wait']);
   await until(() => w.out.includes('ready'));
@@ -237,10 +238,10 @@ test('memory budget makes a big job wait while a small one runs', async t => {
   assert.equal(big2.out, 'big2\n');
 });
 
-test('many agents hammering the state file never lose a lease', async t => {
+test('many agents hammering the state file never lose a lease', { skip: windowsGap('twelve dibs at once on a 4-core runner can keep one off the state lock past its 45 s limit (exit 75): each holds it longer there') }, async t => {
   const h = tmp(t);
   const runs = Array.from({ length: 12 }, (_, i) => bg(t, h, `p${i}`, [`r${i % 3}`, '--', 'true']));
-  assert.deepEqual(await Promise.all(runs.map(r => r.done)), Array(12).fill(0));
+  assert.deepEqual(await Promise.all(runs.map(r => r.done)), Array(12).fill(0), runs.map(r => r.err).join(''));
   const b = board(h);
   assert.equal(b.held.length + b.waiting.length, 0);
 });

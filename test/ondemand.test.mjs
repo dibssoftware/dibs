@@ -1,12 +1,14 @@
 // On-demand machines (src/ondemand.mjs): a cloud VM that sleeps until a job
 // needs it, against a fake boat CLI (test/fake-boat.mjs) whose "VM" runs here.
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { tmp, bg, sync, until, port, answers, gitProject, inviteAndJoin, machinesOf, track, SERVE_START } from './helpers.mjs';
+import { tmp, bg, sync, until, port, answers, gitProject, inviteAndJoin, machinesOf, track, SERVE_START, nodeWrapper, posixFile } from './helpers.mjs';
+
+const test = posixFile(nodeTest, "the fake boat runs the on-demand VM's Linux setup (sh, tar, a Linux worker) on this machine, and Windows can't stand in for that VM");
 import { place } from '../src/serve.mjs';
 import { ondemandOf, ondemand, sizeFor, findVm, NODE } from '../src/ondemand.mjs';
 import { VERSION } from '../src/version.mjs';
@@ -34,8 +36,7 @@ async function setup(t, { vm = 'stopped', idleStop = '2s', rows = ROWS, vms, cre
   fs.mkdirSync(path.join(nodeDir, 'bin'), { recursive: true });
   fs.symlinkSync(process.execPath, path.join(nodeDir, 'bin', 'node'));
   fs.writeFileSync(path.join(nodeDir, '.pinned'), `${NODE.version}\n`);
-  const wrapper = path.join(boatDir, 'boat');
-  fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+  const wrapper = nodeWrapper(boatDir, 'boat', FAKE);
   const g = { h0: tmp(t, 'coord'), hc: tmp(t, 'gamma'), port: await port(), boatDir };
   g.registry = path.join(boatDir, 'VMS.md');
   fs.writeFileSync(g.registry, REGISTRY(rows));
@@ -166,8 +167,7 @@ test('a running VM is stopped once its queue has been empty for idleStop, by the
   // The manager on its own, with a fake coordinator and a clock the test moves.
   const boatDir = tmp(t, 'boat');
   fs.writeFileSync(path.join(boatDir, 'state.json'), JSON.stringify({ vms: { [ID]: { state: 'running', pids: [] } } }));
-  const wrapper = path.join(boatDir, 'boat');
-  fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+  const wrapper = nodeWrapper(boatDir, 'boat', FAKE);
   const registry = path.join(boatDir, 'VMS.md');
   fs.writeFileSync(registry, REGISTRY(ROWS));
   Object.assign(process.env, { DIBS_BOAT: wrapper, FAKE_BOAT_DIR: boatDir });
@@ -201,7 +201,7 @@ test('a job too big for the VM gets a VM made in the smallest size that fits, li
   const g = await setup(t, { create: { max: 'large' } });
   assert.deepEqual(machinesOf(g.hc).machines.map(m => [m.name, m.ondemand?.state]), [['boat-1', 'asleep'], ['boat-1-temp', 'asleep']]);
   // While the job runs, the registry lists its VM as temporary, ours.
-  const r = sync(g.hc, ['run', 'test', '--on', 'boat-1', '--mem', '12G', '--', 'sh', '-c', `echo "on $HOME"; grep temporary ${g.registry}`], { cwd: g.proj });
+  const r = sync(g.hc, ['run', 'test', '--on', 'boat-1', '--mem', '12G', '--', 'sh', '-c', `echo "on $HOME"; grep temporary '${g.registry}'`], { cwd: g.proj });
   assert.equal(r.code, 0, r.err);
   const made = calls(g.boatDir).find(a => a[0] === 'new');
   assert.deepEqual(made, ['new', '--type', 'large'], '12G is more than default has: large');

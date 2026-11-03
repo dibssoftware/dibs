@@ -5,14 +5,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync as dibs, bg as spawnDibs, until, board, track, env, BIN } from './helpers.mjs';
+import { tmp, sync as dibs, bg as spawnDibs, until, board, track, env, BIN, posixOnly } from './helpers.mjs';
 import { spawn } from 'node:child_process';
 import { summarize, verdict } from '../src/history.mjs';
 import { clock } from '../src/util.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 
-const WIN = process.platform === 'win32';
-const LIMIT = { DIBS_MAX_WAIT: '1s' };
+// 3s on Windows, where the first look at the line can take longer than a second.
+const LIMIT = { DIBS_MAX_WAIT: process.platform === 'win32' ? '3s' : '1s' };
 const CONFIG = { resources: { t: { slots: 1, mem: '0.1G', cpu: 1, pausable: true } } };
 const sync = (h, agent, args) => dibs(h, args, { agent, env: LIMIT });
 const bg = (t, h, agent, args) => spawnDibs(t, h, args, { agent, env: LIMIT });
@@ -24,7 +24,7 @@ const home = t => { const h = tmp(t); fs.writeFileSync(path.join(h, 'config.json
 // Holds t until the test says so: `release()` ends the holder's command.
 async function holder(t, h, agent = 'a', args = []) {
   const gate = path.join(h, `gate-${agent}`);
-  const p = bg(t, h, agent, ['t', ...args, '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`]);
+  const p = bg(t, h, agent, ['t', ...args, '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`]);
   await until(() => board(h).held.some(l => l.who === agent));
   p.release = () => fs.writeFileSync(gate, '');
   return p;
@@ -62,7 +62,7 @@ test('real runs record start, end with the exit code, a wait, and a timeout with
   assert.ok(!ev.some(e => e.kind === 'wait' && e.who === 'a'));
 });
 
-test('a job paused for urgent work records the pause, the resume, and its paused time at the end', { skip: WIN }, async t => {
+test('a job paused for urgent work records the pause, the resume, and its paused time at the end', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   await holder(t, h, 'lo', ['-p', 'low']);
   // Only a job whose group is on record can be paused; before that, the urgent run would wait out its 1 s limit.
@@ -103,7 +103,7 @@ test('the owner\'s boost, cap, answer and hours show in dibs history --json as o
   assert.deepEqual(acts[3].hours, { start: '09:00', end: '23:00' });
 });
 
-test('a crashed run is recorded as ended, with no exit code, by whoever reads the state next', { skip: WIN }, async t => {
+test('a crashed run is recorded as ended, with no exit code, by whoever reads the state next', async t => {
   const h = home(t);
   const p = bg(t, h, 'gone', ['t', '--', 'sleep', '30']);
   await until(() => board(h).held.length === 1);
@@ -154,7 +154,7 @@ test('the log rotates past 15 days or 10 MB, so two files keep at most 30 days a
   assert.deepEqual(j.events.map(e => e.kind), ['start', 'end']);
 });
 
-test('the throttle watcher writes a load sample for the hourly view', { skip: WIN }, async t => {
+test('the throttle watcher writes a load sample for the hourly view', async t => {
   const h = home(t);
   const w = track(t, spawn(process.execPath, [BIN, 'throttle', '--watch'],
     { env: env(h, { load: 3.5 }), stdio: 'ignore' }));

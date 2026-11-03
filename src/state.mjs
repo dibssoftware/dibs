@@ -1,15 +1,28 @@
 // The shared state file: who holds what and who's waiting. Every change goes
-// through withState, which holds a mkdir lock for a few milliseconds.
+// through withState, which holds the state lock for a few milliseconds.
+//
+// The lock (src/lock.mjs, which says why in full):
+// - One holder: ~/.dibs/lock is renamed into place already holding its owner file, so it's
+//   never seen without one, and of two makers one wins.
+// - Stale only when its owner is dead, a zombie or stopped (ps), never for its age: a live
+//   holder, however slow, is waited for, and nothing gives up. One holding past a minute is
+//   reported once, loudly (stuck below), and plain dibs shows the last state instead of waiting.
+// - Takeover renames the stale owner's file to the taker's own, inside the lock, so of two
+//   takers one wins and a fresh lock is never moved or taken by mistake.
+// - A holder checks it still holds the lock just before its rename of state.json.<pid>.tmp;
+//   taken over (it was stopped), it writes nothing and makes its change again.
+// - Release removes only its own lock, and never throws.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, HOME } from './config.mjs';
+import { paths } from './config.mjs';
 import { makeAlive } from './proc.mjs';
+import { acquire, commit, commandOf, LostLock } from './lock.mjs';
 import { stopTree, starts, liveGroups, wokeAt, OS } from './platform.mjs';
 import { settle, flush } from './preempt.mjs';
 import { reapPool } from './simpool.mjs';
 import { queueResets, startResets, reapResets } from './reset.mjs';
 import { logChanges, event } from './events.mjs';
-import { die, now, say, sleepSync, noSpace, fakeFull, unpolled, GHOST_AFTER, POLLED_EVERY, UNPOLLED } from './util.mjs';
+import { die, now, say, dur, noSpace, fakeFull, unpolled, GHOST_AFTER, POLLED_EVERY, UNPOLLED } from './util.mjs';
 
 export const KEEP_PLACE = 120e3;   // a waiter that gave up keeps its place this long
 // A waiter looks at its place every second or so, and a broker for its thin waiters as often:
@@ -18,38 +31,40 @@ export const STOP_GRACE = POLLED_EVERY;
 const STOPPED_FOR = 10 * POLLED_EVERY;
 const QUIET_GRACE = 2 * POLLED_EVERY;   // two stamps' time, for every waiter to look in again
 
-export function withState(fn) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const t0 = now();
-  const owner = path.join(paths.lock, 'pid');
+export function withState(fn, wait = Infinity) {
+  warm();
   for (;;) {
-    try { fs.mkdirSync(paths.lock); } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      // Take the lock over only from a writer that died holding it, or one stuck
-      // for 30s. The age check matters: the pid we read may belong to a writer
-      // that just finished, while the directory is already someone's fresh lock.
-      // The lock judged is the one taken over (takeOver checks its inode): judged stale, it can be
-      // replaced by a fresh one before the rename, and on 2026-11-04 a takeover moved a fresh lock
-      // aside before its writer had put its pid in, and that writer crashed (exit 70).
-      let pid = 0, st;
-      try { st = fs.statSync(paths.lock); } catch { continue; }
-      try { pid = Number(fs.readFileSync(owner, 'utf8')); } catch {}
-      const age = now() - st.mtimeMs;
-      if (age > 30000 || (age > 3000 && (!pid || !makeAlive([pid])(pid)))) takeOver(st);
-      if (now() - t0 > 45000) die(`state lock stuck; remove ${paths.lock} if no dibs is running. Your command did not run.`, 75);
-      sleepSync(10 + Math.random() * 20);
-      continue;
-    }
-    // A lock with no pid in it (a full disk) would hold everyone up until it looked stale: give it back now.
-    // Gone before the pid went in (taken over by an older dibs that judged it stale): not ours, so
-    // nothing to give back, and the caller waits its turn again instead of crashing.
-    try { fakeFull('lock'); fs.writeFileSync(owner, String(process.pid)); break; }
-    catch (e) {
-      if (e.code === 'ENOENT') continue;
-      fs.rmSync(paths.lock, { recursive: true, force: true });
-      throw e;
-    }
+    const giveUp = deadline != null && wait === Infinity;
+    const lock = acquire(paths.lock, { wait: giveUp ? Math.max(deadline - now(), LEAVE_GRACE) : wait, fake: () => fakeFull('lock'), files: [paths.state], onStuck: stuck });
+    if (!lock && giveUp) die(`gave up waiting: the state lock stayed held past this wait's limit (dibs is stuck behind another process; dibs alerts says which). Your command did NOT run (exit 75).`, 75);
+    if (!lock) return undefined;
+    try { return change(fn, lock); }
+    catch (e) { if (!(e instanceof LostLock)) throw e; }   // taken over while stopped, before it wrote: change again
   }
+}
+
+// A run or hold waiting in line with a limit (--max-wait, or 8m outside Claude Code) gives up with 75
+// at that limit even when what holds it up is the state lock itself. Set by src/acquire.mjs while it
+// waits; LEAVE_GRACE past it is still allowed, for giving its place back.
+let deadline = null;
+const LEAVE_GRACE = 5000;
+export const setLockDeadline = at => { deadline = at; };
+
+// A live holder is waited for however long it takes, but one holding past STUCK_AFTER is hung,
+// and with it all of dibs. The first waiter to notice says so, once per holder: an event the
+// alerts make loud (src/alerts.mjs), and a line on its own terminal.
+export const STUCK_DIR = path.join(path.dirname(paths.lock), 'lockstuck');
+function stuck(o, held) {
+  fs.mkdirSync(STUCK_DIR, { recursive: true });
+  try { fs.writeFileSync(path.join(STUCK_DIR, o.key), '', { flag: 'wx' }); } catch { return; }
+  for (const n of fs.readdirSync(STUCK_DIR)) if (n !== o.key) try { fs.rmSync(path.join(STUCK_DIR, n), { force: true }); } catch {}
+  const cmd = commandOf(o.pid);
+  event({ at: now(), kind: 'lockstuck', key: o.key, pid: o.pid, cmd, held });
+  say(`dibs is stuck behind pid ${o.pid}${cmd ? ` (${cmd.slice(0, 80)})` : ''}, which has held the state lock for ${dur(held)}. `
+    + `Waiting for it. If it's hung, ending it lets everyone go on: kill ${o.pid}`);
+}
+
+function change(fn, lock) {
   let written = false, moved = false;
   vanished = [];
   try {
@@ -72,9 +87,8 @@ export function withState(fn) {
     const text = JSON.stringify(s, null, 1);
     if (text !== raw) {
       // A write cut short by a full disk leaves the old state in place, and no half file taking up space.
-      try { fakeFull('state'); fs.writeFileSync(paths.state + '.tmp', text); }
-      catch (e) { fs.rmSync(paths.state + '.tmp', { force: true }); throw e; }
-      fs.renameSync(paths.state + '.tmp', paths.state);
+      if (!commit(lock, paths.state, text, { fake: () => fakeFull('state') }))
+        event({ at: now(), kind: 'clobbered', pid: process.pid, why: 'the state lock was taken over between the ownership check and the write' });
       written = true;
       moved = ids(s) !== line;
     }
@@ -84,10 +98,22 @@ export function withState(fn) {
     return out;
   } finally {
     flush(false);   // a change that failed sends nothing
-    fs.rmSync(paths.lock, { recursive: true, force: true });
+    lock.release();
     if (moved && kicks) try { kick(); } catch {}   // after the lock, which the broker takes next
     startResets(written);
   }
+}
+
+// Every pid the state names, whose start times reap() checks.
+const pidsOf = s => [...(s.leases || []).map(l => l.pid), ...(s.queue || []).map(q => q.pid || q.keptFor), ...(s.resets || []).flatMap(x => [x.pid, x.cpid])];
+
+// Read those start times before taking the lock, so reap() under it finds them in
+// makeAlive's cache instead of running ps: on 2026-11-11 that ps (100 to 700 ms on a
+// Mac at load 30) was most of every first hold, and the lock was held 83% of the time.
+// On Windows each start time is a PowerShell read, about 0.4 s: twelve runs at once queued for the
+// lock past its old 45 s limit on a CI runner.
+function warm() {
+  try { makeAlive(pidsOf(JSON.parse(fs.readFileSync(paths.state, 'utf8')))); } catch {}
 }
 
 // The broker (src/broker.mjs) ticks when kicked: one byte down its control
@@ -109,18 +135,6 @@ export function kick() {
 // split-off groups): on a full disk it's skipped, and this returns undefined.
 export function withStateIfRoom(fn) {
   try { return withState(fn); } catch (e) { if (noSpace(e)) return undefined; throw e; }
-}
-
-// Move the stale lock aside atomically, then check it was the one we judged, by inode: its pid
-// can't tell, since a fresh lock has none yet and reads as the same 0 as a pid-less stale one.
-// If another waiter's lock had replaced it in between, put theirs back.
-export function takeOver(judged) {
-  const aside = `${paths.lock}.stale-${process.pid}-${now()}`;
-  try { fs.renameSync(paths.lock, aside); } catch { return; }
-  let ino = null;
-  try { ino = fs.statSync(aside).ino; } catch {}
-  if (ino === judged.ino) fs.rmSync(aside, { recursive: true, force: true });
-  else try { fs.renameSync(aside, paths.lock); } catch { fs.rmSync(aside, { recursive: true, force: true }); }
 }
 
 // The state as last written, without the lock and without reaping: what dibs
@@ -148,7 +162,7 @@ function read() {
 let vanished = [];
 function reap(s) {
   const t = now();
-  const alive = makeAlive([...s.leases.map(l => l.pid), ...s.queue.map(q => q.pid || q.keptFor), ...(s.resets || []).flatMap(x => [x.pid, x.cpid])]);
+  const alive = makeAlive(pidsOf(s));
   s.leases = s.leases.filter(l => {
     if (l.kind === 'hold') return t < l.expires && (!l.pid || alive(l.pid, l.pstart));
     if (alive(l.pid, l.pstart)) return true;
@@ -235,10 +249,36 @@ function stillOurs(l, g, leader, recorded, live) {
 
 // Past run times, newest last. A line cut short (a crash mid-append) is
 // skipped, not allowed to throw away every other line.
+// Only the end of the file is read: it grows by every run (2 MB, 15,000 lines on
+// 2026-11-11) and every waiter, the broker and the board read it. Just after the
+// file is rotated (src/events.mjs) the rest comes from the end of the one before.
+const HISTORY_KEEP = 1000;
+const HISTORY_CHUNK = 256 * 1024;   // about 2,000 lines, so one read nearly always does
 export function history() {
-  let text;
-  try { text = fs.readFileSync(paths.history, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return []; throw e; }
-  return text.trim().split('\n').slice(-1000).flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } });
+  const lines = tail(paths.history, HISTORY_KEEP);
+  if (lines.length < HISTORY_KEEP) lines.unshift(...tail(paths.historyOlder, HISTORY_KEEP - lines.length));
+  return lines.slice(-HISTORY_KEEP).flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } });
+}
+
+// The last `need` lines of a file (fewer if it has fewer), none for an empty or missing one.
+function tail(file, need) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch (e) { if (e.code === 'ENOENT') return []; throw e; }
+  let lines;
+  try {
+    const size = fs.fstatSync(fd).size;
+    for (let want = HISTORY_CHUNK; ; want *= 2) {
+      const from = Math.max(0, size - want);
+      const buf = Buffer.alloc(size - from);
+      fs.readSync(fd, buf, 0, buf.length, from);
+      const text = buf.toString('utf8').trim();
+      lines = text ? text.split('\n') : [];
+      // A read that starts mid-file starts mid-line: that first piece isn't a line.
+      if (from > 0) lines.shift();
+      if (from === 0 || lines.length >= need) break;
+    }
+  } finally { fs.closeSync(fd); }
+  return lines.slice(-need);
 }
 
 // peak is the most the run was measured using (src/measure.mjs), when it ran long enough to be.

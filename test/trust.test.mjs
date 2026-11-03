@@ -6,12 +6,12 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, bg, until, group, shared, alive, gitProject, inviteAndJoin, machinesOf, PERSON } from './helpers.mjs';
+import { tmp, sync, bg, until, group, shared, alive, gitProject, inviteAndJoin, machinesOf, PERSON, posixOnly, shPid } from './helpers.mjs';
 import { place, makeServer, bare } from '../src/serve.mjs';
 import { makeTrust, readRules, rulesAbove } from '../src/trust.mjs';
 
 const PROJECT = { 'a.txt': 'hi\n', 'sub/s.txt': 's\n' };
-const sleeper = marker => ['sh', '-c', `echo $$ > ${marker}; echo started; sleep 60`];
+const sleeper = marker => ['sh', '-c', `echo ${shPid('$$')} > '${marker}'; echo started; sleep 60`];
 
 async function api(g, token, method, route, body) {
   const r = await fetch(`http://127.0.0.1:${g.port}${route}`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -36,7 +36,8 @@ test('a machine token names its machine, and only its hash is stored', t => {
   assert.equal(trust.who(req('nope', '127.0.0.1')).error, 'bad token');
   assert.equal(trust.who({ headers: {}, socket: {} }).error, 'no token');
   assert.ok(!fs.readFileSync(file, 'utf8').includes(tok), 'only the hash is stored');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  // Windows keeps no POSIX mode bits: the file is private there by its folder's ACL, not by 0600.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
 test('a new invite replaces the old token, and a kicked token says why it stopped working', t => {
@@ -92,7 +93,7 @@ test('every .dibs.json above the folder applies: only machines all of them allow
   fs.writeFileSync(path.join(root, 'app', '.dibs.json'), JSON.stringify({ stayOn: ['mini', 'cloud-box'] }));
   const r = readRules(rulesAbove(path.join(root, 'app', 'web')));
   assert.deepEqual(r.stayOn, ['mini']);
-  assert.match(r.text, /app\/\.dibs\.json and .*\.dibs\.json keep this project on mini/);
+  assert.match(r.text, /app[\\/]\.dibs\.json and .*\.dibs\.json keep this project on mini/);
   assert.equal(readRules([]).stayOn, null, 'no rule: anywhere');
 });
 
@@ -124,7 +125,7 @@ describe('a group where each machine joined with its own token', () => {
     assert.equal((await api(g, g.tok.alpha, 'POST', '/jobs', { res: ['test'], cmd: ['true'], machine: 'beta', from: 'gamma' })).status, 403);
   });
 
-  test("a job's output belongs to its sender and its bundle to the machine running it", async t => {
+  test("a job's output belongs to its sender and its bundle to the machine running it", { skip: posixOnly("Windows can't deliver SIGINT: kill() there ends the process outright") }, async t => {
     const p = bg(t, g.hc, ['run', 'test', '--on', 'alpha', '-m', 'owned', '--', 'sh', '-c', 'echo started; sleep 30'], { cwd: g.proj });
     await until(() => p.out.includes('started'));
     const id = machinesOf(g.h0).jobs.find(j => j.purpose === 'owned').id;
@@ -242,7 +243,7 @@ describe('a group where each machine joined with its own token', () => {
     t.after(() => fs.rmSync(rule));
     const inner = sync(g.hc, ['run', 'test', '--on', 'beta', '--', 'echo', 'no'], { cwd: g.proj });
     assert.equal(inner.code, 2);
-    assert.match(inner.err, /sub\/\.dibs\.json keeps this project on the machine it lives on, so it can't go to beta/);
+    assert.match(inner.err, /sub[\\/]\.dibs\.json keeps this project on the machine it lives on, so it can't go to beta/);
     const home = sync(g.hc, ['run', 'test', '--anywhere', '--', 'echo', 'home'], { cwd: g.proj });
     assert.equal(home.out, 'home\n');
     assert.match(home.err, /running here/);

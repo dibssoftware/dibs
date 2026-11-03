@@ -6,12 +6,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, bg, until, board, track, alive, flat, env, BIN } from './helpers.mjs';
+import { tmp, sync, bg, until, board, track, alive, flat, env, BIN, posixOnly } from './helpers.mjs';
 
-const WIN = process.platform === 'win32';
-const STATE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'state.mjs');
+const STATE = new URL('../src/state.mjs', import.meta.url).href;
 const config = (h, c) => fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify(c));
 const state = h => { try { return JSON.parse(fs.readFileSync(path.join(h, 'state.json'), 'utf8')); } catch { return { leases: [], queue: [] }; } };
 const events = h => {
@@ -38,7 +37,7 @@ function deadPid() {
 const deadLease = (pgid, extra = {}) => ({ id: 900, kind: 'run', res: ['t'], pid: deadPid(), pstart: 'Thu Jan  1 00:00:00 2024', pgid,
   pgstart: 'Thu Jan  1 00:00:00 2024', start: Date.now() - 5000, mem: 1, cpu: 1, who: 'gone', cmd: 'x', ...extra });
 
-test("reaping a dead run never kills a group that reused its number, even when the disk is too full to save the reap", { skip: WIN }, async t => {
+test("reaping a dead run never kills a group that reused its number, even when the disk is too full to save the reap", { skip: posixOnly("process groups are POSIX; Windows has no setsid") }, async t => {
   const h = tmp(t);
   const other = groupLeader(t);
   // Its own group once perl has called setpgrp.
@@ -57,7 +56,7 @@ test("reaping a dead run never kills a group that reused its number, even when t
   assert.ok(alive(other.pid), "someone else's group lives through every retry");
 });
 
-test("reaping a dead run kills its group when the leader is gone but the group isn't", { skip: WIN }, async t => {
+test("reaping a dead run kills its group when the leader is gone but the group isn't", { skip: posixOnly("process groups are POSIX; Windows has no setsid") }, async t => {
   const h = tmp(t);
   // The leader starts a sleep in its own group and exits: the group lives on without it.
   const pidFile = path.join(h, 'kid');
@@ -71,7 +70,7 @@ test("reaping a dead run kills its group when the leader is gone but the group i
   await until(() => !alive(kid));
 });
 
-test('a waiter with an impossible pid in the state does not make every running job look dead', { skip: WIN }, async t => {
+test('a waiter with an impossible pid in the state does not make every running job look dead', async t => {
   const h = tmp(t);
   const job = bg(t, h, ['run', 't', '--', 'sleep', '30']);
   await until(() => board(h).held.length === 1);
@@ -81,7 +80,7 @@ test('a waiter with an impossible pid in the state does not make every running j
   assert.equal(job.exitCode, null, 'and still running');
 });
 
-test('a dibs run killed with -9: its job is stopped without waiting for another dibs call', { skip: WIN }, async t => {
+test('a dibs run killed with -9: its job is stopped without waiting for another dibs call', async t => {
   const h = tmp(t);
   const p = bg(t, h, ['run', 't', '--', 'sleep', '45']);
   await until(() => state(h).leases[0]?.pgid && state(h).leases[0]?.pgstart);
@@ -104,17 +103,18 @@ test('a dibs run nested in one that holds a quota still pays its own tokens', as
 
 test('--notify says started: false when the job never started', async t => {
   const h = tmp(t);
-  // The third state write is the one that records the job before it starts.
+  // The first state write with the run's process group, made just before the command starts.
+  // (Counting writes doesn't do: Windows makes one more before it.)
   const pre = path.join(h, 'pre.mjs');
   fs.writeFileSync(pre, `import fs from 'node:fs';
-let n = 0;
+let failed = false;
 const w = fs.writeFileSync;
 fs.writeFileSync = function (f, ...a) {
-  if (String(f).endsWith('state.json.tmp') && ++n === 3) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+  if (!failed && String(f).endsWith('state.json.tmp') && String(a[0]).includes('"pgid"') && (failed = true)) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
   return w.call(this, f, ...a);
 };`);
   const note = path.join(h, 'n.jsonl'), ran = path.join(h, 'ran');
-  const r = sync(h, ['run', 't', '--notify', note, '--', 'touch', ran], { env: { NODE_OPTIONS: `--import=${pre}` } });
+  const r = sync(h, ['run', 't', '--notify', note, '--', 'touch', ran], { env: { NODE_OPTIONS: `--import=${pathToFileURL(pre).href}` } });
   assert.equal(r.code, 74, r.err);
   assert.ok(!fs.existsSync(ran));
   const line = JSON.parse(fs.readFileSync(note, 'utf8'));
@@ -132,11 +132,11 @@ test('every run ends with one line saying its number, wait, run time and exit co
 test('--after #id joins the line only once that job has ended', async t => {
   const h = tmp(t);
   const gate = path.join(h, 'gate'), order = path.join(h, 'order');
-  const first = bg(t, h, ['run', 'heavy', '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done; echo first >> ${order}`]);
+  const first = bg(t, h, ['run', 'heavy', '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done; echo first >> '${order}'`]);
   await until(() => board(h).held.length === 1);
   const id = board(h).held[0].id;
   // test is free all along: only --after holds the second step back.
-  const second = bg(t, h, ['run', 'test', '--after', `#${id}`, '--', 'sh', '-c', `echo second >> ${order}`]);
+  const second = bg(t, h, ['run', 'test', '--after', `#${id}`, '--', 'sh', '-c', `echo second >> '${order}'`]);
   await until(() => second.err.includes(`waiting for #${id}`));
   assert.ok(!fs.existsSync(order));
   fs.writeFileSync(gate, '');
@@ -151,7 +151,7 @@ test('--after #id joins the line only once that job has ended', async t => {
 test('yield with -m still finds the agent and moves them ahead', async t => {
   const h = tmp(t);
   config(h, { resources: { t: { slots: 1, mem: '0.1G', cpu: 1 } } });
-  const a = bg(t, h, ['run', 't', '--', 'sleep', '30'], { agent: 'alice' });
+  const a = bg(t, h, ['run', 't', '--', 'sleep', '120'], { agent: 'alice' });
   await until(() => board(h).held.length === 1);
   bg(t, h, ['run', 't', '--wait', '--', 'true'], { agent: 'carol' });
   await until(() => board(h).waiting.length === 1);
@@ -163,10 +163,10 @@ test('yield with -m still finds the agent and moves them ahead', async t => {
   a.kill('SIGTERM');
 });
 
-test('history counts a wait that ended by a signal or a kill, not only by starting or timing out', { skip: WIN }, async t => {
+test('history counts a wait that ended by a signal or a kill, not only by starting or timing out', async t => {
   const h = tmp(t);
   config(h, { resources: { t: { slots: 1, mem: '0.1G', cpu: 1 } } });
-  const a = bg(t, h, ['run', 't', '--', 'sleep', '30'], { agent: 'alice' });
+  const a = bg(t, h, ['run', 't', '--', 'sleep', '120'], { agent: 'alice' });
   await until(() => board(h).held.length === 1);
   const bob = bg(t, h, ['run', 't', '--wait', '--', 'true'], { agent: 'bob' });
   const cid = bg(t, h, ['run', 't', '--wait', '--', 'true'], { agent: 'cid' });
@@ -182,7 +182,7 @@ test('history counts a wait that ended by a signal or a kill, not only by starti
   a.kill('SIGTERM');
 });
 
-test('an onRelease command whose supervisor died is stopped before the next user gets the resource', { skip: WIN }, async t => {
+test('an onRelease command whose supervisor died is stopped before the next user gets the resource', async t => {
   const h = tmp(t);
   config(h, { resources: { t: { slots: 1, mem: '0.1G', cpu: 1, onRelease: 'sleep 40', onReleaseTimeout: '60s' } } });
   assert.equal(sync(h, ['run', 't', '--', 'true']).code, 0);
@@ -275,7 +275,7 @@ test('who says just now for a job that started seconds ago, and mine shows each 
   assert.match(sync(h, ['mine']).out, /\(#\d+, "ship the site"\)/);
 });
 
-test('a held file lease is no reason to warn a waiting job about keeping things; a held resource is, until released', { skip: WIN }, async t => {
+test('a held file lease is no reason to warn a waiting job about keeping things; a held resource is, until released', { skip: posixOnly("the stand-in for Claude Code is node behind a symlink named claude, which Windows lets only an administrator make") }, async t => {
   const h = tmp(t);
   const proj = tmp(t, 'proj');
   fs.mkdirSync(path.join(proj, '.git'));

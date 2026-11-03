@@ -1,12 +1,14 @@
 // A job the load ceiling holds goes to an on-demand machine on its own after
 // a while, when it can run there (src/acquire.mjs step, src/remote.mjs
 // loadShipTarget), and stays when it needs macOS or its project says so.
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmp, bg, until, port, answers, gitProject, board, machinesOf, SERVE_START, MACHINE } from './helpers.mjs';
+import { tmp, bg, until, port, answers, gitProject, board, machinesOf, SERVE_START, MACHINE, nodeWrapper, posixFile } from './helpers.mjs';
+
+const test = posixFile(nodeTest, "the fake boat runs the on-demand VM's Linux setup (sh, tar, a Linux worker) on this machine, and Windows can't stand in for that VM");
 import { macOnly } from '../src/remote.mjs';
 import { commandKey } from '../src/acquire.mjs';
 import { NODE } from '../src/ondemand.mjs';
@@ -38,8 +40,7 @@ async function setup(t, { config = { maxLoad: 5 }, create, machine = { load: 20 
   fs.mkdirSync(path.join(nodeDir, 'bin'), { recursive: true });
   fs.symlinkSync(process.execPath, path.join(nodeDir, 'bin', 'node'));
   fs.writeFileSync(path.join(nodeDir, '.pinned'), `${NODE.version}\n`);
-  const wrapper = path.join(boatDir, 'boat');
-  fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+  const wrapper = nodeWrapper(boatDir, 'boat', FAKE);
   const h = tmp(t, 'coord');
   fs.writeFileSync(path.join(boatDir, 'VMS.md'), REGISTRY);
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ ...config, machines: { ondemand: [{ name: 'boat-1', provider: 'boat', registry: path.join(boatDir, 'VMS.md'), match: 'dibs', owner: 'alex-3b', idleStop: '2s', create }] } }));
@@ -181,7 +182,7 @@ test('a job the CPU budget holds goes to an on-demand machine on its own', async
 test("a held job whose command names this machine's paths, or that runs outside git, stays here", async t => {
   const { h, hot, proj } = await setup(t);
   const plain = tmp(t, 'plain');
-  const named = bg(t, h, ['run', 'test', '-m', 'named', '--', 'sh', '-c', `ls ${proj} >/dev/null`], { ...hot, cwd: proj, agent: 'named' });
+  const named = bg(t, h, ['run', 'test', '-m', 'named', '--', 'sh', '-c', `ls '${proj}' >/dev/null`], { ...hot, cwd: proj, agent: 'named' });
   const outside = bg(t, h, ['run', 'test', '-m', 'outside', '--', 'true'], { ...hot, cwd: plain, agent: 'outside' });
   await until(() => ['named', 'outside'].every(a => board(h).waiting.some(q => q.who === a)));
   // Proving a job did not move takes time: ship-after is 1 s here, and a waiter asks at most once a minute.

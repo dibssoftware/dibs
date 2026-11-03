@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, tmp, sync, bg, until, board, flat } from './helpers.mjs';
+import { G, MACHINE, tmp, sync, bg, until, board, flat, posixOnly, windowsGap } from './helpers.mjs';
 import { DEFAULT_CONFIG, swapGrowth, trends, SWAP_WINDOW, HOME } from '../src/config.mjs';
 import { verdict, memUsed } from '../src/schedule.mjs';
 import { pressureVictim } from '../src/overlap.mjs';
@@ -14,7 +14,6 @@ import { boardOf, boardLines } from '../src/board.mjs';
 import { noticesIn } from '../src/notices.mjs';
 import { plainBoard, whyLines } from '../src/plain.mjs';
 
-const WIN = process.platform === 'win32';
 const T = Date.now();
 // The defaults with the budget at 11G, like the 16 GB Mac this was seen on.
 const cfg = (o = {}) => ({ ...DEFAULT_CONFIG, budget: '11G', cores: 10, resources: { ...DEFAULT_CONFIG.resources, t: { slots: 1, mem: '2G', cpu: 2, pausable: true } }, ...o });
@@ -97,7 +96,7 @@ test('a job over in seconds that never used much memory starts through warning p
   assert.equal(judge(s, me, cfg(), { vmPressure: 1 }, slowRuns).rule, 'pressure', 'a 40 s job waits');
 });
 
-test('a first run that has waited 30s starts on probation through warning pressure, one at a time, and pauses first', () => {
+test('a first run that has waited 30s starts on probation through warning pressure, one at a time, and pauses first', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   // 2026-10-24: 13 of 17 short jobs held on memory pressure were commands dibs had never seen.
   const me = waiter({ key: 'test|node site-token.test.js', enq: T - 31e3 });
   const s = { leases: [lease()], queue: [me] };
@@ -445,7 +444,7 @@ test('how far free disk fell comes from the same readings file as swap growth', 
   } finally { fs.rmSync(file, { force: true }); }
 });
 
-test('the real CLI: short of disk for swap, the wait and the board say so in words', { skip: WIN }, async t => {
+test('the real CLI: short of disk for swap, the wait and the board say so in words', async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   const swap = { env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, swapUsed: 2 * G, swapGrowth: 1 * G, diskFree: 7 * G, diskDrain: 0 }) } };
   const first = bg(t, h, ['run', 'test', '--', 'sh', '-c', 'while [ ! -f stop ]; do sleep 0.1; done'], { agent: 'a', cwd });
@@ -464,7 +463,7 @@ test('the real CLI: short of disk for swap, the wait and the board say so in wor
   assert.equal(await first.done, 0);
 });
 
-test('the real CLI: swap growing past maxSwap holds new work back, and the wait and the board say why in words', { skip: WIN }, async t => {
+test('the real CLI: swap growing past maxSwap holds new work back, and the wait and the board say why in words', async t => {
   const h = tmp(t);
   // Readings for the file: one four minutes ago and one now, so no dibs here writes another for 30s.
   const readings = (was, now) => fs.writeFileSync(path.join(h, 'swap.json'), JSON.stringify([{ at: Date.now() - 4 * 6e4, used: was }, { at: Date.now(), used: now }]));
@@ -492,7 +491,7 @@ test('the real CLI: swap growing past maxSwap holds new work back, and the wait 
   assert.equal(await first.done, 0);
 });
 
-test('the real CLI: a job that outgrew its number holds the next one back at the memory budget', { skip: WIN }, async t => {
+test('the real CLI: a job that outgrew its number holds the next one back at the memory budget', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
   const h = tmp(t);
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ budget: '8G', roomyMemFree: 101 }));
   const foot = path.join(h, 'footprint.json');

@@ -13,27 +13,47 @@ const WIN = OS === 'windows';
 
 // Output of a command, or null when it couldn't run at all (spawn failed under
 // memory pressure, killed by a signal). Callers must not read null as "nothing".
-function tryRun(cmd, args) {
-  try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }); }
+function tryRun(cmd, args, timeout) {
+  try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout }); }
   catch (e) { return typeof e.status === 'number' ? e.stdout || '' : null; }   // ps exits 1 when any pid is gone
 }
 const run = (cmd, args) => tryRun(cmd, args) ?? '';
-const ps = script => tryRun('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+// A PowerShell that stalls (rebuilding its module cache, say) is "can't tell", not a hung dibs.
+const ps = script => tryRun('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], 30e3);
 
 // pid -> start time string. Comparing start times keeps a recycled pid from
 // passing as a live holder. null when the process table couldn't be read.
 // The highest pid each system hands out (macOS's PID_MAX, Linux's PID_MAX_LIMIT).
 // ps refuses a list with anything past it and prints nothing for the rest.
 const PID_MAX = OS === 'macos' ? 99999 : OS === 'linux' ? 4194304 : Infinity;
+const START_TTL = 30e3, winStarts = new Map();
+const exists = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 export function starts(pids) {
   const out = new Map();
   // One bad number in the state file mustn't make every holder look dead.
   pids = [...new Set(pids.filter(p => Number.isInteger(p) && p > 0 && p <= PID_MAX))];
   if (!pids.length) return out;
   if (WIN) {
-    const txt = ps(`Get-CimInstance Win32_Process -Filter "${pids.map(p => `ProcessId=${p}`).join(' OR ')}" | ForEach-Object { "$($_.ProcessId) $($_.CreationDate.ToFileTimeUtc())" }`);
+    // A start time read in the last START_TTL stands while kill 0 (cheap here)
+    // finds the pid alive at every look, and is dropped the first time it doesn't.
+    // Each read is a PowerShell, about 0.4 s of CPU: a dozen waiters polling
+    // each read fresh kept a CI runner's cores busy and true took 40 s to run.
+    // A new process (dibs stop, cancel) starts with nothing kept, so reads fresh.
+    const now = Date.now(), need = [];
+    for (const pid of pids) {
+      const c = winStarts.get(pid);
+      if (!c || now - c.at >= START_TTL) need.push(pid);
+      else if (exists(pid)) out.set(pid, c.start);
+      else winStarts.delete(pid);
+    }
+    if (!need.length) return out;
+    // Get-Process, not a CIM query: 0.3 s against 0.5 s on a CI runner, paid by every dibs call that reads the state.
+    const txt = ps(`Get-Process -Id ${need.join(',')} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id) $($_.StartTime.ToFileTimeUtc())" }`);
     if (txt == null) return null;
-    for (const line of txt.split(/\r?\n/)) { const m = line.trim().match(/^(\d+)\s+(\d+)$/); if (m) out.set(Number(m[1]), m[2]); }
+    for (const line of txt.split(/\r?\n/)) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)$/);
+      if (m) { out.set(Number(m[1]), m[2]); winStarts.set(Number(m[1]), { start: m[2], at: now }); }
+    }
     return out;
   }
   // ps exits 1 with no output when every pid is gone, and also when it refuses
@@ -49,10 +69,20 @@ export function starts(pids) {
 }
 
 // Parent pid and executable name, for walking up to the owning agent.
+// On Windows each PowerShell CIM read costs about half a second, and a walk up
+// to the agent is a dozen levels: one read of the whole table answers them all.
+let parentCache = null;
 export function parent(pid) {
   if (WIN) {
-    const m = (ps(`$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; "$($p.ParentProcessId) $($p.Name)"`) ?? '').trim().match(/^(\d+)\s+(.*)$/);
-    return m ? { ppid: Number(m[1]), name: m[2].replace(/\.exe$/i, '') } : null;
+    if (!parentCache || Date.now() - parentCache.at > 5000) {
+      const table = new Map();
+      for (const l of (ps('Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.Name)" }') ?? '').split(/\r?\n/)) {
+        const m = l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+        if (m) table.set(Number(m[1]), { ppid: Number(m[2]), name: m[3].replace(/\.exe$/i, '') });
+      }
+      parentCache = { at: Date.now(), table };
+    }
+    return parentCache.table.get(Number(pid)) ?? null;
   }
   const m = run('ps', ['-o', 'ppid=,comm=', '-p', String(pid)]).trim().match(/^(\d+)\s+(.*)$/);
   if (!m) return null;
@@ -215,18 +245,28 @@ const winQuote = a => (/^[\w@%+=:,./\\-]+$/.test(a) ? a : `"${a.replace(/(\\*)"/
 // process group first, so a caller killed in between leaves nothing untracked.
 // If the caller dies before go(), the pipe closes and the command never starts.
 const GATE = 'IFS= read -r _ <&3 || exit 125; exec 3<&-; exec "$@"';
+// A command line as the system can start it: on Windows a .cmd or .bat (npm's shims,
+// boat's) runs only through cmd.exe. Spawn it with windowsVerbatimArguments when cmd[0] is cmd.exe.
+export function runnable(argv, env = process.env) {
+  return WIN && /\.(cmd|bat)$/i.test(which(argv[0], env) || '') ? ['cmd.exe', '/d', '/s', '/c', `"${argv.map(winQuote).join(' ')}"`] : argv;
+}
+
+// Windows has no exec, so its gate is a small Node that waits the same way, then
+// runs the command and passes on its exit code. Stopping the gate's tree (taskkill /T)
+// stops the command with it.
+const WIN_GATE = "const fs=require('fs');let n=0;try{n=fs.readSync(3,Buffer.alloc(3),0,3,null)}catch{}if(!n)process.exit(125);fs.closeSync(3);"
+  + "const[c,...a]=JSON.parse(process.argv[1]);const r=require('child_process').spawnSync(c,a,{stdio:'inherit',windowsVerbatimArguments:c==='cmd.exe'});"
+  + "if(r.error){process.stderr.write(r.error.message+'\\n');process.exit(127)}process.exit(r.status??1)";
 export function launch(argv, { env, background = false, gate = false }) {
-  let cmd = argv;
-  if (WIN && /\.(cmd|bat)$/i.test(which(argv[0], env) || '')) cmd = ['cmd.exe', '/d', '/s', '/c', `"${argv.map(winQuote).join(' ')}"`];
-  const gated = gate && !WIN;
-  if (gated) cmd = ['/bin/sh', '-c', GATE, 'dibs', ...cmd];
-  const child = spawn(cmd[0], cmd.slice(1), { stdio: gated ? ['inherit', 'inherit', 'inherit', 'pipe'] : 'inherit',
+  let cmd = runnable(argv, env);
+  if (gate) cmd = WIN ? [process.execPath, '-e', WIN_GATE, JSON.stringify(cmd)] : ['/bin/sh', '-c', GATE, 'dibs', ...cmd];
+  const child = spawn(cmd[0], cmd.slice(1), { stdio: gate ? ['inherit', 'inherit', 'inherit', 'pipe'] : 'inherit',
     detached: !WIN, env, windowsHide: false, windowsVerbatimArguments: cmd[0] === 'cmd.exe' });
   // Lowered from outside, as the throttle watcher does, so dibs boost can raise it again: on macOS
   // a process started under `taskpolicy -b` keeps background QoS whatever `taskpolicy -B -p` says.
   // Its children inherit it. Gated, the command doesn't start until it's lowered.
   if (background && child.pid) lower(child.pid);
-  child.go = () => { if (gated) child.stdio[3].end('go\n'); };
+  child.go = () => { if (gate) child.stdio[3].end('go\n'); };
   return child;
 }
 
@@ -328,11 +368,10 @@ export function pressure(dir) {
       swapUsed = (mi.SwapTotal || 0) - (mi.SwapFree || 0);
     } catch {}
   }
-  let load = os.loadavg()[0];
-  if (WIN) {
-    const pct = Number(ps('(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average'));
-    load = (pct || 0) / 100 * os.cpus().length;
-  }
+  // Windows has no load average: the cores' busy share over a short window stands in, times
+  // the core count. Read from os.cpus() in-process: the CIM processor query it replaces took
+  // 1.5 s on a CI runner, and every dibs call reads the machine.
+  const load = WIN ? cpuBusy() * os.cpus().length : os.loadavg()[0];
   // Cores actually in use. The load average also counts processes waiting on
   // disk, so heavy swapping can read 20 on a machine that's nearly idle.
   // Just the CPU column (13 ms) unless the full table is fresh anyway: the full one,
@@ -344,6 +383,17 @@ export function pressure(dir) {
     if (cpus.length) busy = cpus.reduce((a, c) => a + c, 0) / 100;
   }
   return { diskFree, ...(diskTotal != null && { diskTotal }), swapUsed, ...(swapFiles != null && { swapFiles }), memFree, memAvail, load, busy, cores: os.cpus().length, os: OS };
+}
+
+// Share of all cores busy over CPU_WINDOW ms (0 to 1), from two os.cpus() readings.
+const CPU_WINDOW = 100;
+function cpuBusy() {
+  const total = () => os.cpus().reduce((a, c) => { const t = c.times; a.busy += t.user + t.nice + t.sys + t.irq; a.all += t.user + t.nice + t.sys + t.irq + t.idle; return a; }, { busy: 0, all: 0 });
+  const a = total();
+  const until = Date.now() + CPU_WINDOW;
+  while (Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, until - Date.now());
+  const b = total();
+  return b.all > a.all ? Math.min(1, Math.max(0, (b.busy - a.busy) / (b.all - a.all))) : 0;
 }
 
 // Memory a new job can take without anything going to swap, from vm_stat: pages

@@ -251,7 +251,8 @@ test('the run gets PATH and HOME, and other variables only with --env', async t 
   const id = schedule(h, 'a', ['test', '--in', '1s', '--env', 'PASSED', '--env', 'SET=here', '--', 'sh', '-c', 'echo "[$SECRET_TOKEN][$PASSED][$SET][${HOME:+home}]" > env'], { cwd: dir, env });
   await until(() => job(h, id).state === 'done');
   assert.equal(fs.readFileSync(path.join(dir, 'env'), 'utf8'), '[][yes][here][home]\n');
-  assert.equal(fs.statSync(path.join(h, 'later', 'jobs.json')).mode & 0o077, 0, 'only this user reads --env values');
+  // Windows has no POSIX mode bits: the file sits in the user's own profile instead.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(h, 'later', 'jobs.json')).mode & 0o077, 0, 'only this user reads --env values');
 });
 
 test('the worker service runs scheduled jobs on a machine that never joined a coordinator', async t => {

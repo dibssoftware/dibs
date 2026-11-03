@@ -89,7 +89,9 @@ test('after ten wrong codes every try is refused for a while; another site and a
   assert.match((await held.json()).error, /still works/);
   assert.equal((await w.json('/api/login', { code: code(w.home) }, { headers: { Origin: 'http://evil.example' } })).status, 403);
   const rebound = await new Promise(resolve => {
-    import('node:http').then(({ default: http }) => http.get({ host: '127.0.0.1', port: w.p, path: '/', headers: { Host: `evil.example:${w.p}` } }, r => resolve(r.statusCode)));
+    // Its own connection, read to the end: a socket left open resets when the server
+    // closes on Windows, and an unheard error there fails the test.
+    import('node:http').then(({ default: http }) => http.get({ host: '127.0.0.1', port: w.p, path: '/', agent: false, headers: { Host: `evil.example:${w.p}` } }, r => { r.resume(); resolve(r.statusCode); }).on('error', e => resolve(e.code)));
   });
   assert.equal(rebound, 421);
 });

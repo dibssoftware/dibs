@@ -5,10 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { HOME } from './helpers.mjs';
 
-const TALK = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'talk.mjs');
+const TALK = new URL('../src/talk.mjs', import.meta.url).href;
 
 test("notify({ who }, once, text) and noteAs({ who, label }, text) work as the boat checker calls them", async () => {
   const { notify } = await import(TALK);

@@ -35,7 +35,7 @@ import { summarize, verdict, span } from './history.mjs';
 import { collect, readRuns, text as statsText } from './stats.mjs';
 import { AGENT_ENV, logChange } from './owner.mjs';
 import { PRIORITIES } from './schedule.mjs';
-import { die, now, log, dur, clock, masked, inProcess } from './util.mjs';
+import { die, now, log, dur, clock, masked, inProcess, lockHeld, unlock } from './util.mjs';
 import { peek } from './state.mjs';
 import { boardJson, paceJson } from './commands.mjs';
 import { questionsJson, hours as hoursOf } from './questions.mjs';
@@ -140,7 +140,7 @@ function locked(fn) {
   const t0 = now();
   for (;;) {
     try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (!lockHeld(e)) throw e;
       // A stale lock is renamed aside before it's removed: two processes breaking it at
       // once can't then delete the fresh lock one of them just took.
       try {
@@ -166,7 +166,7 @@ function locked(fn) {
     fs.writeFileSync(tmp, JSON.stringify(w), { mode: 0o600 });
     fs.renameSync(tmp, FILE);
     return out;
-  } finally { fs.rmSync(LOCK, { recursive: true, force: true }); }
+  } finally { unlock(LOCK); }
 }
 
 const norm = s => String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');

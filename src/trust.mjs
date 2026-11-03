@@ -131,7 +131,13 @@ export const isRuleFile = f => path.basename(f) === RULE_FILE;
 export function readRules(files) {
   let stayOn = null;
   const used = [], broken = [];
-  for (const f of new Set(files)) {
+  // One file under two spellings (a Windows short name, a symlinked temp folder) is one rule.
+  const seen = new Set();
+  for (const f of files) {
+    let key = f;
+    try { key = fs.realpathSync.native(f); } catch {}
+    if (seen.has(key)) continue;
+    seen.add(key);
     let list;
     try {
       const r = JSON.parse(fs.readFileSync(f, 'utf8'));

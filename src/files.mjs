@@ -6,9 +6,22 @@
 // but util.mjs, reads state.json without the lock (it's written by rename) and
 // spawns nothing unless another session's lease covers the path.
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import nodeOs from 'node:os';
+import nodePath from 'node:path';
 import { execFileSync } from 'node:child_process';
+
+// Every path in this file is written with /, Windows too (C:/Users/x/src/a.ts, as
+// git writes them): lease keys, globs and the hook's comparisons all split on /.
+// path and os here hand back paths that way; macOS and Linux are unchanged.
+const WIN = process.platform === 'win32';
+const slash = p => (WIN && typeof p === 'string' ? p.replace(/\\/g, '/') : p);
+const path = !WIN ? nodePath : {
+  ...nodePath, sep: '/',
+  resolve: (...a) => slash(nodePath.resolve(...a)), join: (...a) => slash(nodePath.join(...a)), dirname: p => slash(nodePath.dirname(p)),
+  relative: (a, b) => slash(nodePath.relative(a, b)), normalize: p => slash(nodePath.normalize(p)),
+};
+const os = !WIN ? nodeOs : { ...nodeOs, homedir: () => slash(nodeOs.homedir()), tmpdir: () => slash(nodeOs.tmpdir()) };
+const cwdNow = () => slash(process.cwd());
 import { dur, clock, fakeFull, callerPid } from './util.mjs';
 
 export const FILES = 'files:';
@@ -174,7 +187,7 @@ function noteMakers(input, split, written) {
 function namedPaths(input, split) {
   const cmd = input.tool_name === 'Bash' && input.tool_input?.command;
   if (typeof cmd !== 'string' || !(cmd.includes(input.session_id) || String(input.cwd).includes(input.session_id))) return [];
-  return namedIn(cmd, typeof input.cwd === 'string' ? input.cwd : process.cwd(), input.session_id, split, 0);
+  return namedIn(cmd, typeof input.cwd === 'string' ? slash(input.cwd) : cwdNow(), input.session_id, split, 0);
 }
 // A script handed to a shell with -c is read the same way, from the folder the shell starts in:
 // dibs run xcode-build -- sh -c '... -derivedDataPath <scratchpad>/dd-test' made 177 MB on
@@ -219,7 +232,7 @@ function mkdirs(input, split) {
   const segs = input.tool_name === 'Bash' && typeof input.tool_input?.command === 'string' && /\bmkdir\b/.test(input.tool_input.command) && split(input.tool_input.command);
   if (!segs) return [];
   const out = [];
-  for (const { name, args, dir } of commands(segs, typeof input.cwd === 'string' ? input.cwd : process.cwd()))
+  for (const { name, args, dir } of commands(segs, typeof input.cwd === 'string' ? slash(input.cwd) : cwdNow()))
     if (name === 'mkdir') for (const w of operands(args, new Set(['-m', '--mode']))) { const f = from(dir, w); if (f) out.push({ path: f.text, why: 'mkdir' }); }
   return out;
 }
@@ -266,7 +279,7 @@ function real(abs) {
   let k = segs.findIndex(s => GLOB.test(s));
   if (k < 0) k = segs.length;
   for (let i = k; i > 1; i--) {
-    try { return [fs.realpathSync.native(segs.slice(0, i).join('/')), ...segs.slice(i)].join('/'); } catch {}
+    try { return [slash(fs.realpathSync.native(segs.slice(0, i).join('/'))), ...segs.slice(i)].join('/'); } catch {}
   }
   return abs;
 }
@@ -322,12 +335,12 @@ function mainOf(dir) {
       if (path.basename(path.dirname(gitdir)) !== 'worktrees') return null;
       common = path.dirname(path.dirname(gitdir));
     }
-    if (path.basename(common) === '.git') return fs.realpathSync(path.dirname(common));
+    if (path.basename(common) === '.git') return slash(fs.realpathSync(path.dirname(common)));
     // A submodule's own worktrees: its checkout is core.worktree. A bare repo has none, so the repo itself stands in.
     let config = '';
     try { config = fs.readFileSync(path.join(common, 'config'), 'utf8'); } catch {}
     const w = /^\s*worktree\s*=\s*(.+?)\s*$/m.exec(config);
-    return fs.realpathSync(w ? path.resolve(common, w[1]) : common);
+    return slash(fs.realpathSync(w ? path.resolve(common, w[1]) : common));
   } catch { return null; }
 }
 
@@ -350,10 +363,10 @@ export const fileKey = r => (isFiles(r) ? FILES + canon(r.slice(FILES.length)) :
 
 // ' in another copy of this repo (wt-trust)' when lease l was taken from a
 // different worktree of the repo cwd is in, else ''.
-export function elsewhere(l, cwd = process.cwd()) {
+export function elsewhere(l, cwd = cwdNow()) {
   try {
     if (typeof l?.cwd !== 'string') return '';
-    const mine = worktreeOf(real(path.resolve(cwd))), theirs = worktreeOf(real(l.cwd));
+    const mine = worktreeOf(real(path.resolve(cwd))), theirs = worktreeOf(real(path.resolve(l.cwd)));
     if (!mine || !theirs || mine[1] !== theirs[1] || mine[0] === theirs[0]) return '';
     return ` in another copy of this repo (${path.basename(theirs[0])})`;
   } catch { return ''; }
@@ -402,7 +415,7 @@ function braces(r) {
   return parts.flatMap(p => braces(r.slice(0, open) + p + r.slice(close + 1))).slice(0, BRACES);
 }
 
-export function fileRes(r, cwd = process.cwd()) {
+export function fileRes(r, cwd = cwdNow()) {
   if (!isFiles(r)) return r;
   const p = r.slice(FILES.length).trim();
   if (!p) return null;
@@ -410,7 +423,7 @@ export function fileRes(r, cwd = process.cwd()) {
 }
 
 // How a lease reads to a person: relative to the git root you're in, else from ~.
-export function short(r, cwd = process.cwd()) {
+export function short(r, cwd = cwdNow()) {
   if (!isFiles(r)) return r;
   const p = r.slice(FILES.length);
   const root = gitRoot(cwd) && real(gitRoot(cwd));
@@ -449,7 +462,7 @@ function walk(a, i, b, j) {
 // Unsure counts as yes. Both are keyed by the main worktree first (canon), so
 // a lease an older dibs stored under a worktree's own path still counts.
 export function overlap(a, b) {
-  const segs = p => folded(canon(p.replace(FILES, ''))).split('/').filter(Boolean);
+  const segs = p => folded(canon(slash(p.replace(FILES, '')))).split('/').filter(Boolean);
   return walk(segs(a), 0, segs(b), 0);
 }
 
@@ -481,7 +494,11 @@ let above = null;
 function ancestors() {
   if (above) return above;
   const up = new Map();
-  for (const line of execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', timeout: 2000 }).trim().split('\n')) {
+  // Windows has no ps: one CIM read of the table, about a second, once per hook.
+  const table = WIN
+    ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }'], { encoding: 'utf8', timeout: 10000, windowsHide: true })
+    : execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', timeout: 2000 });
+  for (const line of table.trim().split(/\r?\n/)) {
     const [pid, ppid] = line.trim().split(/\s+/).map(Number);
     up.set(pid, ppid);
   }
@@ -964,7 +981,7 @@ export function dibsCalls(cmd, split, cwd) {
 
 function noteAgent(input, split) {
   if (input.tool_name !== 'Bash' || typeof input.session_id !== 'string') return;
-  const calls = dibsCalls(input.tool_input?.command, split, typeof input.cwd === 'string' ? input.cwd : process.cwd());
+  const calls = dibsCalls(input.tool_input?.command, split, typeof input.cwd === 'string' ? slash(input.cwd) : cwdNow());
   if (!calls.length) return;
   // Only a nicety (naming the subagent): a full disk must not cost the lease check after it.
   try {
@@ -1025,7 +1042,7 @@ export const shellRes = rs => {
 // The paths a tool call would write, absolute.
 function targets(input, split, guesses = false) {
   const ti = input.tool_input || {};
-  const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
+  const cwd = typeof input.cwd === 'string' ? slash(input.cwd) : cwdNow();
   if (input.tool_name === 'Bash') return bashWrites(ti.command, split, cwd, guesses);
   const p = ti.file_path ?? ti.notebook_path;
   return typeof p === 'string' && p ? [{ path: path.resolve(cwd, expand(p)), why: input.tool_name }] : [];
@@ -1039,7 +1056,7 @@ export function fileGuard(input, split) {
   noteAgent(input, split);
   const live = leases();
   if (!live.length) return null;
-  const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
+  const cwd = typeof input.cwd === 'string' ? slash(input.cwd) : cwdNow();
   const t = Date.now();
   for (const target of targets(input, split)) {
     if (target.guess != null) continue;

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, HOME, tmp, sync, bg, until, board, flat } from './helpers.mjs';
+import { G, MACHINE, HOME, tmp, sync, bg, until, board, flat, posixOnly } from './helpers.mjs';
 import { DEFAULT_CONFIG, trends } from '../src/config.mjs';
 import { diskSqueeze, swapping } from '../src/schedule.mjs';
 import { diskStep, diskCritical, diskPause, pressurePause, settle, adoptPauses, flush, WATCHER_GRACE } from '../src/preempt.mjs';
@@ -43,7 +43,7 @@ test('free disk falling holds new work back only when it would run short soon', 
   assert.equal(diskSqueeze(cfg, 5 * G, m({ diskFree: 12 * G, drainRecent: 0 })), null, 'and stopped falling: nothing to wait for');
 });
 
-test('a disk pause notice says what the disk is doing: falling, or swap growing on it', () => {
+test('a disk pause notice says what the disk is doing: falling, or swap growing on it', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   const l = (swap, n) => ({ id: n, kind: 'run', res: ['test'], who: 'a', mem: G, cpu: 1, start: T - MIN, pgid: 1, pausedAt: T, pauses: [{ watcher: 1, disk: true, swap }] });
   const s = { leases: [l(false, 1), l(true, 2)], queue: [] };
   const p = plainBoard(s, cfg, [], T);
@@ -57,7 +57,7 @@ test('a disk pause notice says what the disk is doing: falling, or swap growing 
   assert.equal(run.pauses[0].swap, false);
 });
 
-test('the watcher never pauses the last running job: with everything stopped, nothing can finish and free anything', () => {
+test('the watcher never pauses the last running job: with everything stopped, nothing can finish and free anything', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   // Names a process that isn't its own (pgstart doesn't match), so nothing is ever signalled.
   const run = o => ({ kind: 'run', res: ['test'], pgid: 999999, pgstart: 'never', mem: G, cpu: 1, prio: 'normal', ...o });
   const hold = { id: 9, kind: 'hold', res: ['playwright'], pid: 1, mem: G, cpu: 1, start: T - 9 * MIN };
@@ -103,7 +103,7 @@ test('a disk pause outlives a stopped watcher for a minute, and the next watcher
   assert.equal(run.pausedAt, undefined);
 });
 
-test('an urgent job a rate limit stops never pauses anyone while it waits', { skip: WIN }, async t => {
+test('an urgent job a rate limit stops never pauses anyone while it waits', async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ quotas: { asc: { per: '1h', limit: 1 } },
     resources: { p: { slots: 1, mem: '0.1G', cpu: 1, pausable: true } } }));
@@ -128,7 +128,7 @@ test('an urgent job a rate limit stops never pauses anyone while it waits', { sk
 });
 
 // 2026-10-20: jobs sat paused on "free disk" and their agents heard only when the tool call returned.
-test("a job paused for the disk tells its agent through the hook at once, with what to free", async t => {
+test("a job paused for the disk tells its agent through the hook at once, with what to free", { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const { diskOnce } = await import('../src/cool.mjs');
   const { withState } = await import('../src/state.mjs');
   const { pstart } = await import('../src/proc.mjs');

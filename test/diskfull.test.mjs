@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { HOOK, tmp, sync, bg, until, board, wait, flat, alive, gitProject } from './helpers.mjs';
+import { HOOK, tmp, sync, bg, until, board, wait, flat, alive, gitProject, shPid, posixOnly } from './helpers.mjs';
 
 const fake = h => path.join(h, 'full');
 const full = (h, steps = '') => fs.writeFileSync(fake(h), steps);
@@ -17,7 +17,7 @@ const stack = /\n\s+at /;
 // Holds res until the test says so: `release()` ends the holder's command.
 async function holder(t, h, res = 't', agent = 'a') {
   const gate = path.join(h, `gate-${agent}`);
-  const p = bg(t, h, [res, '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`], { agent, env: { DIBS_FAKE_ENOSPC: fake(h) } });
+  const p = bg(t, h, [res, '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`], { agent, env: { DIBS_FAKE_ENOSPC: fake(h) } });
   await until(() => board(h).held.some(l => l.pid === p.pid));
   p.release = () => fs.writeFileSync(gate, '');
   return p;
@@ -101,9 +101,9 @@ test("a lock whose pid couldn't be written is given back at once, so the next co
   assert.ok(after.ms - control.ms < 2000, `took ${after.ms} ms, ${control.ms} ms for the same command with no lock ever`);
 });
 
-test("a full disk when a run ends: its command's exit code still comes back, its leftovers are killed, and the lease is gone on the next look", async t => {
+test("a full disk when a run ends: its command's exit code still comes back, its leftovers are killed, and the lease is gone on the next look", { skip: posixOnly("leftovers are found by process group; on Windows one whose parent already exited is out of taskkill /T's reach (a Job Object would hold it, and Node can't make one)") }, async t => {
   const h = tmp(t), gate = path.join(h, 'gate'), pidfile = path.join(h, 'sleeper');
-  const p = bg(t, h, ['t', '--', 'sh', '-c', `sleep 300 & echo $! > ${pidfile}; while [ ! -e ${gate} ]; do sleep 0.05; done; exit 3`],
+  const p = bg(t, h, ['t', '--', 'sh', '-c', `sleep 300 & echo ${shPid('$!')} > '${pidfile}'; while [ ! -e '${gate}' ]; do sleep 0.05; done; exit 3`],
     { env: { DIBS_FAKE_ENOSPC: fake(h) } });
   await until(() => fs.existsSync(pidfile) && fs.readFileSync(pidfile, 'utf8').trim() && board(h).held.length === 1);
   const sleeper = Number(fs.readFileSync(pidfile, 'utf8'));
@@ -119,7 +119,7 @@ test("a full disk when a run ends: its command's exit code still comes back, its
 
 test('a full disk mid-run: measurements are skipped and the job runs to its end', async t => {
   const h = tmp(t), gate = path.join(h, 'gate');
-  const p = bg(t, h, ['t', '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`],
+  const p = bg(t, h, ['t', '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`],
     { env: { DIBS_FAKE_ENOSPC: fake(h), DIBS_SAMPLE_MS: '100' } });
   // Started, not just granted: the run records its process group before the command
   // starts, and a disk full before that write is the other test's case (exit 74).

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, HOME, tmp, sync, bg, until, board, flat } from './helpers.mjs';
+import { G, MACHINE, HOME, tmp, sync, bg, until, board, flat, windowsGap } from './helpers.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { verdict, memUsed, cpuUsed } from '../src/schedule.mjs';
 import { plainBoard, STUCK_AFTER } from '../src/plain.mjs';
@@ -14,7 +14,6 @@ import { boardOf, boardLines, limitsLine } from '../src/board.mjs';
 import { markIdle, stuckLeases } from '../src/acquire.mjs';
 import { treeOf, overAsk } from '../src/measure.mjs';
 
-const WIN = process.platform === 'win32';
 const T = Date.now();
 const MIN = 6e4;
 // The budget always applies (roomyMemFree over 100), 8G of it, on a 16 GB machine.
@@ -114,7 +113,7 @@ test('a job that used far more memory than it asked: what to pass next time', ()
   assert.equal(overAsk(lease({ mem: 4 * G, asked: 2 * G, peak: { mem: 7 * G } })).asked, 2 * G, 'asked keeps what it asked, before dibs raised it');
 });
 
-test('the real CLI: a run that uses far more than it asked hears it, and the event log has it', { skip: WIN }, async t => {
+test('the real CLI: a run that uses far more than it asked hears it, and the event log has it', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   const foot = path.join(h, 'footprint.json');
   fs.writeFileSync(foot, '{}');
@@ -134,7 +133,7 @@ test('the real CLI: a run that uses far more than it asked hears it, and the eve
   assert.equal(e.suggest, '6G');
 });
 
-test('free slots on a machine with its memory handed out: who and the board say nothing new starts', { skip: WIN }, async t => {
+test('free slots on a machine with its memory handed out: who and the board say nothing new starts', async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ budget: '4G', cores: 10, roomyMemFree: 101 }));
   const first = bg(t, h, ['run', 'heavy', '--', 'sh', '-c', 'while [ ! -f stop ]; do sleep 0.1; done'], { agent: 'a', cwd });

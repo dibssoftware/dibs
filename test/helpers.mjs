@@ -16,6 +16,34 @@ export const BIN = path.join(ROOT, 'bin', 'dibs.mjs');
 export const HOOK = path.join(ROOT, 'bin', 'dibs-guard.mjs');
 export const G = 1024 ** 3;
 export const wait = ms => new Promise(r => setTimeout(r, ms));
+// A path as dibs keys it: links resolved, and on Windows the long name
+// (realpathSync.native: not RUNNER~1) written with /, as src/files.mjs keeps it.
+export const realPath = p => (process.platform === 'win32' ? fs.realpathSync.native(p).replace(/\\/g, '/') : fs.realpathSync(p));
+// An absolute POSIX path in a test as that system resolves it: /w is D:/w on Windows.
+export const sysPath = p => (process.platform === 'win32' ? path.resolve(p).replace(/\\/g, '/') : p);
+// A command named name in dir that runs node with script: a sh script here, a .cmd on
+// Windows, where an extensionless script can't run (as the real boat installs there).
+export function nodeWrapper(dir, name, script) {
+  if (process.platform !== 'win32') {
+    const f = path.join(dir, name);
+    fs.writeFileSync(f, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, { mode: 0o755 });
+    return f;
+  }
+  const f = path.join(dir, `${name}.cmd`);
+  fs.writeFileSync(f, `@"${process.execPath}" "${script}" %*\r\n`);
+  return f;
+}
+// A test that can't mean anything on Windows says why, and node --test prints the reason
+// beside SKIP: test('...', { skip: posixOnly('Windows has no SIGSTOP') }, ...).
+export const posixOnly = why => (process.platform === 'win32' ? why : false);
+// Not inherent, only not built on Windows yet: each one is a gap to close, so
+// these stay apart from posixOnly and grep finds them all.
+export const windowsGap = why => (process.platform === 'win32' ? `not on Windows yet: ${why}` : false);
+// A shell's pid as dibs sees it, for sh -c scripts: $$ or $! is an MSYS pid in
+// Git Bash on Windows, and /proc/<pid>/winpid there is the Windows one.
+export const shPid = v => `$(cat /proc/${v}/winpid 2>/dev/null || echo ${v})`;
+// The same for every test in a file: const test = posixFile(nodeTest, 'why').
+export const posixFile = (t, why) => (name, opts, fn) => (typeof opts === 'function' ? t(name, { skip: posixOnly(why) }, opts) : t(name, { ...opts, skip: opts?.skip || posixOnly(why) }, fn));
 
 // Whether a job is paused or running, from the state of every process in its
 // group (ps T is stopped). A job's own progress says the same thing only when
@@ -166,7 +194,9 @@ const POLL = 100;
 // The limit only catches a condition that never comes. It's generous because
 // with the whole suite at background priority one CLI start can take seconds,
 // and a step that starts three or four of them in turn needs most of 15s.
-export async function until(fn, ms = 30e3) {
+// Windows starts each process in about a second, PowerShell included: twice as long there.
+const UNTIL = process.platform === 'win32' ? 60e3 : 30e3;
+export async function until(fn, ms = UNTIL) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) { if (await fn()) return; await wait(POLL); }
   throw new Error(`timed out after ${ms / 1000}s waiting for: ${String(fn).replace(/\s+/g, ' ')}`);

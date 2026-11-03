@@ -179,7 +179,7 @@ test('two runs at once get two devices', async t => {
   const w = world(t);
   const dir = tmp(t);
   // Each says which device it got, then waits until both have one.
-  const job = ['sh', '-c', `touch ${dir}/$SIM_NAME; while [ ! -e ${dir}/go ]; do sleep 0.05; done`];
+  const job = ['sh', '-c', `touch '${dir}'/$SIM_NAME; while [ ! -e '${dir}'/go ]; do sleep 0.05; done`];
   const runs = [bg(t, w, 'ann', ['run', 'sim-own', '--', ...job]), bg(t, w, 'bob', ['run', 'sim-own', '--', ...job])];
   await until(() => fs.readdirSync(dir).length === 2).catch(e => { throw new Error(`${e.message}\nann: ${runs[0].err}\nbob: ${runs[1].err}`); });
   assert.deepEqual(fs.readdirSync(dir).sort(), [`${PREFIX}1`, `${PREFIX}2`]);

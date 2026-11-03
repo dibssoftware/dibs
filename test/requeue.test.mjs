@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { BIN, G, MACHINE, tmp, env, bg, track, until } from './helpers.mjs';
+import { BIN, G, MACHINE, tmp, env, bg, track, until, posixOnly, windowsGap } from './helpers.mjs';
+
+// dibs as an agent's shell runs it, by name; on Windows a .mjs doesn't run by name, so node runs it.
+const dibsBy = (args, o) => (process.platform === 'win32' ? spawn(process.execPath, [BIN, ...args], o) : spawn(BIN, args, o));
 import { withState } from '../src/state.mjs';
 import { diskRequeue, overBooked } from '../src/preempt.mjs';
 import { verdict } from '../src/schedule.mjs';
@@ -17,13 +20,13 @@ const events = home => { try { return fs.readFileSync(path.join(home, 'events.js
 // Free disk under minDisk and swap growing on it, as the watcher sees it.
 const FILLING = JSON.stringify({ ...MACHINE, diskFree: 1 * G, swapUsed: 6 * G, swapGrowth: 2 * G, diskDrain: 1 * G, drainMs: 6e4 });
 
-test('a job paused for low disk while swap grows is stopped and run again from the front of its line, in the same call', async t => {
+test('a job paused for low disk while swap grows is stopped and run again from the front of its line, in the same call', { skip: posixOnly("Windows has no SIGSTOP: dibs never pauses a job there, so there's no pause to turn into a stop") }, async t => {
   const home = tmp(t), dir = tmp(t, 'job');
   // Something else running, so pausing the job never leaves nothing running.
   bg(t, home, ['run', 'deploy', '--', 'sleep', '120'], { agent: 'other' });
   await until(() => state(home).leases.some(l => l.res.includes('deploy') && l.pgid));
   // The job: says when it starts, and finishes once the test lets it.
-  const job = track(t, spawn(BIN, ['run', 'test', '-m', 'suite', '--', 'sh', '-c', 'echo start; while [ ! -f gate ]; do sleep 0.1; done; echo done'],
+  const job = track(t, dibsBy(['run', 'test', '-m', 'suite', '--', 'sh', '-c', 'echo start; while [ ! -f gate ]; do sleep 0.1; done; echo done'],
     { env: env(home, { agent: 'me' }), cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }));
   job.out = ''; job.err = '';
   job.stdout.on('data', d => (job.out += d));
@@ -71,7 +74,7 @@ test('only paused-for-disk jobs that can run again are stopped, the biggest firs
 
 // A job's dibs run, its output kept.
 function job(t, home, args, opts) {
-  const p = track(t, spawn(BIN, args, { env: env(home, opts), cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'] }));
+  const p = track(t, dibsBy(args, { env: env(home, opts), cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'] }));
   p.out = ''; p.err = '';
   p.stdout.on('data', d => (p.out += d));
   p.stderr.on('data', d => (p.err += d));
@@ -79,7 +82,7 @@ function job(t, home, args, opts) {
 }
 const GATED = ['sh', '-c', 'echo start; while [ ! -f gate ]; do sleep 0.1; done; echo done'];
 
-test('a job running far past its booking while swap fills the disk is stopped, and runs again booked at what it used, even as the only job', async t => {
+test('a job running far past its booking while swap fills the disk is stopped, and runs again booked at what it used, even as the only job', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
   const home = tmp(t), dir = tmp(t, 'job');
   // What the job's processes really use, as measuring reads it.
   const foot = path.join(home, 'footprint.json');

@@ -8,7 +8,8 @@ import path from 'node:path';
 import { tmp, sync as dibs, bg as spawnDibs, until, board, wait, flat } from './helpers.mjs';
 import { runArgs } from '../src/worker.mjs';
 
-const LIMIT = { DIBS_MAX_WAIT: '1s' };
+// 3s on Windows, where the first look at the line can take longer than a second.
+const LIMIT = { DIBS_MAX_WAIT: process.platform === 'win32' ? '3s' : '1s' };
 const CLAUDE = { ...LIMIT, CLAUDE_CODE_CHILD_SESSION: '1' };
 const sync = (h, agent, args, env = LIMIT) => dibs(h, args, { agent, env });
 const bg = (t, h, agent, args, env = LIMIT) => spawnDibs(t, h, args, { agent, env });
@@ -17,7 +18,7 @@ const notes = file => fs.readFileSync(file, 'utf8').trim().split('\n').map(l => 
 // Holds t until the test says so: `release()` ends the holder's command.
 async function holder(t, h) {
   const gate = path.join(h, 'gate');
-  const p = bg(t, h, 'a', ['t', '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`]);
+  const p = bg(t, h, 'a', ['t', '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`]);
   await until(() => board(h).held.length === 1);
   p.release = () => fs.writeFileSync(gate, '');
   return p;

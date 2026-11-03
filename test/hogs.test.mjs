@@ -1,12 +1,14 @@
 // Who is filling the disk: under the disk floor, the biggest session folders
 // in Claude Code's temp folder are measured, their agents hear about it once
 // per drop, and a disk wait names the biggest and whose it is.
-import test, { after } from 'node:test';
+import nodeTest, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { HOME, tmp, sync, MACHINE, G } from './helpers.mjs';
+import { HOME, tmp, sync, MACHINE, G, posixFile } from './helpers.mjs';
+
+const test = posixFile(nodeTest, "Claude Code's temp folder is claude-<uid>, and Windows has no uid: dibs finds no such folder there");
 
 const base = fs.mkdtempSync(path.join(fs.realpathSync(path.dirname(HOME)), 'dibs-claude-tmp-'));
 process.env.DIBS_CLAUDE_TMP = base;
@@ -15,7 +17,7 @@ process.env.DIBS_HOG_PLACES = '{}';   // never du the real ~/Library
 const { hogsOnce } = await import('../src/hogs.mjs');
 after(() => fs.rmSync(base, { recursive: true, force: true }));
 
-const root = path.join(base, `claude-${process.getuid()}`, '-Users-x');
+const root = path.join(base, `claude-${process.getuid?.() ?? 0}`, '-Users-x');
 const cfg = { minDisk: '5G' };
 // The scratch folder notices; the low-disk notes to every session (src/diskwarn.mjs) have their own test.
 const messages = () => { try { return JSON.parse(fs.readFileSync(path.join(HOME, 'messages.json'), 'utf8')).messages.filter(m => String(m.once).startsWith('diskhog:')); } catch { return []; } };

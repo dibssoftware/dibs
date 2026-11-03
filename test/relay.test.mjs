@@ -12,7 +12,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { HOME, sync, bg, until } from './helpers.mjs';
+import { HOME, sync, bg, until, posixOnly } from './helpers.mjs';
 import * as relay from '../src/relay.mjs';
 import * as web from '../src/web.mjs';
 import { qr } from '../src/qr.mjs';
@@ -301,7 +301,8 @@ test('dibs pair --remote prints a one-time link and a QR code; keys are private 
   const link = r.out.match(/https:\/\/app\.dibs\.cc\/#p=\S+/)?.[0];
   assert.ok(B.parseLink(new URL(link).hash), r.out);
   assert.match(r.out, /▀|▄|█/);
-  for (const f of ['relay-keys.json', 'relay.json']) assert.equal(fs.statSync(path.join(HOME, f)).mode & 0o777, 0o600, f);
+  // Windows keeps no POSIX mode bits: there the files are private by their folder's ACL, not by 0600.
+  if (process.platform !== 'win32') for (const f of ['relay-keys.json', 'relay.json']) assert.equal(fs.statSync(path.join(HOME, f)).mode & 0o777, 0o600, f);
   // The secret itself is never stored, only what's derived from it.
   const secret = new URL(link).hash.split('.')[1];
   assert.ok(!fs.readFileSync(path.join(HOME, 'relay.json'), 'utf8').includes(secret));
@@ -517,7 +518,7 @@ test('agents read only a fixed label for the device, never the name it chose', a
   }
 });
 
-test('a reason sent from a paired phone never reaches the agent, and the stop names the phone', async t => {
+test('a reason sent from a paired phone never reaches the agent, and the stop names the phone', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const session = { kind: 'remote', device: 'Bd3fXk9QAAAAAAAAAAAAAA', name: 'Safari on iPhone', act: true };
   const run = bg(t, HOME, ['run', 'test', '-m', 'the agent\'s own job', '--', 'sleep', '60']);
   const find = () => { try { return JSON.parse(fs.readFileSync(path.join(HOME, 'state.json'), 'utf8')).leases.find(l => l.res.includes('test') && l.purpose === 'the agent\'s own job'); } catch { return null; } };

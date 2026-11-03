@@ -6,10 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync as dibs, bg, until, board, alive, wait, allStopped, noneStopped } from './helpers.mjs';
-import { MACHINE, flat, groupTree } from './helpers.mjs';
+import { tmp, sync as dibs, bg, until, board, alive, wait, allStopped, noneStopped, posixOnly, shPid } from './helpers.mjs';
+import { MACHINE, flat, groupTree, allLow, noneLow } from './helpers.mjs';
 
-const WIN = process.platform === 'win32';
 const CONFIG = { resources: {
   t: { slots: 1, mem: '0.1G', cpu: 1, pausable: true },
   d: { slots: 1, mem: '0.1G', cpu: 1, pausable: false },
@@ -30,7 +29,7 @@ const stopped = pgid => allStopped(pgid);
 // A job that counts as fast as it can, so a stopped one is easy to see.
 function counter(t, h, agent, res, prio = 'normal') {
   const file = path.join(h, `count-${agent}`);
-  const p = bg(t, h, ['run', res, '-p', prio, '-m', 'counting', '--', 'sh', '-c', `i=0; while :; do i=$((i+1)); echo $i > ${file}; sleep 0.05; done`], { agent });
+  const p = bg(t, h, ['run', res, '-p', prio, '-m', 'counting', '--', 'sh', '-c', `i=0; while :; do i=$((i+1)); echo $i > '${file}'; sleep 0.05; done`], { agent });
   p.count = () => { try { return Number(fs.readFileSync(file, 'utf8')) || 0; } catch { return 0; } };
   p.lease = () => held(h, agent);
   return p;
@@ -56,9 +55,9 @@ test('boost re-ranks a waiter: the boosted one goes first and the board says the
   const order = path.join(h, 'order');
   const first = blocker(t, h);
   await until(() => held(h, 'first'));
-  const early = bg(t, h, ['run', 't', '--', 'sh', '-c', `echo early >> ${order}`], { agent: 'early' });
+  const early = bg(t, h, ['run', 't', '--', 'sh', '-c', `echo early >> '${order}'`], { agent: 'early' });
   await until(() => waiter(h, 'early'));
-  const late = bg(t, h, ['run', 't', '-p', 'low', '--', 'sh', '-c', `echo late >> ${order}`], { agent: 'late' });
+  const late = bg(t, h, ['run', 't', '-p', 'low', '--', 'sh', '-c', `echo late >> '${order}'`], { agent: 'late' });
   await until(() => waiter(h, 'late'));
   assert.deepEqual(board(h).waiting.map(q => q.who), ['early', 'late']);
   const id = waiter(h, 'late').id;
@@ -76,7 +75,7 @@ test('boost re-ranks a waiter: the boosted one goes first and the board says the
   assert.equal(owner(h, ['boost', 'late', 'idle']).code, 1);
 });
 
-test('pausing a job that forks all the time stops every process in it, even one forked as the stop went out', { skip: WIN }, async t => {
+test('pausing a job that forks all the time stops every process in it, even one forked as the stop went out', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   // 2026-10-16: a bare SIGSTOP to such a group left a child forked at that moment running in
   // 1 try of 30, so preempt.mjs stops until nothing in the group runs. Through dibs pause the
   // race is rarer still: this passed 3 runs of 3 on 0.0.105. It guards that every process
@@ -108,7 +107,7 @@ function taskpolicyLog(t, h) {
   return { env: { PATH: `${dir}:${process.env.PATH}` }, calls: () => { try { return fs.readFileSync(log, 'utf8'); } catch { return ''; } } };
 }
 
-test('boost of a running low job moves it off background priority, and back', { skip: WIN }, async t => {
+test('boost of a running low job moves it off background priority, and back', { skip: posixOnly("the test reads priorities by process group with ps -g") }, async t => {
   const h = home(t);
   const job = counter(t, h, 'slow', 't', 'low');
   await until(() => held(h, 'slow')?.pgid);
@@ -142,7 +141,7 @@ test('boost of a running low job moves it off background priority, and back', { 
   assert.match(dibs(h, ['--detail'], { agent: 'viewer' }).out, /\[idle\]  \[lowered by owner\]/);
 });
 
-test('the owner pauses a running job of any priority and resumes it, and its agent is told both', { skip: WIN }, async t => {
+test('the owner pauses a running job of any priority and resumes it, and its agent is told both', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   const job = counter(t, h, 'busy', 't', 'normal');
   await until(() => held(h, 'busy')?.pgid);
@@ -170,7 +169,7 @@ test('the owner pauses a running job of any priority and resumes it, and its age
   assert.equal(owner(h, ['resume', String(id)]).code, 1, 'nothing left to resume');
 });
 
-test('a resource marked pausable: false is not paused without --force, and the refusal says why', { skip: WIN }, async t => {
+test('a resource marked pausable: false is not paused without --force, and the refusal says why', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   const job = counter(t, h, 'ship', 'd', 'low');
   await until(() => held(h, 'ship')?.pgid);
@@ -187,10 +186,10 @@ test('a resource marked pausable: false is not paused without --force, and the r
   await until(() => noneStopped(pgid));
 });
 
-test('stop kills the whole tree like a crash, and the agent sees "stopped by the owner"', { skip: WIN }, async t => {
+test('stop kills the whole tree like a crash, and the agent sees "stopped by the owner"', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   const kid = path.join(h, 'kid');
-  const job = bg(t, h, ['run', 't', '--', 'sh', '-c', `sleep 300 & echo $! > ${kid}; wait`], { agent: 'runaway' });
+  const job = bg(t, h, ['run', 't', '--', 'sh', '-c', `sleep 300 & echo ${shPid('$!')} > '${kid}'; wait`], { agent: 'runaway' });
   await until(() => held(h, 'runaway')?.pgid && fs.existsSync(kid) && fs.readFileSync(kid, 'utf8').trim());
   const child = Number(fs.readFileSync(kid, 'utf8'));
   const { id } = held(h, 'runaway');
@@ -254,7 +253,7 @@ test('cap holds an agent at a priority: its waiters now and its new requests, un
 const agent = (h, who, args) => dibs(h, args, { agent: who, env: { CLAUDECODE: '1' } });
 const events = h => JSON.parse(dibs(h, ['history', '--json'], { agent: 'viewer' }).out).events.filter(e => e.kind === 'override');
 
-test("an agent boosts, pauses, resumes and stops another session's job; the board, the job's agent and the log name it", { skip: WIN }, async t => {
+test("an agent boosts, pauses, resumes and stops another session's job; the board, the job's agent and the log name it", { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   const job = counter(t, h, 'theirs', 't', 'low');
   // On record is enough. Its first count isn't: at background priority, under load, it can go 30 s and more without a core (2026-11-01).
@@ -280,7 +279,7 @@ test("an agent boosts, pauses, resumes and stops another session's job; the boar
   assert.equal(events(h)[0].reason, 'the release waits on it');
 });
 
-test("an agent's urgent gets what the person's does: past memory pressure, and pausing another session's low run", { skip: WIN }, async t => {
+test("an agent's urgent gets what the person's does: past memory pressure, and pausing another session's low run", { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   counter(t, h, 'theirs', 't', 'low');
   // On record is enough to be paused. Its first count isn't: at background priority, under
@@ -304,7 +303,7 @@ test("an agent's urgent gets what the person's does: past memory pressure, and p
   assert.equal(await first.done, 0);
 });
 
-test('stop, pause and resume take -m: the job\'s agent hears the reason, and the history keeps it', { skip: WIN }, async t => {
+test('stop, pause and resume take -m: the job\'s agent hears the reason, and the history keeps it', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   const job = counter(t, h, 'stuck', 't', 'normal');
   await until(() => held(h, 'stuck')?.pgid && job.count() > 0);
@@ -325,7 +324,7 @@ test('stop, pause and resume take -m: the job\'s agent hears the reason, and the
 // 2026-10-19: an agent boosted #10167 and only learned from the output whose job it was; crews
 // sharing one session name stopped each other's jobs. Acting on a job that isn't yours names it first.
 const asAgent = (h, agent, args, env = {}) => dibs(h, args, { agent, env: { AI_AGENT: '1', ...env } });
-test("an agent acting on a job that isn't its own must name the owner with --owner, or nothing changes (exit 2)", async t => {
+test("an agent acting on a job that isn't its own must name the owner with --owner, or nothing changes (exit 2)", { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const h = home(t);
   const job = counter(t, h, 'bob', 't');
   await until(() => held(h, 'bob')?.pgid);

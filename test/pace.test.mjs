@@ -71,7 +71,10 @@ test("a burst of starts can't all slip in under one load reading", async t => {
   // with the reading stuck at 0 the fourth start takes it past 3 and the rest wait.
   config(h, { maxLoad: 3, resources: { b: { slots: 6, cpu: 1, mem: '0.1G' } } });
   const gate = path.join(h, 'gate');
-  const ps = Array.from({ length: 6 }, (_, i) => bg(t, h, ['run', 'b', '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`], { agent: `j${i}` }));
+  // The reading is taken now, for every call: each start counts in full however
+  // slowly the six arrive (a Windows runner spreads them over 20s and more).
+  const env = { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, load: 0, at: Date.now() }) };
+  const ps = Array.from({ length: 6 }, (_, i) => bg(t, h, ['run', 'b', '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`], { agent: `j${i}`, env }));
   // Six arriving at once first queue behind each other, so the count settles
   // over a poll or two: wait for four running, then check nobody else gets in.
   await until(() => { const b = board(h); return b.held.length === 4 && b.waiting.length === 2; });

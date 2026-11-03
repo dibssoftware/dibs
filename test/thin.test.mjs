@@ -1,12 +1,14 @@
 // Thin waiters (src/thin.sh) and the broker that waits for them (src/broker.mjs):
 // a wait is a shell blocked on a FIFO, and one Node process decides for all of them.
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { BIN, tmp, env, sync, track, until, alive, flat, board, PERSON } from './helpers.mjs';
+import { BIN, tmp, env, sync, track, until, alive, flat, board, PERSON, posixFile } from './helpers.mjs';
 import { dibsMem, processes } from '../src/platform.mjs';
+
+const test = posixFile(nodeTest, 'a thin waiter is a POSIX shell blocked on a FIFO; on Windows node runs bin/dibs.mjs itself and never takes this path');
 
 const THIN = path.join(path.dirname(BIN), '..', 'src', 'thin.sh');
 const state = home => JSON.parse(fs.readFileSync(path.join(home, 'state.json'), 'utf8'));
@@ -682,7 +684,7 @@ test("a job sent from another machine stops waiting when the worker that started
 });
 
 // 2026-10-20: waiters started before 0.0.134 kept judging memory by the old rules for hours after every fix went out.
-test('a waiter in Node carries on as the new dibs after a release, in the same place', { skip: process.platform === 'win32' }, async t => {
+test('a waiter in Node carries on as the new dibs after a release, in the same place', async t => {
   const copy = tmp(t, 'dibs-copy');
   for (const d of ['bin', 'src', 'test']) fs.cpSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', d), path.join(copy, d), { recursive: true });
   const bin = path.join(copy, 'bin', 'dibs.mjs');

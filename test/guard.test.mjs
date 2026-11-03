@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, BIN, HOOK, env as cliEnv, PERSON } from './helpers.mjs';
+import { tmp, BIN, HOOK, env as cliEnv, PERSON, realPath } from './helpers.mjs';
 import { check, respond, rulesFrom, install, remove, installed, MATCHER } from '../src/guard.mjs';
 
 const w = (res, why, rest) => `dibs run ${res} -m '${why}' -- ${rest}`;
@@ -236,7 +236,7 @@ test('nothing to catch, another tool, or the guard switched off: no answer at al
 });
 
 test('"guard": false stops the rewriting but not file-lease refusals; guard.files false stops those', t => {
-  const home = tmp(t), dir = fs.realpathSync(tmp(t, 'src'));
+  const home = tmp(t), dir = realPath(tmp(t, 'src'));
   const at = Date.now();
   fs.writeFileSync(path.join(home, 'state.json'), JSON.stringify({ seq: 1, queue: [],
     leases: [{ id: 1, res: [`files:${dir}`], kind: 'hold', who: 'other', agent: 'other', sessionId: 'other', start: at, expires: at + 6e5 }] }));

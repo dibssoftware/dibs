@@ -24,7 +24,7 @@ import { short, takeAgent, talkKey } from './files.mjs';
 import { noteAs } from './talk.mjs';
 import { named, about, minutes } from './plain.mjs';
 import { bold, dim, columns } from './style.mjs';
-import { clock, deadline, die, dur, log, ms, now, say, sleep, sleepSync, fakeFull, LEAN } from './util.mjs';
+import { clock, deadline, die, dur, log, ms, now, say, sleep, sleepSync, fakeFull, LEAN, lockHeld, unlock } from './util.mjs';
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'dibs.mjs');
 export const DIR = path.join(HOME, 'later');
@@ -50,7 +50,14 @@ const KEEP_DONE = 200;
 // What a scheduled command gets from the scheduler's environment. TMPDIR, USER
 // and SHELL too, since Xcode and many scripts break without them. Anything
 // else (a token, say) only with --env, by name.
-const ENV_KEEP = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'USER', 'SHELL', 'TMPDIR'];
+const ENV_KEEP = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'USER', 'SHELL', 'TMPDIR']
+  // Windows itself: without SystemRoot and the rest, PowerShell, cmd.exe and
+  // os.tmpdir() break or crawl. Without PSModuleAnalysisCachePath, where a
+  // machine set one, every PowerShell dibs starts rebuilds its module cache, and
+  // on a GitHub runner the scheduled run never got past its first (2026-11-03).
+  .concat(OS === 'windows' ? ['SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'USERNAME',
+    'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramData', 'ProgramFiles', 'ProgramFiles(x86)', 'CommonProgramFiles',
+    'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'OS', 'PSModulePath', 'PSModuleAnalysisCachePath'] : []);
 // dibs's own settings reach the run from the runner (DIBS_HOME above all);
 // these say who is calling, and the run sets its own.
 const DIBS_WHO = new Set(['DIBS_AGENT', 'DIBS_AS', 'DIBS_REMOTE_JOB', 'DIBS_LEASE', 'DIBS_OWNER', 'DIBS_LATER_JOB']);
@@ -65,7 +72,7 @@ function locked(fn) {
   const t0 = now();
   for (;;) {
     try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (!lockHeld(e)) throw e;
       try { if (now() - fs.statSync(LOCK).mtimeMs > LOCK_STALE) fs.rmSync(LOCK, { recursive: true, force: true }); } catch {}
       if (now() - t0 > LOCK_WAIT) throw Object.assign(new Error(`${LOCK} stayed locked for ${LOCK_WAIT / 1000}s; remove it if no dibs is running. Nothing was changed.`), { exit: 75 });
       sleepSync(5 + Math.random() * 10);
@@ -84,7 +91,7 @@ function locked(fn) {
     }
     return out;
   } finally {
-    fs.rmSync(LOCK, { recursive: true, force: true });
+    unlock(LOCK);
   }
 }
 
@@ -213,7 +220,9 @@ function start(j) {
   if (!fs.existsSync(j.cwd)) return fail(`its folder ${j.cwd} is gone`);
   let fd;
   try {
-    fd = fs.openSync(logOf(j.id), 'a', 0o600);
+    // Each job's log is new here. On Windows an append handle has no plain write
+    // access, and Git Bash's programs (echo, printf) fail to write through it.
+    fd = fs.openSync(logOf(j.id), OS === 'windows' ? 'w' : 'a', 0o600);
     fs.writeSync(fd, `dibs later ${j.id}: ${j.cmd.join(' ')} in ${j.cwd}, ${trigger(j)}, started ${new Date(j.fired).toISOString()}`
       + `${j.late ? `; ran late by ${dur(j.late)} (the machine was asleep or no runner was up)` : ''}\n`);
   } catch (e) { return fail(`couldn't write its log: ${e.message}`); }

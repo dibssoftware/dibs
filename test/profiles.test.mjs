@@ -11,7 +11,7 @@ const WIN = process.platform === 'win32';
 const config = (h, c) => fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify(c));
 const WEB = { 'playwright:web': { res: 'playwright', ports: ['WEB', 'API'], mem: '3G', cpu: 2 } };
 
-test('a profile gives a run its resource, its ports and its size', { skip: WIN }, async t => {
+test('a profile gives a run its resource, its ports and its size', async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   config(h, { profiles: WEB });
   const r = sync(h, ['run', 'playwright:web', '--', 'sh', '-c', 'echo "ports $WEB $API"'], { cwd });

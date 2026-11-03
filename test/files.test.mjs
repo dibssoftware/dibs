@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { HOME, HOOK, tmp, sync, bg, until, gitProject, track, board, flat } from './helpers.mjs';
+import { HOME, HOOK, tmp, sync, bg, until, gitProject, track, board, flat, posixOnly, realPath, sysPath } from './helpers.mjs';
 import { overlap, clash, bashWrites, fileRes, dibsCalls } from '../src/files.mjs';
 import { split, respond } from '../src/guard.mjs';
 
@@ -56,7 +56,7 @@ test("braces in a file lease name each file, as the shell would, and their comma
   // 2026-10-15: 'files:src/blocks/{catalog.ts,__tests__/catalog.test.ts}' became files:src/blocks/{catalog.ts and a
   // resource called __tests__/catalog.test.ts}, which waited on the machine like a job and leased nothing.
   const proj = gitProject(t, { 'src/blocks/catalog.ts': '' });
-  const root = fs.realpathSync(proj);
+  const root = realPath(proj);
   const held = sync(HOME, ['hold', 'files:src/blocks/{catalog.ts,__tests__/catalog.test.ts},test', '--for', '5m', '-m', 'catalog'], { cwd: proj, agent: 'a' });
   t.after(() => sync(HOME, ['release'], { cwd: proj, agent: 'a' }));
   assert.equal(held.code, 0, held.err);
@@ -70,11 +70,11 @@ test("braces in a file lease name each file, as the shell would, and their comma
 
 test('files: paths are taken from the git root, wherever in the project you are', t => {
   const proj = gitProject(t, { 'src/a.js': '', 'docs/x.md': '' });
-  const root = fs.realpathSync(proj);
+  const root = realPath(proj);
   assert.equal(fileRes('files:src/a.js', path.join(proj, 'docs')), `files:${root}/src/a.js`);
   assert.equal(fileRes('files:src/**', proj), `files:${root}/src/**`);
-  assert.equal(fileRes('files:/abs/x/', proj), 'files:/abs/x');
-  assert.equal(fileRes('files:~/notes', proj), `files:${os.homedir()}/notes`);
+  assert.equal(fileRes('files:/abs/x/', proj), `files:${sysPath(path.resolve(proj, '/abs/x'))}`);
+  assert.equal(fileRes('files:~/notes', proj), `files:${sysPath(os.homedir())}/notes`);
   assert.equal(fileRes('files:', proj), null);
   assert.equal(fileRes('test', proj), 'test');
 });
@@ -203,7 +203,7 @@ const NO_WRITES = [
 
 test('Bash commands that obviously write a file are caught, and reads are left alone', () => {
   const paths = cmd => bashWrites(cmd, split, '/w').map(x => x.path);
-  for (const [cmd, want] of WRITES) assert.deepEqual(paths(cmd), want, cmd);
+  for (const [cmd, want] of WRITES) assert.deepEqual(paths(cmd), want.map(sysPath), cmd);
   for (const cmd of NO_WRITES) assert.deepEqual(paths(cmd), [], cmd);
 });
 
@@ -256,7 +256,7 @@ function lease(home, file, fields) {
 }
 
 test("leases belong to the agent session: the session running the hook may edit, another live session may not, a dead or expired one doesn't count", t => {
-  const home = tmp(t), dir = fs.realpathSync(tmp(t, 'src'));
+  const home = tmp(t), dir = realPath(tmp(t, 'src'));
   const file = path.join(dir, 'a.js');
   // This test process is an ancestor of the hook, as Claude Code is of its hooks.
   lease(home, dir, { pid: process.pid, spid: process.pid });
@@ -272,7 +272,7 @@ test("leases belong to the agent session: the session running the hook may edit,
 });
 
 test('the hook reads leases without the state lock, and stays fast', async t => {
-  const home = tmp(t), dir = fs.realpathSync(tmp(t, 'src'));
+  const home = tmp(t), dir = realPath(tmp(t, 'src'));
   lease(home, dir, { pid: null });
   // A live process holding the lock: anything that waited for it would hang for 30s.
   fs.mkdirSync(path.join(home, 'lock'));
@@ -313,7 +313,7 @@ test('file leases queue like holds: overlapping paths wait, separate ones and yo
   assert.match(who.out, /^Files in src\/a\.js {3}bob has reserved them, up to \d+ min left\n +Nobody waiting\n +bob: "refactor", reserved, started (just now|.* ago) \(src\/\*\*, src\/a\.js\)\n$/);
   assert.match(flat(as('carol', 'when', 'files:src/a.js').out), /^You'd be next in the queue for files in src\/a\.js, as soon as bob finishes\. You'd wait for bob to finish with the files in src, which include src\/a\.js/);
   assert.match(as('carol', 'when', 'files:README.md').out, /^Free now: files in README\.md\. Take it: dibs run files:README\.md -- <command>\n$/);
-  const root = fs.realpathSync(proj);
+  const root = realPath(proj);
   const b = board(home, { cwd: proj });
   assert.deepEqual(b.held.map(l => [l.who, l.res]), [['bob', [`files:${root}/src/**`]], ['alice', [`files:${root}/docs/x.md`]], ['bob', [`files:${root}/src/a.js`]]]);
   assert.equal(b.machine.memHandedOut, 0, 'file leases take no memory from the budget');
@@ -338,7 +338,7 @@ const from = (input, session, agent) => ({ ...input, session_id: session, ...(ag
 
 test('the guard sees which dibs calls in a Bash command take file leases, named as dibs will name them', t => {
   const proj = gitProject(t, { 'src/a.js': '' });
-  const root = fs.realpathSync(proj);
+  const root = realPath(proj);
   const calls = cmd => dibsCalls(cmd, split, path.join(proj, 'src'));
   const key = (verb, ...words) => `${verb}|${words.join('\0')}`;
   assert.deepEqual(calls('dibs hold files:src/** -m "auth"'), [{ verb: 'hold', res: [`files:${root}/src/**`], key: key('hold', 'files:src/**', '-m', 'auth') }]);
@@ -408,7 +408,7 @@ test("a lease the main thread took covers its own subagents, but a subagent's le
   assert.match(lead.permissionDecisionReason, /Your own subagent sub-b holds it: wait for it to finish, or have it run dibs release/);
 });
 
-test('on macOS a path in another letter case is the same file, for edits and for leases', { skip: process.platform !== 'darwin' }, t => {
+test('on macOS a path in another letter case is the same file, for edits and for leases', { skip: process.platform !== 'darwin' && "macOS's disks ignore case; Linux's don't" }, t => {
   const home = tmp(t), proj = gitProject(t, { 'src/a.js': '', 'README.md': '' });
   assert.equal(sync(home, ['hold', 'files:src/a.js,files:README.md'], { agent: 'bob', cwd: proj }).code, 0);
   for (const input of [edit(proj, path.join(proj, 'SRC', 'A.js')), edit(proj, path.join(proj, 'readme.md'), 'Write'), bash(proj, 'echo x > SRC/a.js')])
@@ -435,7 +435,7 @@ test('a lease taken without the guard seeing it belongs to the whole session, an
   // A note older than its life, from a call that never ran.
   fs.mkdirSync(path.join(home, 'agents'));
   const old = path.join(home, 'agents', '1000-1-x.json');
-  fs.writeFileSync(old, JSON.stringify({ at: Date.now() - 11 * 6e4, session: S, agent: 'sub-a', type: null, key: `hold|files:${fs.realpathSync(proj)}/src/**` }));
+  fs.writeFileSync(old, JSON.stringify({ at: Date.now() - 11 * 6e4, session: S, agent: 'sub-a', type: null, key: `hold|files:${realPath(proj)}/src/**` }));
   assert.equal(sync(home, ['hold', 'files:src/**'], { agent: 'pm', cwd: proj, env: { CLAUDE_CODE_SESSION_ID: S } }).code, 0);
   assert.ok(!fs.existsSync(old), 'pruned');
   for (const agent of ['sub-a', 'sub-b', null]) assert.equal(hook(home, from(edit(proj, file), S, agent)).decision, null, String(agent));
@@ -444,9 +444,9 @@ test('a lease taken without the guard seeing it belongs to the whole session, an
 
 // ----- other sessions' temp folders -----
 
-test("deletes and writes in another Claude Code session's temp folder are turned away; the session's own folder and reads are not", t => {
+test("deletes and writes in another Claude Code session's temp folder are turned away; the session's own folder and reads are not", { skip: posixOnly("Claude Code's temp folder is claude-<uid>, and Windows has no uid: dibs finds no such folder there") }, t => {
   // Paths only: nothing is created under the real temp folder.
-  const root = `${fs.realpathSync('/tmp')}/claude-${process.getuid()}`, me = 'sess-mine', proj = '-Users-x-proj';
+  const root = `${realPath('/tmp')}/claude-${process.getuid()}`, me = 'sess-mine', proj = '-Users-x-proj';
   const mine = `${root}/${proj}/${me}`, theirs = `${root}/${proj}/sess-theirs`;
   const home = tmp(t);
   const as = input => hook(home, { ...input, session_id: me }).decision;
@@ -471,9 +471,9 @@ test("deletes and writes in another Claude Code session's temp folder are turned
   assert.equal(as(edit('/', `${mine}/notes.md`, 'Write')), null);
 });
 
-test("any agent of a session may delete anything in its own scratchpad, however old and whoever made it; the scratchpad itself and the session folder stay whole", t => {
+test("any agent of a session may delete anything in its own scratchpad, however old and whoever made it; the scratchpad itself and the session folder stay whole", { skip: posixOnly("Claude Code's temp folder is claude-<uid>, and Windows has no uid: dibs finds no such folder there") }, t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
-  const folder = path.join(fs.realpathSync(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
+  const folder = path.join(realPath(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
   const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.join(dir, `f${i}`), ''); };
   // 2e on 2026-11-04: six browser profiles a teammate made before dibs's record, 850 MB at 4.9 GB free.
   for (let i = 1; i <= 6; i++) fill(path.join(pad, `r7-profile-${i}`, 'Default'), 30);
@@ -528,9 +528,9 @@ test("any agent of a session may delete anything in its own scratchpad, however 
   assert.deepEqual(fs.readdirSync(path.join(home, 'scratch')), ['sess-2']);
 });
 
-test('a folder a program made in the scratchpad is recorded as made by the agent whose command named it, so the disk watcher can name it', t => {
+test('a folder a program made in the scratchpad is recorded as made by the agent whose command named it, so the disk watcher can name it', { skip: posixOnly("Claude Code's temp folder is claude-<uid>, and Windows has no uid: dibs finds no such folder there") }, t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
-  const folder = path.join(fs.realpathSync(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
+  const folder = path.join(realPath(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
   fs.mkdirSync(pad, { recursive: true });
   const call = (agent, input) => {
     const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },
@@ -578,11 +578,11 @@ function worktrees(t, files = { 'format/SPEC.md': 'spec\n', 'README.md': 'hi\n' 
   const main = gitProject(t, files);
   git(main, 'add', '-A');
   git(main, 'commit', '-qm', 'first');
-  const dirs = { main: fs.realpathSync(main) };
+  const dirs = { main: realPath(main) };
   for (const name of ['a', 'b']) {
     const d = path.join(tmp(t, 'wts'), `wt-${name}`);
     git(main, 'worktree', 'add', '-q', d);
-    dirs[name] = fs.realpathSync(d);
+    dirs[name] = realPath(d);
   }
   return dirs;
 }
@@ -659,7 +659,8 @@ test("git's whole-tree writes in one worktree pass a lease taken from another; t
 
 test('git apply and git am count as edits to each file their patch names, checked across worktrees; a patch dibs cannot read counts as the whole repo', t => {
   const home = tmp(t), w = worktrees(t), dir = tmp(t, 'patches');
-  const write = (name, body) => { fs.writeFileSync(path.join(dir, name), body); return path.join(dir, name); };
+  // Forward slashes, as an agent types a path into Git Bash on Windows.
+  const write = (name, body) => { fs.writeFileSync(path.join(dir, name), body); return sysPath(path.join(dir, name)); };
   const gitDiff = file => `diff --git a/${file} b/${file}\nindex 1111111..2222222 100644\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-old\n--- a removed line, not a file\n+new\n`;
   const readme = write('readme.diff', gitDiff('README.md'));
   const spec = write('spec.diff', gitDiff('format/SPEC.md'));
@@ -689,7 +690,7 @@ test('patch -p1 < file counts as edits to the files its patch names, checked acr
   const w = worktrees(t, { 'apps/web/tests/helpers.ts': 'h\n', 'apps/web/src/sheet.tsx': 's\n', 'apps/web/src/docx.ts': 'd\n', 'README.md': 'hi\n' });
   const diff = (name, ...files) => {
     fs.writeFileSync(path.join(dir, name), files.map(f => `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -1 +1 @@\n-x\n+y\n`).join(''));
-    return path.join(dir, name);
+    return sysPath(path.join(dir, name));
   };
   const docx = diff('docx.diff', 'apps/web/src/docx.ts'), helpers = diff('helpers.diff', 'apps/web/src/docx.ts', 'apps/web/tests/helpers.ts');
   const sheet = diff('sheet.diff', 'apps/web/src/sheet.tsx');
@@ -721,7 +722,7 @@ test('a lease an older dibs took under a worktree path still collides with the s
 });
 
 test('paths outside git, submodules and broken .git files keep their own names', t => {
-  const plain = fs.realpathSync(tmp(t, 'plain'));
+  const plain = realPath(tmp(t, 'plain'));
   assert.equal(fileRes('files:notes/x.md', plain), `files:${plain}/notes/x.md`, 'outside git');
 
   // A submodule is its own repo: its files aren't its parent's. Its own worktrees share its names.
@@ -730,16 +731,16 @@ test('paths outside git, submodules and broken .git files keep their own names',
   git(sub, 'commit', '-qm', 'sub');
   const w = worktrees(t);
   git(w.main, 'submodule', '-q', 'add', sub, 'lib');
-  const lib = path.join(w.main, 'lib');
+  const lib = sysPath(path.join(w.main, 'lib'));
   assert.equal(fileRes('files:a.txt', lib), `files:${lib}/a.txt`);
   assert.equal(overlap(fileRes('files:**', w.main), fileRes('files:a.txt', lib)), true, "the parent's glob still covers the folder");
   assert.equal(overlap(fileRes('files:a.txt', lib), fileRes('files:a.txt', w.main)), false, "the parent's a.txt is another file");
-  const libWt = path.join(fs.realpathSync(tmp(t, 'libwt')), 'lib-wt');
+  const libWt = path.join(realPath(tmp(t, 'libwt')), 'lib-wt');
   git(lib, 'worktree', 'add', '-q', libWt);
   assert.equal(fileRes('files:a.txt', libWt), `files:${lib}/a.txt`, "the submodule's own worktree");
 
   // .git files that point nowhere, say nothing or can't be read: the folder is its own root, and nothing throws.
-  const broken = fs.realpathSync(tmp(t, 'broken'));
+  const broken = realPath(tmp(t, 'broken'));
   for (const body of ['gitdir: /nowhere/.git/worktrees/x\n', 'garbage\n', 'gitdir: ../missing\n', null]) {
     fs.rmSync(path.join(broken, '.git'), { recursive: true, force: true });
     if (body === null) fs.mkdirSync(path.join(broken, '.git', 'x'), { recursive: true });

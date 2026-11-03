@@ -650,6 +650,9 @@ export function pace(args) {
 // The bar is lower than dibs throttle's (50%): this only reports, it doesn't act.
 const BUSY_CPU = 40;   // % of a core
 function untracked(s) {
+  // Windows reads CPU per process by sampling twice a second apart (platform.mjs): 1.8 s a call
+  // on a CI runner, too much for every look at the board, for a line that's only informative.
+  if (OS === 'windows') return [];
   const ours = new Set(s.leases.flatMap(l => [l.pgid, ...(l.groups || [])]).filter(Boolean));
   const groups = new Map();
   for (const p of processes()) {

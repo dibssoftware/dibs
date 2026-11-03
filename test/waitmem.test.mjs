@@ -7,13 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, BIN, tmp, bg, until, board, env, track, group } from './helpers.mjs';
+import { G, MACHINE, BIN, tmp, bg, until, board, env, track, group, posixOnly } from './helpers.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { verdict, forecast } from '../src/schedule.mjs';
 import { plainBoard } from '../src/plain.mjs';
 import { dibsMem } from '../src/platform.mjs';
 
-const WIN = process.platform === 'win32';
 const T = Date.now();
 const cfg = (o = {}) => ({ ...DEFAULT_CONFIG, ...o });
 let n = 0;
@@ -69,7 +68,7 @@ test("a waiter's turn through a line of 40 reads the 1000 lines of history once,
   } finally { process.env.DIBS_FAKE_MACHINE = was; }
 });
 
-test('the real CLI: a poll that changes nothing leaves the state file alone', { skip: WIN }, async t => {
+test('the real CLI: a poll that changes nothing leaves the state file alone', async t => {
   const h = tmp(t);
   // No measuring after the first, which would write its reading.
   const quiet = { env: { DIBS_SAMPLE_MS: '3600000' } };
@@ -88,7 +87,7 @@ test('the real CLI: a poll that changes nothing leaves the state file alone', { 
   assert.equal(await second.done, 0);
 });
 
-test("the real CLI: dibs started by its own first line (as ~/bin/dibs is) runs with V8's low-memory settings", { skip: WIN }, async t => {
+test("the real CLI: dibs started by its own first line (as ~/bin/dibs is) runs with V8's low-memory settings", { skip: posixOnly("Windows runs no script by its #! line; there bin/dibs.mjs starts as node bin/dibs.mjs") }, async t => {
   const h = tmp(t), bin = tmp(t, 'bin'), cwd = tmp(t, 'job');
   const link = path.join(bin, 'dibs');
   fs.symlinkSync(BIN, link);
@@ -101,7 +100,7 @@ test("the real CLI: dibs started by its own first line (as ~/bin/dibs is) runs w
   assert.equal(await p.done, 0);
 });
 
-test("dibs's Node settings keep fetch working, which every call to the coordinator needs", { skip: WIN }, async t => {
+test("dibs's Node settings keep fetch working, which every call to the coordinator needs", async t => {
   // --lite-mode shipped in 0.0.96 and turned off WebAssembly, which fetch needs: dibs machines and every remote call failed.
   const { LEAN } = await import('../src/util.mjs');
   const line = fs.readFileSync(BIN, 'utf8').split('\n')[1];
@@ -121,7 +120,7 @@ test("dibs's Node settings keep fetch working, which every call to the coordinat
   assert.equal(out.trim(), 'ok');
 });
 
-test('the real CLI under LEAN reaches a coordinator: a waiter started by bin/dibs, and a dibs the broker, later or worker spawns', { skip: WIN }, async t => {
+test('the real CLI under LEAN reaches a coordinator: a waiter started by bin/dibs, and a dibs the broker, later or worker spawns', { skip: posixOnly("Windows runs no script by its #! line; there bin/dibs.mjs starts as node bin/dibs.mjs") }, async t => {
   // The services (serve, worker, throttle) start plain node from launchd (src/service.mjs) and never get LEAN.
   const { LEAN } = await import('../src/util.mjs');
   const g = await group(t);

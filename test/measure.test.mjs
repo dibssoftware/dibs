@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { G, tmp, sync, bg, until, board, flat } from './helpers.mjs';
+import { G, tmp, sync, bg, until, board, flat, posixOnly, windowsGap } from './helpers.mjs';
 import { treeOf, usage, learned, sized, sample, SAMPLE_EVERY } from '../src/measure.mjs';
 import { pressurePause, flush } from '../src/preempt.mjs';
 import { scoped } from '../src/platform.mjs';
@@ -31,7 +31,7 @@ function setup(t) {
 }
 const JOB = ['sh', '-c', 'while [ ! -f stop ]; do sleep 0.1; done'];
 
-test('a job using more than it asked for is flagged on the board, and its next run is planned at what it used', { skip: WIN }, async t => {
+test('a job using more than it asked for is flagged on the board, and its next run is planned at what it used', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
   const { h, foot, opts } = setup(t);
   const cwd = tmp(t, 'job');
   const job = bg(t, h, ['run', 't', '--', ...JOB], { ...opts, cwd });
@@ -66,7 +66,7 @@ test('a job using more than it asked for is flagged on the board, and its next r
   assert.ok(fs.readFileSync(path.join(h, 'events.jsonl'), 'utf8').includes('"kind":"sized"'));
 });
 
-test('a run that fails, or whose dibs is killed, still teaches its size: the next run is planned at it, over an explicit --mem', { skip: WIN }, async t => {
+test('a run that fails, or whose dibs is killed, still teaches its size: the next run is planned at it, over an explicit --mem', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
   const { h, foot, opts } = setup(t);
   const cwd = tmp(t, 'job');
   const FAIL = ['sh', '-c', 'while [ ! -f stop ]; do sleep 0.1; done; exit 3'];
@@ -110,7 +110,7 @@ test('a command never measured is planned at what its family used: the same reso
     'playwright|npx playwright / test save-pdf.spec.ts').mem, 2 * G, 'its own runs, once it has some');
 });
 
-test('a command that has used more than the whole budget is planned at the budget, and the board says so', { skip: WIN }, async t => {
+test('a command that has used more than the whole budget is planned at the budget, and the board says so', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
   const { h, foot, opts } = setup(t);
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ budget: '11G', roomyMemFree: 101, resources: { t: { slots: 2, mem: '0.1G', cpu: 1 } } }));
   fs.writeFileSync(path.join(h, 'history.jsonl'), JSON.stringify({ key: `t|${commandKey(JOB)}`, dur: 60e3, who: 'past', at: Date.now() - 6e4, fit: true, mem: 14 * G, cpu: 8 }) + '\n');
@@ -142,7 +142,7 @@ test('a planned size is capped at the budget only when what it learned is over t
   assert.deepEqual(sized({ mem: 12 * G, cpu: 3, disk: 0 }, h([14 * G]), 'k', cfg), { mem: 14 * G, cpu: 3, disk: 0, asked: 12 * G }, 'asking for more than the budget is the asker\'s call');
 });
 
-test('a job within what it asked for is not flagged', { skip: WIN }, async t => {
+test('a job within what it asked for is not flagged', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
   const { h, foot, opts } = setup(t);
   const cwd = tmp(t, 'job');
   const job = bg(t, h, ['run', 't', '--', ...JOB], { ...opts, cwd });
@@ -154,7 +154,7 @@ test('a job within what it asked for is not flagged', { skip: WIN }, async t => 
   assert.equal(await job.done, 0);
 });
 
-test('one process measures every lease once per interval, however many runs are ticking', { skip: WIN }, t => {
+test('one process measures every lease once per interval, however many runs are ticking', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, t => {
   process.env.DIBS_FAKE_FOOTPRINT = path.join(tmp(t, 'foot'), 'none.json');
   const lease = { id: 1, kind: 'run', res: ['t'], mem: G, cpu: 1, pid: process.pid, pstart: pstart(process.pid), pgid: process.pid, start: Date.now() };
   withState(s => { s.leases.push(lease); });
@@ -179,7 +179,7 @@ const PROCS = [
   { pid: 500, ppid: 1, pgid: 500, cpu: 99, rss: 9 * G, args: 'someone else' },
 ];
 
-test("each run learns its share of the disk's fall, by the disk it declares, with swap's growth left out", { skip: WIN }, t => {
+test("each run learns its share of the disk's fall, by the disk it declares, with swap's growth left out", { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, t => {
   process.env.DIBS_FAKE_FOOTPRINT = path.join(tmp(t, 'foot'), 'none.json');
   const was = process.env.DIBS_FAKE_MACHINE;
   const base = { kind: 'run', mem: G, cpu: 1, pid: process.pid, pstart: pstart(process.pid), pgid: process.pid, start: Date.now() };
@@ -271,7 +271,7 @@ test('the learned size comes from the last five measured runs, never more than t
 // A lease that names a process that isn't its own (pgstart doesn't match), so nothing is ever signalled.
 const fakeRun = o => ({ kind: 'run', pgid: 999999, pgstart: 'never', res: ['test'], mem: G, cpu: 1, start: 0, ...o });
 
-test('under memory pressure the job furthest over what it asked for is paused first', { skip: WIN }, () => {
+test('under memory pressure the job furthest over what it asked for is paused first', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   const s = { leases: [
     fakeRun({ id: 1, prio: 'idle', mem: 4 * G, use: { mem: 4 * G } }),
     fakeRun({ id: 2, prio: 'low', mem: 1 * G, use: { mem: 3 * G } }),
@@ -292,7 +292,7 @@ test('Linux with enforce: the job runs in a systemd scope throttled at its memor
   assert.deepEqual(scoped(argv, { mem: G, cpu: 1 }, { os: 'macos', works: () => true }), argv);
 });
 
-test('with enforce on, a job still runs where scopes are unavailable', { skip: WIN || process.platform === 'linux' }, async t => {
+test('with enforce on, a job still runs where scopes are unavailable', { skip: process.platform === 'linux' && 'a Linux machine may have systemd scopes; this is the case of none' }, async t => {
   const h = tmp(t, 'enforce');
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ enforce: true }));
   const r = sync(h, ['run', 'test', '--', 'sh', '-c', 'echo ran']);
@@ -300,7 +300,7 @@ test('with enforce on, a job still runs where scopes are unavailable', { skip: W
   assert.equal(r.out.trim(), 'ran');
 });
 
-test('dibs setup scratch prints the admin commands and creates nothing', { skip: !MAC }, t => {
+test('dibs setup scratch prints the admin commands and creates nothing', { skip: !MAC && 'the scratch volume is APFS, macOS only' }, t => {
   const vol = path.join(tmp(t, 'scratch'), 'DibsScratch');
   const r = sync(tmp(t), ['setup', 'scratch', '--size', '30G'], { env: { DIBS_SCRATCH: vol } });
   assert.equal(r.code, 0, r.err);

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { G, tmp, sync, bg, until, port, group, shared, alive, machinesOf, flat, PERSON, board } from './helpers.mjs';
+import { G, tmp, sync, bg, until, port, group, shared, alive, machinesOf, flat, PERSON, board, posixOnly, shPid } from './helpers.mjs';
 import { place } from '../src/serve.mjs';
 import { SECRET, safeRel, newToken } from '../src/remote.mjs';
 import { cleanWork, runArgs } from '../src/worker.mjs';
@@ -15,7 +15,7 @@ import { DEFAULT_CONFIG } from '../src/config.mjs';
 const T = Date.now();
 const w = (name, extra) => [name, { name, os: 'macos', cores: 10, load: 0, memFree: 80, memTotal: 16e9, seen: T, busy: {}, ...extra }];
 const fleet = () => new Map([w('a', { load: 9 }), w('b', { load: 1 }), w('lin', { os: 'linux' }), w('gone', { seen: T - 60e3 })]);
-const sleeper = marker => ['sh', '-c', `echo $$ > ${marker}; echo started; sleep 60`];
+const sleeper = marker => ['sh', '-c', `echo ${shPid('$$')} > '${marker}'; echo started; sleep 60`];
 
 test("a token never starts with '-', which dibs join would read as a flag", () => {
   for (let i = 0; i < 5000; i++) assert.notEqual(newToken()[0], '-');
@@ -141,7 +141,7 @@ describe('a job sent to another machine', () => {
   });
 
   test('sent from the machine that is itself the best choice, it runs in place', () => {
-    const r = sync(g.ha, ['run', 'test', '--anywhere', '--', 'pwd'], { cwd: g.proj });
+    const r = sync(g.ha, ['run', 'test', '--anywhere', '--', process.execPath, '-e', 'console.log(process.cwd())'], { cwd: g.proj });
     assert.equal(r.code, 0);
     assert.match(r.err, /running here/);
     assert.equal(fs.realpathSync(r.out.trim()), fs.realpathSync(g.proj));
@@ -150,13 +150,13 @@ describe('a job sent to another machine', () => {
   test("it waits its turn in that machine's own line", async t => {
     const order = path.join(tmp(t), 'order'), gate = path.join(tmp(t), 'gate');
     // The same project as the job sent: deploys are one at a time per project, and a job sent carries its sender's.
-    const holder = bg(t, g.ha, ['run', 'deploy', '--', 'sh', '-c', `echo held >> ${order}; while [ ! -e ${gate} ]; do sleep 0.05; done`],
+    const holder = bg(t, g.ha, ['run', 'deploy', '--', 'sh', '-c', `echo held >> '${order}'; while [ ! -e '${gate}' ]; do sleep 0.05; done`],
       { agent: 'local-agent', cwd: g.proj });
     await until(() => fs.existsSync(order));
-    const job = bg(t, g.hc, ['run', 'deploy', '--on', 'alpha', '--', 'sh', '-c', `echo after >> ${order}`], { cwd: g.proj });
+    const job = bg(t, g.hc, ['run', 'deploy', '--on', 'alpha', '--', 'sh', '-c', `echo after >> '${order}'`], { cwd: g.proj });
     await until(() => /waiting/.test(job.err));
-    // On alpha it waits as a thin waiter, through the worker's sh entry.
-    await until(() => JSON.parse(fs.readFileSync(path.join(g.ha, 'state.json'), 'utf8')).queue.some(q => q.wake && q.who.endsWith('@gamma')));
+    // On alpha it waits as a thin waiter, through the worker's sh entry (in Node on Windows, which has no thin waiter).
+    await until(() => JSON.parse(fs.readFileSync(path.join(g.ha, 'state.json'), 'utf8')).queue.some(q => (q.wake || process.platform === 'win32') && q.who.endsWith('@gamma')));
     assert.equal(fs.readFileSync(order, 'utf8'), 'held\n');
     fs.writeFileSync(gate, '');
     assert.equal(await job.done, 0, job.err);
@@ -164,7 +164,7 @@ describe('a job sent to another machine', () => {
     assert.equal(fs.readFileSync(order, 'utf8'), 'held\nafter\n');
   });
 
-  test('Ctrl-C stops the remote job and its processes', async t => {
+  test('Ctrl-C stops the remote job and its processes', { skip: posixOnly("Windows can't deliver SIGINT: kill() there ends the process outright") }, async t => {
     const marker = path.join(tmp(t), 'pid');
     const p = bg(t, g.hc, ['run', 'test', '--on', 'beta', '--', ...sleeper(marker)], { cwd: g.proj });
     await until(() => p.out.includes('started'));
@@ -218,7 +218,7 @@ test('a machine that dies mid-job: the sender gets exit 77 (it may have run) and
   await until(() => !alive(pid));
 });
 
-test('a sender that stops reading for too long is told, when it reads again, why its job was stopped', async t => {
+test('a sender that stops reading for too long is told, when it reads again, why its job was stopped', { skip: posixOnly('the test freezes the sender with SIGSTOP, which Windows does not have') }, async t => {
   const g = await group(t, { timing: { clientLost: 2000 } });
   const marker = path.join(tmp(t), 'pid');
   const p = bg(t, g.hc, ['run', 'test', '--on', 'alpha', '--', ...sleeper(marker)], { cwd: g.proj });

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, bg, port, answers, until } from './helpers.mjs';
+import { tmp, sync, bg, port, answers, until, posixOnly } from './helpers.mjs';
 
 async function server(t) {
   const home = tmp(t, 'mcptools');
@@ -114,7 +114,7 @@ test('hold and release take and give back a resource under the client\'s name; r
   assert.equal((await c.call('hold', { res: 'rm -rf /', reason: 'x' })).isError, true, 'only resource names');
 });
 
-test('acting on another session\'s job needs owner, and the job\'s agent is told the client stopped it', async t => {
+test('acting on another session\'s job needs owner, and the job\'s agent is told the client stopped it', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const w = await server(t);
   const c = await connect(w, { act: true });
   const run = bg(t, w.home, ['run', 'test', '-m', 'the agent\'s own job', '--', 'sleep', '60'], { agent: 'worker', env: { AI_AGENT: '1' } });

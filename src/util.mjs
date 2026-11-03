@@ -51,10 +51,12 @@ export async function inProcessAsync(fn) {
 }
 // What die() last said and the code it exited with, for bin/dibs.mjs's record
 // of a lost job or a crash: a command that exits 76 on its own is neither.
-export let lastDie = '', lastDieCode = null;
+export let lastDie = '', lastDieCode = null, lastDieAt = '';
 export function die(msg, code = 2) {
   lastDie = String(msg);
   lastDieCode = code;
+  // Where dibs gave up, for the record of a crash or a service that gave up (bin/dibs.mjs).
+  if (code === 70 || code === 75) lastDieAt = new Error().stack;
   if (throwing) throw Object.assign(new Error(msg), { status: code === 75 ? 503 : 500, exitCode: code, ...(code === 75 && { retryAfter: RETRY_AFTER }) });
   const red = !CALM.has(code) && !process.env.NO_COLOR && (!!process.env.FORCE_COLOR || (process.stderr.isTTY && process.env.TERM !== 'dumb'));
   process.stderr.write(`${red ? '\x1b[31mdibs:\x1b[39m' : 'dibs:'} ${msg}\n`);
@@ -147,7 +149,14 @@ export function dur(t) {
 const SECRETISH = /\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTH)[A-Z0-9_]*=)\S+|(--?(?:token|password|secret|api-key|key)[= ])\S+/gi;
 export const masked = s => (typeof s === 'string' ? s.replace(SECRETISH, (m, a, b) => `${a || b}***`) : s);
 
-export const clock = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// One formatter for every clock: toLocaleTimeString builds a new one each call, about
+// 0.1 ms, and the board prints hundreds (24 to 157 ms of a board on a busy Mac).
+let clockFormat;
+export const clock = t => {
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return d.toLocaleTimeString();
+  return (clockFormat ??= new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })).format(d);
+};
 // A time later today reads as a clock; another day gets its date too, so a retry weeks off doesn't look like tonight.
 export const when = (t, from = now()) => new Date(t).toDateString() === new Date(from).toDateString() ? `at ${clock(t)}` : `on ${new Date(t).toLocaleDateString('en-CA')} at ${clock(t)}`;
 
@@ -193,3 +202,9 @@ export const UNPOLLED = 3 * POLLED_EVERY;
 export const GHOST_AFTER = 10 * POLLED_EVERY;
 // A place without a stamp (made before dibs stamped them) isn't judged.
 export const unpolled = (q, t, after = UNPOLLED) => !!q.pid && q.polledAt != null && t - q.polledAt > after;
+// A mkdir lock someone else holds: EEXIST, or on Windows EPERM, while the last
+// holder's lock folder is still being deleted (a dibs crashed on it, 2026-11-03).
+export const lockHeld = e => e.code === 'EEXIST' || (process.platform === 'win32' && e.code === 'EPERM');
+// Giving a mkdir lock back. Windows won't delete a file another process has open,
+// as a waiter reading the lock's pid does, so it's tried a few more times.
+export const unlock = dir => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 10 });

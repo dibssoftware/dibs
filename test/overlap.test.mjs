@@ -4,13 +4,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, tmp, sync, bg, until, board } from './helpers.mjs';
+import { G, MACHINE, tmp, sync, bg, until, board, posixOnly } from './helpers.mjs';
 import { DEFAULT_CONFIG, loadConfig, paths } from '../src/config.mjs';
 import { verdict } from '../src/schedule.mjs';
 import { pressurePause, pressureResume, flush } from '../src/preempt.mjs';
 import { commandKey } from '../src/acquire.mjs';
 
-const WIN = process.platform === 'win32';
 // A 16 GB machine with half its memory free and nothing on its cores: roomy, so the budgets don't apply.
 const ROOM = { memTotal: 16 * G, memFree: 50, load: 0, cores: 8 };
 const KEY = 't|npm test';
@@ -166,7 +165,7 @@ test('overlap reads history and cores the way the budgets do', () => {
   assert.equal(judge({ leases: [{ ...asked4, use: { mem: G, cpu: 1 } }], queue: [me] }, me, tight, [ran()]).alongside.kind, 'fit');
 });
 
-test('under memory pressure, jobs on top pause first, newest first, and resume last', { skip: WIN }, () => {
+test('under memory pressure, jobs on top pause first, newest first, and resume last', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, () => {
   // Names a process that isn't its own (pgstart doesn't match), so nothing is ever signalled.
   const run = o => ({ kind: 'run', pgid: 999999, pgstart: 'never', res: ['test'], mem: G, cpu: 1, start: 0, ...o });
   const on = { kind: 'fit', res: ['test'], with: ['x'], mem: G };
@@ -187,13 +186,13 @@ test('the real CLI: a measured test run starts alongside a busy one, the board s
   const h = tmp(t);
   config(h, { overlap: 'fit', resources: { t: { slots: 1, mem: '0.1G', cpu: 1, pausable: true } } });
   const gate = path.join(h, 'gate');
-  const loop = ['sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`];
+  const loop = ['sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`];
   const machine = { env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, ...ROOM }) } };
   const first = bg(t, h, ['run', 't', '--', ...loop], { agent: 'first', ...machine });
   await until(() => board(h).held.length === 1);
   // The second command has run before and used 0.5G at its peak; the third used 7G.
-  const light = ['sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done; echo light`];
-  const heavy = ['sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done; echo heavy`];
+  const light = ['sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done; echo light`];
+  const heavy = ['sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done; echo heavy`];
   fs.writeFileSync(path.join(h, 'history.jsonl'), [light, heavy].map((c, i) =>
     JSON.stringify({ key: `t|${commandKey(c)}`, dur: 120e3, who: 'x', at: Date.now(), fit: true, mem: [0.5, 7][i] * G, cpu: 0.5 })).join('\n') + '\n');
   assert.notEqual(commandKey(light), commandKey(heavy));

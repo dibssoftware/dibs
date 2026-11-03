@@ -125,10 +125,16 @@ export function tarExtract(dir, buf, only = null) {
   return members;
 }
 
+// A path with its links resolved, the same way every time it's compared. On
+// Windows only the native call also expands 8.3 names (C:\Users\RUNNER~1): the JS
+// one left a temp folder short and the home folder long, so the job's folder came
+// out as ../../RUNNER~1/... relative to its own project.
+const real = p => { try { return (OS === 'windows' ? fs.realpathSync.native : fs.realpathSync)(p); } catch { return p; } };
+
 // The folder a working copy comes from: the git repo around cwd, or cwd itself.
 function projectRoot(cwd = process.cwd()) {
-  try { return fs.realpathSync(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()); }
-  catch { return cwd; }
+  try { return real(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()); }
+  catch { return real(cwd); }
 }
 // A load-held job may go to an on-demand machine on its own (acquire.mjs step)
 // only when it can run there. Never one that needs macOS: a resource that
@@ -167,14 +173,13 @@ export function mayShip(me, cfg, cwd) {
   if (macOnly(me.cmd, cwd) || !remoteConf(() => null) || namesPaths(me.cmd)) return false;
   const root = gitRoot(cwd);
   if (!root) return false;
-  let home = os.homedir();
-  try { home = fs.realpathSync(home); } catch {}
+  const home = real(os.homedir());
   return !(root === path.parse(root).root || home === root || home.startsWith(root.endsWith(path.sep) ? root : root + path.sep));
 }
 // Only a git working copy ships on its own: that's what the copy is, and a
 // folder outside git may hold anything.
 function gitRoot(cwd) {
-  try { return fs.realpathSync(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()); }
+  try { return real(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()); }
   catch { return null; }
 }
 // A command that names a path of this machine (/Users/..., ~/...) means a file the
@@ -258,7 +263,7 @@ function workingCopy(root, cwd = process.cwd()) {
     if (st.isDirectory()) continue;                                      // a submodule
     (SECRET.test(f) ? secret : kept).push(f);
   }
-  const cwdRel = path.relative(root, fs.realpathSync(cwd)).split(path.sep).join('/');
+  const cwdRel = path.relative(root, real(cwd)).split(path.sep).join('/');
   return { files: kept.sort(), secret, cwdRel };
 }
 
@@ -292,8 +297,7 @@ export async function remoteRun(o, cfg) {
   if (o.on && !ruleAllows(rule, o.on, rc.name)) return refuse(o.on, rule);
   const root = projectRoot();
   // Your home folder, or a folder above it, holds far more than a project, keys included.
-  let home = os.homedir();
-  try { home = fs.realpathSync(home); } catch {}
+  const home = real(os.homedir());
   if (root === path.parse(root).root || home === root || home.startsWith(root.endsWith(path.sep) ? root : root + path.sep)) {
     const msg = `${root} is your home folder or above it, and dibs won't send all of that to another machine. Run from the project's folder`;
     if (o.on && o.on !== rc.name) die(msg);

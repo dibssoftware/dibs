@@ -17,6 +17,7 @@ test('the version is the same in every file a release bumps, and the CHANGELOG s
     '.claude-plugin/plugin.json version': JSON.parse(read('.claude-plugin/plugin.json')).version,
     'package.json version': JSON.parse(read('package.json')).version,
     'install.sh DEFAULT_VERSION': found(/^DEFAULT_VERSION="v([\d.]+)"/m, read('install.sh')),
+    'install.ps1 $DefaultVersion': found(/^\s*\$DefaultVersion = 'v([\d.]+)'/m, read('install.ps1')),
     'README.md install link': found(/raw\.githubusercontent\.com\/[^/]+\/dibs\/v([\d.]+)\/install\.sh/, read('README.md')),
     'app/project.yml MARKETING_VERSION': found(/MARKETING_VERSION: "([\d.]+)"/, read('app/project.yml')),
     'CHANGELOG.md top section': found(/^## ([\d.]+)$/m, read('CHANGELOG.md')),

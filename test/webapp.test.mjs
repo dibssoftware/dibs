@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, bg, port, answers, until, AGENT } from './helpers.mjs';
+import { tmp, sync, bg, port, answers, until, AGENT, posixOnly } from './helpers.mjs';
 import { inProcess, die } from '../src/util.mjs';
 
 const code = home => sync(home, ['pair']).out.split('\n')[0].trim();
@@ -57,7 +57,7 @@ test('every page action needs the page\'s session: no token, a wrong one and an 
   assert.equal(JSON.parse(sync(w.home, ['pace', '--json']).out).pace, null, 'nothing changed');
 });
 
-test('boost, pause, resume and stop from the page change the job as the CLI would, and the history says the person did it', async t => {
+test('boost, pause, resume and stop from the page change the job as the CLI would, and the history says the person did it', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const w = await server(t);
   bg(t, w.home, ['run', 'test', '-p', 'low', '-m', 'parity fixtures', '--', 'sleep', '60'], { agent: 'a1' });
   let job;

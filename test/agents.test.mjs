@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, env, sync, track, until, HOOK } from './helpers.mjs';
+import { tmp, env, sync, track, until, HOOK, posixOnly } from './helpers.mjs';
 import { install, remove, installed } from '../src/guard.mjs';
 
 function setup(t, slots) {
@@ -89,7 +89,7 @@ test('a spawn the guard let through counts before its subagent starts, so a burs
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /2 subagents are running/);
 });
 
-test('subagents of a session whose process exits stop counting', async t => {
+test('subagents of a session whose process exits stop counting', { skip: posixOnly('the stand-in for Claude Code is node behind a symlink named claude, which Windows lets only an administrator make') }, async t => {
   const home = setup(t, 2);
   // A stand-in for a Claude Code session: a process named claude that runs the
   // hook itself, the way Claude Code does, then stays up until killed.

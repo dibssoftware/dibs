@@ -13,9 +13,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-24.04, windows-latest]
+        include:
+          - os: macos-latest
+          - os: ubuntu-24.04
+          # Windows starts every process slowly and reads the process table through
+          # PowerShell, so its leg runs in six shards, two files at a time each.
+          - { os: windows-latest, shard: 0, shards: 6 }
+          - { os: windows-latest, shard: 1, shards: 6 }
+          - { os: windows-latest, shard: 2, shards: 6 }
+          - { os: windows-latest, shard: 3, shards: 6 }
+          - { os: windows-latest, shard: 4, shards: 6 }
+          - { os: windows-latest, shard: 5, shards: 6 }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,5 +39,44 @@ jobs:
       # node --test runs one fewer file at a time than there are cores; on a 2-core runner
       # that was one file at a time (12 min on Linux vs 3.5 on macOS). The tests mostly wait.
       # bash on every runner (Git Bash on Windows), so the glob expands the same everywhere.
-      - run: node --test --test-concurrency=4 --test-timeout=120000 test/*.test.mjs
+      - name: test
         shell: bash
+        run: |
+          files=$(ls test/*.test.mjs)
+          concurrency=4
+          if [ -n "${{ matrix.shards }}" ]; then
+            files=$(printf '%s\n' $files | awk "NR % ${{ matrix.shards }} == ${{ matrix.shard }}")
+            concurrency=2
+          fi
+          node --test --test-concurrency=$concurrency --test-timeout=180000 $files
+
+  # install.sh under WSL: Ubuntu in WSL 2, Linux Node checked against nodejs.org's sums, a normal user.
+  wsl:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
+        with:
+          distribution: Ubuntu-24.04
+          additional-packages: curl ca-certificates xz-utils git libatomic1
+      - shell: wsl-bash {0}
+        run: |
+          set -eu
+          useradd -m dev
+          cp -r "$(pwd)" /home/dev/dibs
+          chown -R dev:dev /home/dev/dibs
+          su - dev -c '
+            set -eu
+            curl -fsSLO https://nodejs.org/dist/v26.12.1/node-v26.12.1-linux-x64.tar.xz
+            curl -fsSL https://nodejs.org/dist/v26.12.1/SHASUMS256.txt | grep " node-v26.12.1-linux-x64.tar.xz$" | sha256sum -c -
+            tar -xJf node-v26.12.1-linux-x64.tar.xz
+            export PATH="$HOME/node-v26.12.1-linux-x64/bin:$PATH"
+            cd ~/dibs
+            node --test test/install.test.mjs
+            DIBS_SOURCE=$HOME/dibs sh install.sh
+            export DIBS_HOME=$(mktemp -d)
+            ~/.local/bin/dibs run test -m "wsl check" -- echo hi from wsl
+          '

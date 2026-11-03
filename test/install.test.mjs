@@ -1,7 +1,7 @@
 // install.sh against a release host on 127.0.0.1: the tarball's sum is always
 // checked, a wrong one installs nothing, and a script cut off mid-download runs
 // nothing. Release tarballs are built the way release.sh builds them.
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -9,7 +9,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { tmp } from './helpers.mjs';
+import { tmp, posixFile } from './helpers.mjs';
+
+const test = posixFile(nodeTest, 'install.sh is for macOS, Linux and WSL; native Windows installs with install.ps1 (test/installps.test.mjs)');
 import { VERSION } from '../src/version.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');

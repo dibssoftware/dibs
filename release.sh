@@ -2,7 +2,7 @@
 # Publishes a release on dibs.cc, from a clean checkout of the public repo at
 # the release tag:
 #
-#   sh release.sh                 # the tarball, its sum and install.sh
+#   sh release.sh                 # the tarball, its sum, install.sh and install.ps1
 #   sh release.sh --mac           # also the DMG and latest.json app/release.sh built
 #
 # Uploads to the R2 bucket the dibs.cc Worker serves:
@@ -10,6 +10,8 @@
 #   releases/dibs-vX.tar.gz.sha256
 #   releases/install-vX.sh          install.sh for that version, its sum written in
 #   install.sh                      the same, for curl -fsSL https://dibs.cc/install.sh | sh
+#   releases/install-vX.ps1         install.ps1 for that version (native Windows), its sum written in
+#   install.ps1                     the same, for irm https://dibs.cc/install.ps1 | iex
 #   mac/dibs-X.dmg, mac/latest.json (--mac; latest.json last, so no app hears of
 #                                   a DMG that isn't there yet)
 # Then downloads each one back and checks it.
@@ -45,6 +47,7 @@ DIST="${DIBS_DIST:-app/dist}"
 [ -z "$(git status --porcelain)" ] || fail "the checkout has uncommitted changes, so the tarball wouldn't match the tag. Commit or stash first."
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "$TAG^{commit}" 2>/dev/null)" ] || fail "HEAD isn't the tag $TAG. Tag the release (git tag $TAG) or check it out first."
 grep -q "^DEFAULT_VERSION=\"$TAG\"$" install.sh || fail "install.sh's DEFAULT_VERSION isn't $TAG"
+grep -q "^  \$DefaultVersion = '$TAG'$" install.ps1 || fail "install.ps1's \$DefaultVersion isn't $TAG"
 # Everything public is written as the project, never as a person's own address.
 prev=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
 others=$(git log --format='%an <%ae>%n%cn <%ce>' ${prev:+"$prev.."}"$TAG" | sort -u | grep -vx 'dibs maintainers <licensing@dibs.cc>' || true)
@@ -61,6 +64,8 @@ sum=$(shasum -a 256 "$out/$tarball" | cut -d' ' -f1)
 printf '%s  %s\n' "$sum" "$tarball" > "$out/$tarball.sha256"
 sed "s/^DEFAULT_SHA256=\"\"$/DEFAULT_SHA256=\"$sum\"/" install.sh > "$out/install.sh"
 grep -q "^DEFAULT_SHA256=\"$sum\"$" "$out/install.sh" || fail "couldn't write the sum into install.sh (is DEFAULT_SHA256=\"\" still in it?)"
+sed "s/^  \$DefaultSha256 = ''$/  \$DefaultSha256 = '$sum'/" install.ps1 > "$out/install.ps1"
+grep -q "^  \$DefaultSha256 = '$sum'$" "$out/install.ps1" || fail "couldn't write the sum into install.ps1 (is \$DefaultSha256 = '' still in it?)"
 say "dibs $TAG: $tarball, sha256 $sum"
 
 if [ -n "$MAC" ]; then
@@ -78,6 +83,8 @@ put "releases/$tarball" "$out/$tarball" application/gzip
 put "releases/$tarball.sha256" "$out/$tarball.sha256" text/plain
 put "releases/install-$TAG.sh" "$out/install.sh" text/plain
 put install.sh "$out/install.sh" text/plain
+put "releases/install-$TAG.ps1" "$out/install.ps1" text/plain
+put install.ps1 "$out/install.ps1" text/plain
 if [ -n "$MAC" ]; then
   put "mac/dibs-$VERSION.dmg" "$dmg" application/x-apple-diskimage
   put mac/latest.json "$DIST/latest.json" application/json
@@ -93,6 +100,8 @@ check() { # url, local file
 check "$SITE/releases/$tarball" "$out/$tarball"
 check "$SITE/releases/$tarball.sha256" "$out/$tarball.sha256"
 check "$SITE/install.sh" "$out/install.sh"
+check "$SITE/releases/install-$TAG.ps1" "$out/install.ps1"
+check "$SITE/install.ps1" "$out/install.ps1"
 if [ -n "$MAC" ]; then
   check "$SITE/mac/dibs-$VERSION.dmg" "$dmg"
   check "$SITE/mac/latest.json" "$DIST/latest.json"
