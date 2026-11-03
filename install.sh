@@ -10,7 +10,9 @@
 # Puts one release in ~/.dibs-cli and links ~/.local/bin/dibs to it. Running it
 # again with the same version changes nothing; with a new version it swaps the
 # folder in place, so services and hooks that point into ~/.dibs-cli keep working.
-# Your queue and settings live in ~/.dibs and are never touched.
+# Your queue and settings live in ~/.dibs and are never touched. It writes dibs.md
+# (the agent instructions) into ~/.dibs-cli and a marked note pointing at it into
+# your agents' instruction files; dibs init --remove takes them out.
 #
 # Settings, all optional:
 #   DIBS_VERSION   release tag to install (default below)
@@ -23,6 +25,8 @@
 #   DIBS_PREFIX    where the release goes (default ~/.dibs-cli)
 #   DIBS_BIN_DIR   where the dibs link goes (default ~/.local/bin)
 #   DIBS_FORCE=1   replace a dibs in DIBS_BIN_DIR that this script didn't make
+#   DIBS_NO_AGENT_NOTES=1  don't write dibs.md or the note about it in ~/.claude/CLAUDE.md,
+#                  ~/.codex/AGENTS.md and this repo's CLAUDE.md and AGENTS.md
 set -eu
 
 main() {
@@ -144,6 +148,10 @@ if [ "$(readlink "$LINK" 2>/dev/null || true)" != "$TARGET" ]; then
   ln -sf "$TARGET" "$LINK"
   say "linked $LINK"
 fi
+
+# The agents' instructions: dibs.md in $PREFIX, rewritten for this version, and a note
+# pointing at it in their instruction files (dibs init; DIBS_NO_AGENT_NOTES=1 skips it).
+node "$TARGET" init --quiet || say "couldn't write dibs.md or the agents' notes. Run dibs init to try again."
 
 say ""
 case ":$PATH:" in

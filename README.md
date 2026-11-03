@@ -1,32 +1,16 @@
 # dibs
 
-Three coding agents, one Mac, one simulator. One installs its build over the app another is tapping through, a third starts a fourth `xcodebuild`, memory runs out, and the simulator crashes for all of them.
+Three coding agents, one Mac, one simulator. One installs its build over the app another is tapping through. A third starts a fourth `xcodebuild`, memory runs out, and the simulator crashes for all of them.
 
-dibs makes agents take turns on the things that exist once on your machine (the simulator, Xcode builds, test suites, browser runs, deploys) and lets everything else run in parallel. It's a single Node CLI with no dependencies and no daemon.
-
-## Install
-
-macOS or Linux, Node 22.23.4, 24.22.1 or 26.12.1 or newer. Older builds of those lines have the Brotli decoder bug (CVE-2026-111497), so upgrade Node first if yours is behind. No sudo.
+dibs makes agents take turns on the things that exist once on your machine: the simulator, Xcode builds, test suites, browser runs, deploys. Everything else still runs in parallel.
 
 ```bash
-curl -fsSL https://dibs.cc/install.sh | sh
+dibs run sim -m "checkout flow" -- ./ui-test.sh       # waits for the simulator, runs, frees it on exit
+dibs run sim-own -- sh -c 'xcodebuild test -scheme App -destination "id=$SIM"'   # a private simulator per agent
+dibs run xcode-build --est 3m -- xcodebuild -scheme App build
+dibs run test -- npm test
+dibs                                                  # the board: who has what, who's next
 ```
-
-It downloads the release tarball from dibs.cc, checks its sha256, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and exits nonzero, having installed nothing. Each release's tarball and sum are at `https://dibs.cc/releases/dibs-v<version>.tar.gz` and `.tar.gz.sha256`.
-
-Or from npm: `npm i -g @dibssoftware/dibs`. Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.178/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
-
-## The first five commands
-
-```bash
-dibs run sim -m "checkout flow" -- ./ui-test.sh    # wait for the simulator, run, free it on exit
-dibs run test --est 2m -- npm test                 # a test suite, side by side with others when there's room
-dibs hold sim --for 20m -m "screenshot pass"       # keep it across several commands; dibs release sim gives it back
-dibs                                               # the board: who has what, who's next
-dibs why                                           # where you are in line and what you're waiting for
-```
-
-The board reads like this:
 
 ```
 2 running, 1 waiting. Next up: api-refactor for the simulator, as soon as ios-checkout finishes.
@@ -39,13 +23,21 @@ Free           Private simulators, Browser tests, Test runs, Deploys, Heavy jobs
 This machine   quiet: 42% of memory free, 31 GB of disk free
 ```
 
-A turn lasts exactly as long as the command. When it exits, crashes or gets `kill -9`'d, its whole process tree is killed and the next agent goes. No timeouts to tune, no stale locks.
+`dibs --detail` is the full table, with ids, priorities and the numbers dibs decides by. `dibs --json` carries both, with a sentence for every row (the Mac app shows those).
 
-## Who goes next
+A turn lasts exactly as long as the command. When it exits, crashes or gets `kill -9`'d, its whole process tree is killed and the next agent goes. After a `kill -9` that takes a second or two: a small watcher dibs leaves behind does it. No timeouts to tune, no stale locks.
 
-Mostly first come, first served, bent by four things. Short jobs move up: a command that usually takes 30 seconds goes ahead of a 20-minute suite that arrived a few minutes earlier, and one that takes under 15 seconds slips in beside running work. Priority shifts your place (`-p high` is worth an hour, `-p low` costs ten minutes). An agent that has had the same resource for most of the last hour drops back a little. A deadline (`--by 23:30`) pulls you forward as it gets close. Every shift is capped, so nobody waits forever.
+**Install** (macOS; Node 22.23.4, 24.22.1, 26.12.1 or newer; no dependencies, no daemon):
 
-Then the machine gets a say. dibs measures what each command really uses and books that, keeps running jobs inside a memory and CPU budget, and holds new work while the Mac is swapping or short on disk. One job always gets to run. The whole set of rules, with the numbers, is in [docs/scheduling.md](docs/scheduling.md).
+```bash
+curl -fsSL https://dibs.cc/install.sh | sh
+```
+
+It downloads the release tarball from dibs.cc, checks its sha256, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. No sudo. If anything fails, it says what and exits nonzero, having installed nothing. Each release's tarball and sum are at `https://dibs.cc/releases/dibs-v<version>.tar.gz` and `.tar.gz.sha256`.
+
+It also tells your agents dibs is there. It writes `~/.dibs-cli/dibs.md`, the agent instructions (the plugin's skill, for this version), and adds a short marked note pointing at it to `~/.claude/CLAUDE.md`, to `~/.codex/AGENTS.md` if you use Codex, and to the `CLAUDE.md` and `AGENTS.md` of the git repo you ran it in, if those exist. The note sits between `<!-- dibs:start -->` and `<!-- dibs:end -->`; every upgrade rewrites only those lines and dibs.md, and the rest of each file stays as it was. `dibs init` does the same by hand (`--repo` also makes this repo's `CLAUDE.md` if it has none), `dibs init --remove` takes it all out, and `DIBS_NO_AGENT_NOTES=1` before the install line skips it.
+
+Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.178/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
 
 **Make agents use it.** Agents forget to wrap commands, so add the guard hook. From Terminal:
 
@@ -64,11 +56,12 @@ The guard rewrites a bare `xcodebuild` or `npm test` into `dibs run ...` only in
 
 If you run one agent at a time, you don't need this.
 
-**Upgrade** by running the install line again (or `npm i -g @dibssoftware/dibs` again). It swaps `~/.dibs-cli` in one step, and your queue and settings in `~/.dibs` stay. Then `dibs guard install` again, from Terminal, so the hook has every event the new version listens to. A plugin install updates with `claude plugin update dibs@dibs` in Terminal, or in Claude Code from `/plugin`, Installed, dibs, Update now. Run `/reload-plugins` to load it in a session that's already open.
+**Upgrade** by running the install line again. It swaps `~/.dibs-cli` in one step, and your queue and settings in `~/.dibs` stay. Then `dibs guard install` again, from Terminal, so the hook has every event the new version listens to. A plugin install updates with `claude plugin update dibs@dibs` in Terminal, or in Claude Code from `/plugin`, Installed, dibs, Update now. Run `/reload-plugins` to load it in a session that's already open.
 
 **Uninstall**, from Terminal:
 
 ```bash
+dibs init --remove                             # dibs.md, and the dibs note in CLAUDE.md and AGENTS.md
 dibs guard remove                              # or claude plugin uninstall dibs@dibs for a plugin install
 dibs service remove serve worker throttle      # only if you installed services
 rm -rf ~/.dibs-cli ~/.local/bin/dibs ~/.dibs   # ~/.dibs is the queue, history and settings
@@ -222,14 +215,12 @@ Running jobs share a budget of 8 GB and 6 cores while the machine is busy, so li
 - [docs/machines.md](docs/machines.md): sending jobs to other machines, adding one (`dibs pair --machine` on the coordinator, `dibs join <code>` on the new machine), tokens, and keeping a project's code on the machines you name
 - [AGENTS.md](AGENTS.md): working on dibs itself
 
-Platforms: CI runs the full suite on macOS and Ubuntu on every push. Linux uses the same code paths (`ps`, process groups, `/proc/pressure/memory`). Windows support exists and is untested.
+Platforms: macOS is what dibs is tested on. Linux uses the same code paths (`ps`, process groups, `/proc/pressure/memory`) but hasn't had a full test run yet. Windows support exists and is untested.
 
 ## License
 
 dibs is free to use, change and share under the [GNU Affero General Public License v3](LICENSE) (AGPL-3.0-only), at home or at work. If you ship a changed dibs, or run one for other people over a network, the AGPL says you share your changes under the same license.
 
-If your company can't use AGPL software, or you want to build dibs into something you don't open source, a commercial license is available from Creayo LLC: licensing@dibs.cc.
+If your company can't use AGPL software, or you want to build dibs into something you don't open source, buy a commercial license from Creayo LLC: licensing@dibs.cc.
 
-## Contributing
-
-Bug reports, ideas and pull requests are welcome. Before your first pull request is merged you sign a contributor license agreement, so Creayo LLC can offer your change under both licenses: [CONTRIBUTING.md](CONTRIBUTING.md) says how. [AGENTS.md](AGENTS.md) is how the code is worked on.
+Contributions are welcome. Before your first pull request is merged you'll sign a contributor license agreement, which lets Creayo LLC offer your change under both licenses.

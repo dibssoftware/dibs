@@ -58,6 +58,7 @@ Look around
 Set up
   dibs pace quiet|normal|max                 how hard dibs drives this machine
   dibs guard install                         make Claude Code agents use dibs when they forget
+  dibs init                                  point your agents' CLAUDE.md and AGENTS.md at dibs.md (install does it)
   dibs machines                              other machines in the group
 
 Priority: -p urgent|high|normal|low|idle (urgent and high need -m "why"). Due by a time: --by 23:30.
@@ -191,6 +192,9 @@ other
   dibs setup scratch [--size 40G]          print the one-time commands for a capped volume for build output (--check: how full)
   dibs changes                             what changed in recent versions
   dibs guard install|remove|status|check   a Claude Code hook that runs heavy commands through dibs when an agent forgets
+  dibs init [--repo] [--remove]            write dibs.md (the agent instructions) and a note pointing at it in ~/.claude/CLAUDE.md,
+                                           ~/.codex/AGENTS.md and this repo's CLAUDE.md and AGENTS.md (install does it; --repo makes
+                                           this repo's CLAUDE.md; --remove takes it all out; DIBS_NO_AGENT_NOTES=1 skips it)
 
 flags
   -m "why"          shown to everyone (required with urgent and high)
@@ -323,6 +327,18 @@ function announce() {
   if (before) process.stderr.write(`dibs was updated to ${VERSION}: see \`dibs changes\`\n`);
 }
 
+// An npm install has no install script (the package runs none, by design), so the first
+// command after an install or upgrade writes dibs.md and the agents' notes (src/notes.mjs).
+// Only from node_modules: a checkout or install.sh's folder has dibs init and install.sh.
+async function npmNotes() {
+  if (!ROOT.split(path.sep).includes('node_modules')) return;
+  try {
+    const notes = await lazy('notes');
+    if (!notes.stale()) return;
+    for (const f of notes.write()) process.stderr.write(`dibs: wrote ${f}\n`);
+  } catch (e) { process.stderr.write(`dibs: couldn't write dibs.md or the agents' notes (${e.message}). dibs init tries again\n`); }
+}
+
 // A caller with no hook to hand it notices (outside Claude Code) gets them here.
 function notices() {
   if (process.env.CLAUDE_CODE_SESSION_ID) return;
@@ -335,7 +351,7 @@ const ALIASES = { done: 'release', renew: 'hold', news: 'changes', cool: 'thrott
 const VERBS = new Set(['run', 'hold', 'release', 'when', 'why', 'mine', 'who', 'yield', 'ask', 'requests', 'port', 'throttle', 'changes', 'status', 'help',
   'machines', 'serve', 'join', 'leave', 'worker', 'service', 'invite', 'kick', 'limit', 'guard', 'sims', 'pace', 'setup', 'history', 'stats',
   'question', 'questions', 'answer', 'hours', 'say', 'tell', 'threads', 'boost', 'pause', 'resume', 'stop', 'cap', 'later',
-  'progress', 'web', 'pair', 'relay', 'connect', 'alerts']);
+  'progress', 'web', 'pair', 'relay', 'connect', 'alerts', 'init']);
 
 // A job sent from another machine ends when the worker that started it does,
 // even if the worker was killed outright and couldn't say so.
@@ -401,7 +417,8 @@ async function main() {
   // Services, jobs sent from another machine and scheduled ones have nobody to read the notes.
   // A thin waiter's turn has had them already, when it got in line.
   const lease = argv.slice(0, argv.indexOf('--') >>> 0).includes('--lease');
-  if (!process.env.DIBS_REMOTE_JOB && !process.env.DIBS_LATER_JOB && !lease && !['serve', 'worker', 'service', 'relay'].includes(verb)) { announce(); notices(); }
+  if (!process.env.DIBS_REMOTE_JOB && !process.env.DIBS_LATER_JOB && !lease && !['serve', 'worker', 'service', 'relay', 'init'].includes(verb)) { announce(); notices(); }
+  if (verb !== 'init') await npmNotes();
   // `dibs sim -- cmd` (no verb) means run; a bare `dibs` or `dibs --json` is the board.
   // `dibs -m why sim -- cmd` is a run too: anything with a command after -- is.
   if (!verb || (verb.startsWith('-') && verb !== '--' && !argv.includes('--'))) return status(parse(argv), cfg);
@@ -467,6 +484,7 @@ async function main() {
     case 'web': return (await lazy('web')).web(rest);
     case 'pair': return (await lazy('web')).pair(rest);
     case 'connect': return (await lazy('connect')).connect(rest);
+    case 'init': return (await lazy('notes')).init(rest);
     case 'relay': return (await lazy('relay')).relay(rest);
     case 'tell': return tell(rest);
     case 'threads': return threads(rest);

@@ -19,7 +19,7 @@ const TAG = `v${VERSION}`;
 function tarball(dir) {
   const top = path.join(dir, 'stage', `dibs-${TAG}`);
   fs.mkdirSync(top, { recursive: true });
-  for (const f of ['bin', 'src', 'LICENSE', 'README.md', 'CHANGELOG.md']) fs.cpSync(path.join(ROOT, f), path.join(top, f), { recursive: true });
+  for (const f of ['bin', 'src', 'skills', 'LICENSE', 'README.md', 'CHANGELOG.md']) fs.cpSync(path.join(ROOT, f), path.join(top, f), { recursive: true });
   const file = path.join(dir, 'www', `dibs-${TAG}.tar.gz`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   execFileSync('tar', ['-czf', file, '-C', path.join(dir, 'stage'), `dibs-${TAG}`]);
@@ -42,7 +42,9 @@ async function host(t, dir) {
 const install = (dir, env, script = path.join(ROOT, 'install.sh')) => new Promise(resolve => {
   const home = path.join(dir, 'home');
   fs.mkdirSync(home, { recursive: true });
+  // Run from the temp folder: install.sh notes the repo it runs in, and this checkout's files aren't the test's to change.
   execFile('sh', [script], {
+    cwd: dir,
     env: { PATH: process.env.PATH, HOME: home, DIBS_PREFIX: path.join(home, '.dibs-cli'), DIBS_BIN_DIR: path.join(home, 'bin'), DIBS_VERSION: TAG, ...env },
   }, (err, out, errOut) => resolve({ code: err ? err.code : 0, out: out + errOut, home }));
 });
@@ -86,4 +88,37 @@ test('install.sh cut off mid-download, as curl | sh would run it, does nothing',
   const r = await install(dir, { DIBS_BASE: 'http://127.0.0.1:9' }, half);
   assert.equal(fs.existsSync(path.join(r.home, '.dibs-cli')), false);
   assert.doesNotMatch(r.out, /downloading/);
+});
+
+test('install.sh writes dibs.md into the install folder and a note pointing at it into ~/.claude/CLAUDE.md, and again on every run', async t => {
+  const dir = tmp(t, 'install');
+  tarball(dir);
+  fs.mkdirSync(path.join(dir, 'home', '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'home', '.claude', 'CLAUDE.md'), '# mine\n');
+  const base = await host(t, dir);
+  const r = await install(dir, { DIBS_BASE: base });
+  assert.equal(r.code, 0, r.out);
+  const md = path.join(r.home, '.dibs-cli', 'dibs.md');
+  assert.match(fs.readFileSync(md, 'utf8'), /^# dibs: instructions for coding agents/);
+  const claude = fs.readFileSync(path.join(r.home, '.claude', 'CLAUDE.md'), 'utf8');
+  assert.ok(claude.startsWith('# mine\n\n<!-- dibs:start -->'));
+  // Node runs dibs from its real path (/private/var/... on macOS), and names dibs.md by it.
+  assert.ok(claude.includes(`Read ${fs.realpathSync(md)} before running builds`), claude);
+  assert.match(r.out, /wrote .*dibs\.md/);
+  // Run again (an upgrade swaps the folder in whole): dibs.md is back, the note is still one.
+  fs.rmSync(md);
+  const again = await install(dir, { DIBS_BASE: base });
+  assert.equal(again.code, 0, again.out);
+  assert.ok(fs.existsSync(md));
+  assert.equal(fs.readFileSync(path.join(r.home, '.claude', 'CLAUDE.md'), 'utf8').split('<!-- dibs:start -->').length, 2);
+});
+
+test('install.sh with DIBS_NO_AGENT_NOTES=1 writes no dibs.md and no note', async t => {
+  const dir = tmp(t, 'install');
+  tarball(dir);
+  fs.mkdirSync(path.join(dir, 'home', '.claude'), { recursive: true });
+  const r = await install(dir, { DIBS_BASE: await host(t, dir), DIBS_NO_AGENT_NOTES: '1' });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(fs.existsSync(path.join(r.home, '.dibs-cli', 'dibs.md')), false);
+  assert.equal(fs.existsSync(path.join(r.home, '.claude', 'CLAUDE.md')), false);
 });

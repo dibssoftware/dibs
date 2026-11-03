@@ -126,7 +126,7 @@ export function env(home, opts = {}) {
 }
 
 export function sync(home, args, opts = {}) {
-  const r = spawnSync(process.execPath, [BIN, ...args], { env: env(home, opts), cwd: opts.cwd, encoding: 'utf8', timeout: 60000,
+  const r = spawnSync(process.execPath, [opts.bin || BIN, ...args], { env: env(home, opts), cwd: opts.cwd, encoding: 'utf8', timeout: 60000,
     maxBuffer: 64 * 1024 ** 2, input: opts.input });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
