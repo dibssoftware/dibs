@@ -2,7 +2,9 @@ name: release
 
 # A tag like v0.0.161: run the suite on both platforms, check every version
 # number agrees with the tag, then attach the source tarball and its checksum
-# to a GitHub release. The Mac app's DMG is signed and notarized on a Mac with
+# to a GitHub release, and publish @dibssoftware/dibs to npm through trusted
+# publishing (OIDC): no npm token anywhere, and the package's provenance points
+# at this run. The Mac app's DMG is signed and notarized on a Mac with
 # app/release.sh, not here: the signing key never leaves that machine.
 
 on:
@@ -63,3 +65,31 @@ jobs:
           ')
           gh release create "$GITHUB_REF_NAME" --title "dibs ${GITHUB_REF_NAME#v}" --notes "$notes" \
             "dibs-${GITHUB_REF_NAME#v}.tar.gz" "dibs-${GITHUB_REF_NAME#v}.tar.gz.sha256"
+
+  npm:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # id-token is what npm trusts in place of a token. Only this job gets it.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+          registry-url: https://registry.npmjs.org
+      - name: The tag matches package.json
+        run: |
+          v=$(node -p 'require("./package.json").version')
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but package.json says $v"; exit 1; }
+      # Trusted publishing needs npm 11.5.1 or newer; this fails loudly instead of falling back to a token.
+      - name: npm can publish with OIDC
+        run: |
+          npm --version
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$(npm --version)" ||
+            { echo "npm $(npm --version) is older than 11.5.1, which trusted publishing needs"; exit 1; }
+      - run: npm publish --provenance --access public
