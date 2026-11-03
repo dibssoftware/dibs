@@ -285,15 +285,32 @@ test("with boat's starts used up, dibs doesn't try to wake: the job runs where i
   assert.doesNotMatch(r.out, /vm-/, 'it ran on gamma, not a VM');
   assert.match(r.err.replace(/\n +/g, ' '), /can't wake \(boat says no VM can start now\), so it runs on gamma/);
   assert.ok(!calls(g.boatDir).some(a => a[0] === 'resume'), 'no wake was tried');
-  // Marked, with the reason and a retry time: dibs machines says so, and --on is refused with it.
+  // Marked, with the reason and a retry time: dibs machines says so, and the next --on runs on gamma with it.
   const row = machinesOf(g.hc).machines.find(m => m.name === 'boat-1');
   assert.match(row.ondemand.cantWake.why, /no VM can start/);
   assert.ok(row.ondemand.cantWake.until > Date.now() + 50 * 60e3, 'about an hour');
   // The retry is an hour out, so within an hour of midnight it falls tomorrow and names the date.
   assert.match(sync(g.hc, ['machines']).out, /boat-1 .*can't wake .*can't wake: boat says no VM can start now, checks again (on \d{4}-\d\d-\d\d )?at \d\d?:\d\d/);
   const again = sync(g.hc, ['run', 'test', '--on', 'boat-1', '--', 'true'], { cwd: g.proj });
-  assert.notEqual(again.code, 0);
-  assert.match(again.err, /boat-1 can't wake: boat says no VM can start now, retry \d\d:\d\d/);
+  assert.equal(again.code, 0, again.err);
+  assert.match(again.err.replace(/\n +/g, ' '), /can't wake \(boat says no VM can start now\), so it runs on gamma/);
+  w.kill('SIGTERM');
+  await w.done;
+});
+
+// 2026-11-03: the coordinator's own check of boat's limits can mark the VM before the first job arrives.
+// That job was refused (exit 2) where one sent a moment earlier ran on its sender. Here the mark comes first.
+test("a job sent to a VM already marked can't wake runs where it was sent from, as one sent before the mark does", async t => {
+  const used = JSON.stringify({ canStart: false, starts: { day: { used: 200, limit: 200, remaining: 0 }, hour: { used: 0, limit: 60, remaining: 60 } } });
+  const g = await setup(t, { env: { FAKE_BOAT_LIMITS: used } });
+  await until(() => machinesOf(g.hc).machines.find(m => m.name === 'boat-1')?.ondemand?.cantWake);
+  const w = bg(t, g.hc, ['worker']);
+  await until(() => machinesOf(g.hc).machines.some(m => m.name === 'gamma' && !m.lost));
+  const r = sync(g.hc, ['run', 'test', '--on', 'boat-1', '--', 'sh', '-c', 'echo "on $HOME"'], { cwd: g.proj });
+  assert.equal(r.code, 0, r.err);
+  assert.doesNotMatch(r.out, /vm-/, 'it ran on gamma, not a VM');
+  assert.match(r.err.replace(/\n +/g, ' '), /can't wake \(boat says no VM can start now\), so it runs on gamma/);
+  assert.ok(!calls(g.boatDir).some(a => a[0] === 'resume'), 'no wake was tried');
   w.kill('SIGTERM');
   await w.done;
 });

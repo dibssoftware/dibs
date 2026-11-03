@@ -103,6 +103,12 @@ export function place(workers, need, t = now()) {
     const bad = fits(w, need, t);
     // A VM that can't be found (src/ondemand.mjs findVm) is said plainly, and the job runs where it came from.
     if (bad && w.ondemand?.problem && need.from) return { machine: need.from, why: `${bad}, so it runs here` };
+    // One already marked can't-wake (boat's starts used up) sends the job back the way a refused wake
+    // does. Refused here instead, a send that came just after the coordinator's own check of boat's
+    // limits exited 2, while one just before it ran on its sender (2026-11-03).
+    const no = cantWake(w.ondemand, t);
+    if (bad && no && bad.startsWith(`${w.name} can't wake`) && need.from)
+      return { machine: need.from, why: `${w.name} can't wake (${no.why}), so it runs on ${need.from}` };
     // Too big for it: a VM made for the job (src/ondemand.mjs create), when that's on.
     const big = w.ondemand?.bigger && workers.get(w.ondemand.bigger);
     const short = bad || ((need.askedCpu || 0) > w.cores && `${w.name} has fewer cores than the job asked for`);

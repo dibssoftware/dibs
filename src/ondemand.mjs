@@ -306,7 +306,7 @@ export function ondemand(list, srv, { port, tick = TICK, log: say = log, clock =
     const w = workers.get(vm.name);
     if (w) Object.assign(w, { pending: [], assigned: 0 });
   };
-  // Marked can't-wake until a retry time: placement skips it, --on is refused with the reason, and dibs machines says so.
+  // Marked can't-wake until a retry time: placement skips it, a job sent --on it runs on its sender with the reason, and dibs machines says so.
   const block = (vm, why) => {
     vm.cantWake = { why, until: now() + (QUOTA.test(why) ? QUOTA_BACKOFF : WAKE_BACKOFF) };
     say(`${vm.name}: can't wake (${why}); not trying again until ${new Date(vm.cantWake.until).toISOString()}`);
