@@ -128,6 +128,18 @@ final class Store {
     private(set) var pairCode: PairCode?
     private(set) var paired: [PairedClient]?
     private(set) var webService: ServiceState?
+    // dibs connect --accounts --json: the dibs accounts this Mac is on and the browsers waiting
+    // for its approval. nil until read, or on a dibs older than accounts (0.0.176).
+    private(set) var accountList: AccountList?
+    private(set) var accountsSupported = true
+    // The browser being approved (the sheet that asks for its code), and what the approval said
+    // to type back into it.
+    var approving: AccountList.Waiting?
+    private(set) var approved: Approval.Approved?
+    // dibs connect --account: the one-time link a browser signed in to the account opens.
+    private(set) var accountJoin: (link: String, at: Date)?
+    // Set when a notification about a waiting browser is clicked: Settings scrolls to the group.
+    var focusAccounts = false
 
     // Answered or dismissed here but not yet gone from the CLI's list.
     private(set) var settled: Set<String> = []
@@ -308,6 +320,10 @@ final class Store {
         guard !loopStarted else { return }
         loopStarted = true
         notifier.onOpen = { [weak self] section in self?.openRequest = section }
+        notifier.onAccounts = { [weak self] in
+            self?.openRequest = .settings
+            self?.focusAccounts = true
+        }
         // An answer typed or tapped in the notification, without opening the app.
         notifier.onAnswer = { [weak self] id, text in
             guard let self, let item = self.asks.first(where: { $0.question?.id == id }) else { return }
@@ -413,10 +429,14 @@ final class Store {
         if section == .later && looking || later == nil { await loadLater() }
         // So a browser or Claude that just used the code shows up signed in.
         if pairing || (section == .settings && looking) { await loadPairing() }
+        // Every poll while this Mac is on an account (and once to find out), so a waiting browser
+        // notifies wherever the person is; otherwise only on Settings, where joining happens.
+        let onAccount = accountList.map { !$0.accounts.isEmpty } ?? accountsSupported
+        if onAccount || approving != nil || (section == .settings && looking) { await loadAccounts() }
         await notifier.checkAllowed()
         notificationsOff = notifier.allowed == false
         let enabled = Set(Alert.Kind.allCases).subtracting(muted)
-        notifier.post(Alerts.candidates(needs), enabled: enabled)
+        notifier.post(Alerts.candidates(needs) + (accountList?.alerts ?? []), enabled: enabled)
         let asks = asks
         notifier.ask(asks.map { (item: $0, name: chatName($0)) }, enabled: enabled.contains(.question))
         NSApp?.dockTile.badgeLabel = asks.isEmpty ? nil : "\(asks.count)"
@@ -556,7 +576,73 @@ final class Store {
         if let out = try? await cli.text(["service", "status", "web"]) { webService = ServiceState(output: out) }
     }
 
+    func loadAccounts() async {
+        guard let cli = await located() else { return }
+        do {
+            accountList = try await cli.json(["connect", "--accounts", "--json"], as: AccountList.self)
+        } catch let e as CLIError where e.kind == .unsupported || e.kind == .failed(2) {
+            accountsSupported = false
+        } catch {}
+    }
+
     // MARK: actions
+
+    // dibs connect --approve <code>: the code that browser shows, typed by the person. On a
+    // match the browser gets the account key, and the person types `approved.confirm` into it.
+    // Returns why not, said in the sheet, or nil once approved.
+    func approveBrowser(code: String) async -> String? {
+        guard let cli, let digits = Approval.digits(code) else { return "The code is the 6 digits the browser shows." }
+        running.insert("approve")
+        defer { running.remove("approve") }
+        do {
+            let out = try await cli.text(["connect", "--approve", digits, "--json"], owner: true)
+            approved = try JSONDecoder().decode(Approval.self, from: Data(out.utf8)).approved
+            lastAction = "Approved \(approved?.label ?? "the browser")."
+            await loadAccounts()
+            return nil
+        } catch let e as CLIError {
+            await loadAccounts()
+            return plain(e, who: nil)
+        } catch {
+            return "dibs connect --approve printed something this app can't read. In Terminal, run: dibs connect --approve \(digits)"
+        }
+    }
+
+    // dibs connect --account: a link to open in a browser signed in to the account, which adds
+    // this Mac to it. Opened at once in the default browser; shown as a QR code for a phone.
+    func joinAccount() async {
+        guard let cli else { return }
+        running.insert("join-account")
+        defer { running.remove("join-account") }
+        do {
+            let out = try await cli.text(["connect", "--account"], owner: true)
+            guard let link = out.split(separator: "\n").map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { $0.contains("/account#join=") }),
+                  let url = URL(string: link) else {
+                actionError = "dibs connect --account printed no link. In Terminal, run: dibs connect --account"
+                return
+            }
+            accountJoin = (link, .now)
+            NSWorkspace.shared.open(url)
+        } catch let e as CLIError {
+            actionError = e.kind == .unsupported ? "This dibs (\(version ?? "unknown version")) has no accounts yet. Update dibs to 0.0.175 or newer." : plain(e, who: nil)
+        } catch {}
+    }
+
+    func doneApproving() {
+        approving = nil
+        approved = nil
+    }
+
+    func refuseBrowser(_ w: AccountList.Waiting) async {
+        report(await act(["connect", "--refuse", w.id], key: "refuse-\(w.id)", done: "Refused \(w.label)."))
+        await loadAccounts()
+    }
+
+    // Takes this Mac off the account: its browsers no longer reach it, and it approves no more.
+    func leaveAccount(_ a: AccountList.Account) async {
+        report(await act(["connect", "--remove", a.id], key: "leave-\(a.id)", done: "This Mac is off that dibs account."))
+        await loadAccounts()
+    }
 
     func newPairCode() async {
         guard let cli else { return }

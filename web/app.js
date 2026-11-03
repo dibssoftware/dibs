@@ -91,7 +91,7 @@
     if (v === 'machines') return [['/api/machines', FRESH_MS], ...(T.remote ? [] : [['/api/machines/pairs', FRESH_MS]])];
     if (v === 'stats') return [[statsPath(), REPORT_MS]];
     if (v === 'history') return [[histPath(), REPORT_MS]];
-    if (v === 'settings') return [['/api/settings', FRESH_MS], ...(T.remote ? [] : [['/api/paired', FRESH_MS]])];
+    if (v === 'settings') return [['/api/settings', FRESH_MS], ...(T.remote ? [] : [['/api/paired', FRESH_MS], ['/api/accounts', FRESH_MS]])];
     return [];
   }
   // The open view's data, asked for when it's stale; drawn again once it lands.
@@ -115,6 +115,7 @@
     get history() { return kept(histPath()); },
     get settings() { return kept('/api/settings'); },
     get paired() { return kept('/api/paired'); },
+    get accounts() { return kept('/api/accounts'); },
     get today() { return kept(TODAY); },
   };
 
@@ -1897,7 +1898,111 @@
     out.push(section('Claude Code hook', 'dibs guard install', hook, ...details.map(t => el('p', 'prose sub', t))));
 
     out.push(section('The dibs page', T.remote ? null : 'dibs pair', ...pairing()));
+    out.push(section('Your dibs account', 'Sign in at app.dibs.cc/account and every browser you use opens this Mac, end to end encrypted. A new browser gets the account\'s key from here once you type the code it shows.', ...accounts()));
     box.replaceChildren(...out);
+  }
+
+  // dibs accounts, as the Mac app's Settings has them (app/Dibs/Views/AccountsCard.swift), same
+  // words: browsers waiting for this Mac's account key, approved only by typing the code each
+  // shows, never with one click. Only on the Mac's own page: the server refuses all of it
+  // through the relay.
+  let approving = null, approved = null, joinLink = null;
+  const waitLeft = t => {
+    const s = Math.round((t - Date.now()) / 1000);
+    return s > 0 ? `Waiting ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} more. If you didn't ask from it, refuse it.` : 'Ran out. That browser can ask again.';
+  };
+  setInterval(() => { for (const e of document.querySelectorAll('[data-deadline]')) e.textContent = waitLeft(Number(e.dataset.deadline)); }, 1000);
+  const spaced = c => c.replace(/^(\d{3})(\d{3})$/, '$1 $2');
+  function accounts() {
+    if (T.remote) return [el('p', 'prose', 'Approving browsers for your dibs account only works on the Mac itself (the dibs app, or dibs web at http://127.0.0.1:7421), never from a paired browser.')];
+    const a = side.accounts;
+    if (!a) return [loading('Loading accounts')];
+    const out = [];
+    if (approved) {
+      const done = el('div', 'hookrow');
+      done.append(el('p', 'prose', `Now type this into ${approved.label}. The browser opens your account's key only with this code, so a key that didn't come from this Mac is never used.`));
+      done.append(button('btn', 'Done', () => { approved = null; drawn = null; renderView(); }));
+      const wrap = el('div', 'ticket-wrap code-wrap');
+      const t = el('div', 'ticket code-ticket');
+      t.append(el('span', 'code-big', spaced(approved.confirm)), el('i', 'perf'), el('span', 'code-note', `For ${approved.label}.`));
+      wrap.append(t);
+      out.push(done, wrap);
+    }
+    if (a.waiting.length) {
+      const box = el('div', 'list wants');
+      for (const w of a.waiting) {
+        const r = el('div', 'lrow still');
+        const main = el('span', 'l-main');
+        const left = el('span', 'l-sub', waitLeft(w.expires));
+        left.dataset.deadline = w.expires;
+        main.append(el('b', null, `${w.label} wants your account's key`), el('br'), left);
+        const key = `refuse-${w.id}`;
+        const no = button('btn small', 'Refuse', () => post('/api/accounts/refuse', { id: w.id }, key));
+        no.disabled = busy.has(key);
+        const yes = button('btn small primary', 'Approve\u2026', () => { approving = w.id; drawn = null; renderView(); });
+        r.append(main, no, yes);
+        box.append(r);
+        if (approving === w.id) box.append(approveForm(w));
+      }
+      out.push(box);
+    }
+    const list = el('div', 'list');
+    for (const x of a.accounts) {
+      const r = el('div', 'lrow still');
+      const main = el('span', 'l-main');
+      const at = new Date(x.joined);
+      main.append(el('b', null, `dibs account ${x.id}`), el('span', 'l-sub', ` Joined ${clock(x.joined)}, ${at.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}. Every browser signed in to it opens this Mac.`));
+      const key = `leave-${x.id}`;
+      const b = button('btn small', 'Remove this Mac', () => {
+        if (confirm(`Take this Mac off dibs account ${x.id}? Its browsers no longer reach it, and it can't approve new ones.`)) post('/api/accounts/remove', { id: x.id }, key);
+      });
+      b.disabled = busy.has(key);
+      r.append(main, b);
+      list.append(r);
+    }
+    const join = el('div', 'lrow still');
+    join.append(el('span', 'l-main', a.accounts.length ? 'Add this Mac to another dibs account.' : 'Add this Mac to your dibs account, so any browser you sign in with opens it.'));
+    const jb = button(`btn small${a.accounts.length ? '' : ' primary'}`, 'Add this Mac', async () => {
+      const r = await post('/api/accounts/join', {}, 'join-account');
+      if (r?.link) { joinLink = { ...r, at: Date.now() }; window.open(r.link, '_blank', 'noreferrer'); drawn = null; renderView(); }
+    });
+    jb.disabled = busy.has('join-account');
+    join.append(jb);
+    list.append(join);
+    out.push(list);
+    if (joinLink && Date.now() - joinLink.at < 10 * 6e4) {
+      const wrap = el('div', 'ticket-wrap code-wrap');
+      const t = el('div', 'ticket code-ticket qr-ticket');
+      const words = el('div', 'qr-text');
+      words.append(el('span', 'code-note', 'Opened in your browser. Sign in to your dibs account there if it asks, and this Mac joins it.'),
+        el('span', 'code-note', `Or scan it with a phone that's signed in. Good once, until ${clock(joinLink.at + 10 * 6e4)}.`));
+      t.append(qrSvg(joinLink.qr), el('i', 'perf'), words);
+      wrap.append(t);
+      out.push(wrap);
+    }
+    return out;
+  }
+  function approveForm(w) {
+    const f = el('form', 'hours approve');
+    f.append(el('p', 'prose', 'Type the 6-digit code that browser shows. Only a browser showing this exact code gets your account\'s key.'));
+    const code = el('input');
+    code.inputMode = 'numeric';
+    code.autocomplete = 'off';
+    code.placeholder = '123 456';
+    code.setAttribute('aria-label', 'The code the browser shows');
+    code.dataset.keep = `approve-${w.id}`;
+    const go = el('button', 'btn primary', 'Approve');
+    go.type = 'submit';
+    go.disabled = busy.has('approve');
+    f.append(code, button('btn', 'Cancel', () => { approving = null; drawn = null; renderView(); }), go,
+      el('p', 'prose sub', 'If you can\'t see that browser, or its code isn\'t there, don\'t approve: something between it and this Mac may be pretending.'));
+    f.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (code.value.replace(/\D/g, '').length !== 6) return toast('The code is the 6 digits the browser shows.', true);
+      const r = await post('/api/accounts/approve', { code: code.value }, 'approve');
+      if (r?.confirm) { approved = r; approving = null; drawn = null; renderView(); }
+    });
+    return f;
   }
 
   // Pairing, as the Mac app's pair sheet: a one-time code on a ticket, who's signed in,

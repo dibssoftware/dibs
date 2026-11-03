@@ -543,6 +543,9 @@ export async function api({ method = 'GET', path: where = '/', body = null, sess
       }
       // Who's signed in, as dibs pair --list says it. Local only: it names devices and MCP clients.
       if (route === '/api/paired') return ok(await pairedList());
+      // dibs accounts: local only (remoteAccess), so a browser paired through the relay can't
+      // see who's waiting for this Mac's account key, let alone approve one.
+      if (route === '/api/accounts') return ok(await (await import('./connect.mjs')).accountsJson());
       // The coordinator's open machine codes and machines; { none } when this machine runs no coordinator. Local only.
       if (route === '/api/machines/pairs') return ok((await (await import('./admin.mjs')).machinePairs()) || { none: true });
       if (route === '/api/settings') {
@@ -606,6 +609,23 @@ export async function api({ method = 'GET', path: where = '/', body = null, sess
     if (route === '/api/machines/revoke') {
       if (typeof a.code === 'string') return act(['pair', '--revoke', /^[0-9a-f]{8}$/.test(a.code) ? a.code : bad('void a code id from the list')]);
       return act(['kick', MACHINE_NAME.test(a.name || '') ? a.name : bad('name a machine from the list')]);
+    }
+    // Approving a browser of a dibs account: the code it shows, typed here. The answer carries the
+    // second code, which the person types into that browser. Local only, like everything here.
+    if (route === '/api/accounts/approve') {
+      const code = typeof a.code === 'string' ? a.code.replace(/\D/g, '') : '';
+      if (code.length !== 6) bad('the code is the 6 digits the browser shows');
+      const r = await act(['connect', '--approve', code, '--json']);
+      if (r.status !== 200) return r;
+      try { return ok(JSON.parse(r.json.said).approved); } catch { return { status: 502, json: { error: 'dibs connect --approve printed nothing readable' } }; }
+    }
+    if (route === '/api/accounts/refuse') return act(['connect', '--refuse', /^[A-Za-z0-9_-]{12}$/.test(a.id || '') ? a.id : bad('refuse a browser from the list')]);
+    if (route === '/api/accounts/remove') return act(['connect', '--remove', /^[A-Za-z0-9_-]{8}$/.test(a.id || '') ? a.id : bad('remove an account from the list')]);
+    if (route === '/api/accounts/join') {
+      const r = await act(['connect', '--account']);
+      const link = r.status === 200 ? r.json.said.split('\n').map(l => l.trim()).find(l => l.includes('/account#join=')) : null;
+      if (!link) return r.status === 200 ? { status: 502, json: { error: 'dibs connect --account printed no link' } } : r;
+      return ok({ link, qr: qr(link).map(row => row.map(Boolean)) });
     }
     if (route === '/api/pair/revoke') return act(['pair', '--revoke', a.id === 'all' || /^[0-9a-f]{8}$/.test(a.id) ? a.id : bad('sign out an id from the list, or all')]);
     return { status: 404, json: { error: 'not here' } };

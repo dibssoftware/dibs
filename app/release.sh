@@ -12,13 +12,24 @@
 #                         a Mac without the certificate. Never ship that DMG.
 #   DIBS_TEAM             your Apple Developer team id (required unless ad hoc)
 #   DIBS_NOTARY_PROFILE   notarytool keychain profile (default dibs-notary)
+#   DIBS_KEYCHAIN         the keychain codesign signs from (default
+#                         ~/Library/Keychains/dibs-signing.keychain-db; "" for
+#                         the login keychain, which may stop on a password prompt)
 #   DIBS_DOWNLOAD_BASE    where the DMG will live (default https://dibs.cc/mac)
 #   DIBS_DIST             where the DMG and latest.json go (default app/dist)
 #   DIBS_ALLOW_DIRTY=1    build with uncommitted changes
 #
 # One-time setup on the Mac that releases:
-#   1. The "Developer ID Application" certificate and its key in the login
-#      keychain (security find-identity -v -p codesigning lists it).
+#   1. The "Developer ID Application" certificate and its key in a keychain of
+#      their own, so codesign never stops on a login keychain prompt (an
+#      unattended build waited 1h33m on one, 2026-11-03):
+#        security add-generic-password -s dibs-signing-keychain -a dibs -w <new password>
+#        security create-keychain -p <it> ~/Library/Keychains/dibs-signing.keychain-db
+#        security set-keychain-settings ~/Library/Keychains/dibs-signing.keychain-db
+#        security import <key> -k <that keychain> -T /usr/bin/codesign -T /usr/bin/productsign
+#        security import <cert> -k <that keychain>
+#        security set-key-partition-list -S apple-tool:,apple: -s -k <it> <that keychain>
+#      This script unlocks it with the password from the login keychain item.
 #   2. xcrun notarytool store-credentials dibs-notary \
 #        --key <AuthKey_XXXX.p8> --key-id <key id> --issuer <issuer id>
 #      The App Store Connect key then lives in the keychain, and this script
@@ -28,6 +39,7 @@ set -eu
 IDENTITY="${DIBS_IDENTITY:-Developer ID Application}"
 TEAM="${DIBS_TEAM:-}"
 PROFILE="${DIBS_NOTARY_PROFILE:-dibs-notary}"
+KEYCHAIN="${DIBS_KEYCHAIN-$HOME/Library/Keychains/dibs-signing.keychain-db}"
 BASE="${DIBS_DOWNLOAD_BASE:-https://dibs.cc/mac}"
 NOTES=""
 
@@ -37,7 +49,7 @@ fail() { printf 'release: %s\n' "$*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --notes) [ $# -ge 2 ] || fail "--notes needs a sentence"; NOTES="$2"; shift 2 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     *) fail "unknown option $1 (app/release.sh --help)" ;;
   esac
 done
@@ -57,8 +69,15 @@ if [ "$IDENTITY" = "-" ]; then
   say "Ad hoc signing: this DMG is for trying the steps only. Gatekeeper will block it on other Macs."
 else
   [ -n "$TEAM" ] || fail "set DIBS_TEAM to your Apple Developer team id."
-  security find-identity -v -p codesigning | grep -q "$IDENTITY" ||
-    fail "no \"$IDENTITY\" certificate in the keychain. Create it at developer.apple.com (Account Holder only), then double-click the .cer."
+  if [ -n "$KEYCHAIN" ]; then
+    [ -f "$KEYCHAIN" ] || fail "no signing keychain at $KEYCHAIN. Make it (the one-time setup in this file), or DIBS_KEYCHAIN= to sign from the login keychain."
+    pw="$(security find-generic-password -s dibs-signing-keychain -a dibs -w 2>/dev/null)" ||
+      fail "no dibs-signing-keychain password in the login keychain (the one-time setup in this file)"
+    security unlock-keychain -p "$pw" "$KEYCHAIN" || fail "couldn't unlock $KEYCHAIN with the stored password"
+    pw=""
+  fi
+  security find-identity -v -p codesigning ${KEYCHAIN:+"$KEYCHAIN"} | grep -q "$IDENTITY" ||
+    fail "no \"$IDENTITY\" certificate in ${KEYCHAIN:-the keychain}. Create it at developer.apple.com (Account Holder only), then import it (the one-time setup in this file)."
   xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 ||
     fail "no notarytool profile \"$PROFILE\". Run: xcrun notarytool store-credentials $PROFILE --key <.p8> --key-id <id> --issuer <issuer>"
 fi
@@ -68,7 +87,8 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 
 # Hardened runtime and a secure timestamp are what notarization requires.
 # Ad hoc signatures can't carry a timestamp.
-SIGN_FLAGS="--timestamp"
+# --keychain keeps codesign off the login keychain's copy of the key, and its prompt.
+SIGN_FLAGS="--timestamp${KEYCHAIN:+ --keychain $KEYCHAIN}"
 [ -n "$ADHOC" ] && SIGN_FLAGS=""
 
 say "Building dibs $VERSION (Release)..."
@@ -115,7 +135,7 @@ rm -f "$DMG"
 hdiutil create -quiet -volname "dibs $VERSION" -srcfolder "$WORK/stage" -fs HFS+ -format UDZO -ov "$DMG"
 
 if [ -z "$ADHOC" ]; then
-  codesign --sign "$IDENTITY" --timestamp "$DMG"
+  codesign --sign "$IDENTITY" $SIGN_FLAGS "$DMG"
   notarize "$DMG"
   xcrun stapler staple -q "$DMG"
   spctl --assess --type open --context context:primary-signature "$DMG" ||

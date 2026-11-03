@@ -7,6 +7,8 @@ import UserNotifications
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private var gate = AlertGate()
     var onOpen: (Store.Section) -> Void = { _ in }
+    // A browser waiting for the account key: Settings, scrolled to its group.
+    var onAccounts: () -> Void = {}
     // A question answered from its notification: its id and the words.
     var onAnswer: (String, String) -> Void = { _, _ in }
     // Questions already raised, so each one notifies once.
@@ -44,10 +46,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 case .idle: "\(alerts.count) jobs look stuck while others wait"
                 case .ship: "\(alerts.count) deploys can't start yet"
                 case .disk: "The disk is too full for work to start"
+                case .account: "\(alerts.count) browsers want your account's key"
                 }
                 content.body = alerts.map(\.title).joined(separator: "\n")
             }
-            content.sound = kind == .question ? .default : nil
+            content.sound = kind == .question || kind == .account ? .default : nil
+            if kind == .account { content.userInfo = ["open": "accounts"] }
             content.threadIdentifier = kind.rawValue
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
@@ -106,6 +110,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
         let id = info["question"] as? String
+        let accounts = info["open"] as? String == "accounts"
         let options = info["options"] as? [String] ?? []
         let action = response.actionIdentifier
         var answer: String?
@@ -115,7 +120,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             answer = options[i]
         }
         await MainActor.run {
-            if let id, let answer, !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if accounts {
+                onAccounts()
+            } else if let id, let answer, !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 onAnswer(id, answer)
             } else {
                 // Clicked, not answered: questions are in the chat, the rest on Home.

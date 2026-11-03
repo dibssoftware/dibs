@@ -218,6 +218,59 @@ test('approving a browser whose key went with an earlier connection says to ask 
   assert.ok(!relay.load().approvals[id]);
 });
 
+test('dibs connect --accounts lists the account and its waiting browsers without their codes; --refuse turns one down', async () => {
+  const { book, s } = await joined();
+  const st = await A.approvalStart();
+  const { id } = await book.askApproval(s.session, st.commit, 'Firefox on Linux');
+  const eph = new Map();
+  const secret = relay.load().accounts[s.aid].secret;
+  for (const x of relay.approvalStep(s.aid, await book.pending(s.aid, secret), eph)) await book.answer(s.aid, secret, x.id, x.step);
+  await book.reveal(s.session, id, B.b64u(st.B), B.b64u(st.n));
+  relay.approvalStep(s.aid, await book.pending(s.aid, secret), eph);
+  const raw = sync(HOME, ['connect', '--accounts', '--json']).out;
+  const j = JSON.parse(raw);
+  assert.ok(j.accounts.some(a => a.id === s.aid.slice(0, 8)));
+  const w = j.waiting.find(x => x.id === id);
+  assert.equal(w.label, 'Firefox on Linux');
+  assert.ok(w.expires > Date.now());
+  const { sas, confirm } = relay.load().approvals[id];
+  assert.ok(!raw.includes(sas) && !raw.includes(confirm), 'neither code is in the listing');
+  assert.match(sync(HOME, ['connect', '--refuse', id]).out, /Refused Firefox on Linux/);
+  assert.ok(!JSON.parse(sync(HOME, ['connect', '--accounts', '--json']).out).waiting.some(x => x.id === id));
+  const out = relay.approvalStep(s.aid, await book.pending(s.aid, secret), eph);
+  assert.deepEqual(out.find(x => x.id === id)?.step, { refuse: true }, 'the browser hears no');
+  assert.match(sync(HOME, ['connect', '--refuse', id]).err, /No browser with that id/);
+});
+
+test('dibs connect --approve --json gives the browser\'s name and the code to type back', async () => {
+  const { book, s } = await joined();
+  const run = await approveRun({ book, s, aid: s.aid, typed: () => '000000' });
+  assert.equal(run.approved, null);
+  const r = sync(HOME, ['connect', '--approve', run.keys.sas, '--json']);
+  assert.deepEqual(JSON.parse(r.out).approved, { id: run.id, label: 'Safari on iPhone', confirm: run.keys.confirm });
+  assert.match(sync(HOME, ['connect', '--approve', '999999', '--json']).err, /No waiting browser shows that code/);
+});
+
+// The page's half: the same list and actions, on the Mac's own page only.
+test('the page lists waiting browsers and approves one by its code, and a browser paired through the relay can do none of it', async () => {
+  const web = await import('../src/web.mjs');
+  const { book, s } = await joined();
+  const run = await approveRun({ book, s, aid: s.aid, typed: () => '000000' });
+  const remote = { kind: 'remote', device: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'Safari on iPhone', act: true };
+  for (const [method, p, body] of [['GET', '/api/accounts'], ['POST', '/api/accounts/approve', { code: run.keys.sas }], ['POST', '/api/accounts/refuse', { id: run.id }], ['POST', '/api/accounts/remove', { id: s.aid.slice(0, 8) }], ['POST', '/api/accounts/join', {}]]) {
+    const r = await web.api({ method, path: p, body, session: remote });
+    assert.equal(r.status, 403, p);
+    assert.match(r.json.error, /only works on the Mac itself/);
+  }
+  assert.ok(relay.waitingApprovals().some(w => w.id === run.id), 'still waiting after every remote try');
+  const list = await web.api({ method: 'GET', path: '/api/accounts', session: { kind: 'session' } });
+  assert.ok(list.json.waiting.some(w => w.id === run.id && w.label === 'Safari on iPhone'));
+  assert.ok(!JSON.stringify(list.json).includes(run.keys.sas));
+  assert.equal((await web.api({ method: 'POST', path: '/api/accounts/approve', body: { code: '12345' }, session: { kind: 'session' } })).status, 400);
+  const ok = await web.api({ method: 'POST', path: '/api/accounts/approve', body: { code: run.keys.sas.replace(/(\d{3})/, '$1 ') }, session: { kind: 'session' } });
+  assert.deepEqual(ok.json, { id: run.id, label: 'Safari on iPhone', confirm: run.keys.confirm });
+});
+
 test('one request gets one key from the Mac, and the relay\'s list can\'t make it wait longer or for more', async () => {
   const { s } = await joined();
   const aid = s.aid;

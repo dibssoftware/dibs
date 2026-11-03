@@ -2,6 +2,9 @@
 
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
+## 0.0.177
+- New for the person, nothing for agents to do: the Mac app's Settings and the dibs page's Settings show the dibs accounts this Mac is on and the browsers waiting for its approval, with Refuse and Approve (which asks for the code the browser shows). `dibs connect --accounts [--json]` lists the same, and `dibs connect --refuse <id>` turns a browser down. Never approve or refuse one for the person.
+
 ## 0.0.176
 - Nothing to change on your side: a low job paused while its writes were throttled behind other disk work (macOS shows it in uninterruptible wait) no longer reads as still running, so dibs stops retrying the pause and logging that it didn't land.
 - docs/machines.md is task-first now: add a machine with a code, send work with `--anywhere` and `--on`, leave. `dibs ask "add another machine"` answers from it.

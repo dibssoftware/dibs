@@ -126,6 +126,8 @@ the person's page and MCP server
                                            machine: it explains each, and on a terminal asks which
   dibs connect --list | --remove <id>      everything connected to this Mac; disconnect one
   dibs connect --approve <code>            let a new browser of your dibs account in: the 6 digits it shows
+  dibs connect --accounts [--json]         the dibs accounts this Mac is on, and the browsers waiting for its approval
+  dibs connect --refuse <id>               turn down a waiting browser (its id from dibs connect --accounts)
   dibs pair                                a one-time code to sign the page or an MCP client in (10 minutes, one use)
   dibs pair --allow-actions                a code that also lets an MCP client act: post progress, answer, message agents, hold,
                                            boost, pause, resume and stop jobs, as an agent named after it (mcp-<name>)
@@ -491,6 +493,7 @@ async function readOne(argv) {
   if (verb === 'guard' && only('status', '--json')) return (await lazy('guard')).guard(rest);
   if (verb === 'pace' && only('--json')) return pace(rest);
   if (verb === 'pair' && only('--list')) return (await lazy('web')).pair(rest);
+  if (verb === 'connect' && only('--accounts', '--json')) return (await lazy('connect')).connect(rest);
   if (verb === 'service' && rest[0] === 'status' && rest.slice(1).every(k => /^[a-z]+$/.test(k))) return (await lazy('service')).service(rest);
   if (verb === 'sims' && only('--json')) { const o = parse(rest); return sims(o, o.res, cfg); }
   die(`the app's reader answers only the read-only verbs, not dibs ${argv.join(' ')}`, 2);

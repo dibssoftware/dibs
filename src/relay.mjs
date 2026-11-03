@@ -380,6 +380,15 @@ export function approve(code, t = now()) {
     return { id, ...a };
   });
 }
+// dibs connect --refuse <id>: no to one waiting browser. The browser hears it on the next round.
+export function refuseApproval(id, t = now()) {
+  return locked(w => {
+    const a = w.approvals[id];
+    if (!a || a.exp <= t || a.approved || a.refused) return null;
+    a.refused = true;
+    return { id, ...a };
+  });
+}
 export const waitingApprovals = (t = now()) => Object.entries(load().approvals).filter(([, a]) => a.exp > t && !a.approved && !a.refused).map(([id, a]) => ({ id, ...a }));
 export function removeAccount(which) {
   return locked(w => {

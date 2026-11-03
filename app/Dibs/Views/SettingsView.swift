@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var icon = IconChoice.current
 
     var body: some View {
+        // The reader is for a notification about a waiting browser: it scrolls to the account group.
+        ScrollViewReader { proxy in
         VStack(alignment: .leading, spacing: Space.xxl) {
             PageHead(title: "Settings", summary: "The same settings the web page and the command line change. Each change is logged as yours.")
 
@@ -94,6 +96,11 @@ struct SettingsView: View {
                 }
             }
 
+            group("Your dibs account", "Sign in at app.dibs.cc/account and every browser you use opens this Mac, end to end encrypted. A new browser gets the account's key from here once you type the code it shows.") {
+                AccountsCard()
+            }
+            .id("accounts")
+
             group("App icon", "Shows in the Dock while dibs runs.") {
                 HStack(spacing: Space.l) {
                     ForEach(IconChoice.allCases) { choice in
@@ -125,6 +132,7 @@ struct SettingsView: View {
                     toggle("Work has waited a long time", .stuck)
                     toggle("A job looks stuck while others wait", .idle)
                     toggle("The disk is too full for work to start", .disk)
+                    toggle("A browser wants your account's key", .account)
                 }
                 .card()
             }
@@ -159,6 +167,12 @@ struct SettingsView: View {
             }
         }
         .page()
+        .onChange(of: store.focusAccounts, initial: true) { _, on in
+            guard on else { return }
+            withAnimation { proxy.scrollTo("accounts", anchor: .top) }
+            store.focusAccounts = false
+        }
+        }
         .navigationTitle("Settings")
         .task {
             await store.loadSettings()

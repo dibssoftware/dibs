@@ -31,7 +31,7 @@ test('the app\'s reader answers each read as the CLI prints it, from one process
   const board = await r.ask(['--json']);
   assert.equal(board.code, 0, board.err);
   assert.equal(JSON.parse(board.out).held.find(l => l.purpose === 'read me').who, JSON.parse(sync(home, ['--json']).out).held.find(l => l.purpose === 'read me').who);
-  for (const args of [['questions', '--json'], ['threads', '--json'], ['later', 'list', '--json'], ['pace', '--json'], ['progress', '--json', '-n', '50']]) {
+  for (const args of [['questions', '--json'], ['threads', '--json'], ['later', 'list', '--json'], ['pace', '--json'], ['progress', '--json', '-n', '50'], ['connect', '--accounts', '--json']]) {
     const a = await r.ask(args);
     assert.equal(a.code, 0, `${args.join(' ')}: ${a.err}`);
     assert.deepEqual(JSON.parse(a.out), JSON.parse(sync(home, args).out), args.join(' '));
@@ -43,7 +43,7 @@ test('the app\'s reader answers each read as the CLI prints it, from one process
 test('the app\'s reader refuses anything that would change something, and ends when the app closes its side', async t => {
   const home = tmp(t, 'reads-refuse');
   const r = reader(t, home);
-  for (const args of [['run', 'test', '--', 'echo', 'hi'], ['pace', 'max'], ['hours', '09:00-17:00'], ['progress', 'not a read'], ['later', 'cancel', 'l1'], ['pair'], ['guard', 'install']]) {
+  for (const args of [['run', 'test', '--', 'echo', 'hi'], ['pace', 'max'], ['hours', '09:00-17:00'], ['progress', 'not a read'], ['later', 'cancel', 'l1'], ['pair'], ['guard', 'install'], ['connect', '--approve', '123456'], ['connect', '--refuse', 'x']]) {
     const a = await r.ask(args);
     assert.equal(a.code, 2, args.join(' '));
     assert.match(a.err, /answers only the read-only verbs/);
