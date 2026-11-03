@@ -1,0 +1,43 @@
+{
+ "pace": "normal",
+ "hardware": {
+  "cores": 10,
+  "mem": 17179869184
+ },
+ "knobs": {
+  "cores": 6,
+  "budget": "8G",
+  "maxLoad": 10,
+  "coolLoad": 8,
+  "roomyLoad": 0.6,
+  "roomyMemFree": 35
+ },
+ "pinned": [],
+ "paces": {
+  "quiet": {
+   "cores": 4,
+   "budget": "6.5G",
+   "maxLoad": 5,
+   "coolLoad": 5,
+   "roomyLoad": 0,
+   "roomyMemFree": 35
+  },
+  "normal": {
+   "cores": 6,
+   "budget": "8G",
+   "maxLoad": 10,
+   "coolLoad": 8,
+   "roomyLoad": 0.6,
+   "roomyMemFree": 35
+  },
+  "max": {
+   "cores": 15,
+   "budget": "12G",
+   "maxLoad": 15,
+   "coolLoad": 12,
+   "roomyLoad": 0,
+   "roomyMemFree": 25
+  }
+ },
+ "overlap": "fit"
+}

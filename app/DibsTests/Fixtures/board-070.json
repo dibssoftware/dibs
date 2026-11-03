@@ -1,0 +1,161 @@
+{
+ "me": {
+  "name": "mini"
+ },
+ "machine": {
+  "at": 1791946050881,
+  "load": 1,
+  "cores": 6,
+  "memFree": 60,
+  "diskFree": 100000000000,
+  "swapUsed": 0,
+  "memHandedOut": 2684354560,
+  "memBudget": 8589934592,
+  "coresHandedOut": 4,
+  "pace": null,
+  "maxLoad": null,
+  "loadAhead": 0.8381009950018028
+ },
+ "resets": [],
+ "held": [
+  {
+   "id": 1,
+   "res": [
+    "deploy"
+   ],
+   "mem": 536870912,
+   "cpu": 1,
+   "kind": "run",
+   "who": "ios-checkout",
+   "agent": "ios-checkout",
+   "label": "",
+   "spid": null,
+   "purpose": "ship 1.4",
+   "cmd": "sleep 60",
+   "key": "deploy|sleep 60",
+   "prio": "high",
+   "cwd": "/private/tmp",
+   "start": 1791946040284,
+   "waited": 54,
+   "pid": 93028,
+   "pstart": "Tue Oct 13 22:47:20 2026",
+   "pgid": 93139,
+   "notify": true,
+   "background": false,
+   "pgstart": "Tue Oct 13 22:47:20 2026",
+   "idleSince": 1791946040375,
+   "use": {
+    "mem": 851968,
+    "cpu": 0,
+    "at": 1791946043391
+   },
+   "peak": {
+    "mem": 851968,
+    "cpu": 0
+   },
+   "remaining": null,
+   "idleMs": 0
+  },
+  {
+   "id": 2,
+   "res": [
+    "test"
+   ],
+   "mem": 2147483648,
+   "cpu": 3,
+   "kind": "run",
+   "who": "web-app",
+   "agent": "web-app",
+   "label": "",
+   "spid": null,
+   "purpose": "full suite",
+   "cmd": "sleep 60",
+   "key": "test|sleep 60",
+   "cwd": "/private/tmp",
+   "start": 1791946040376,
+   "waited": 117,
+   "pid": 93027,
+   "pstart": "Tue Oct 13 22:47:20 2026",
+   "pgid": 93232,
+   "notify": true,
+   "background": false,
+   "pgstart": "Tue Oct 13 22:47:20 2026",
+   "idleSince": 1791946042302,
+   "use": {
+    "mem": 851968,
+    "cpu": 0,
+    "at": 1791946043391
+   },
+   "peak": {
+    "mem": 851968,
+    "cpu": 0
+   },
+   "pauses": [
+    {
+     "owner": true,
+     "at": 1791946050518
+    }
+   ],
+   "stopped": [
+    93232
+   ],
+   "pausedAt": 1791946050550,
+   "remaining": null,
+   "idleMs": 0
+  }
+ ],
+ "waiting": [
+  {
+   "place": 1,
+   "id": 3,
+   "ticket": "onboarding|deploy|sleep 5",
+   "res": [
+    "deploy"
+   ],
+   "mem": 536870912,
+   "cpu": 1,
+   "disk": 0,
+   "pid": 93380,
+   "pstart": "Tue Oct 13 22:47:22 2026",
+   "enq": 1791946042248,
+   "who": "onboarding",
+   "agent": "onboarding",
+   "label": "",
+   "spid": null,
+   "purpose": "ship docs",
+   "cmd": "sleep 5",
+   "key": "deploy|sleep 5",
+   "kind": "run",
+   "askedPrio": "normal",
+   "prio": "urgent",
+   "owner": {
+    "act": "boost",
+    "prio": "urgent",
+    "at": 1791946050322
+   },
+   "expectStart": 1791946340284,
+   "rank": {
+    "value": 1791944242248,
+    "parts": [
+     {
+      "label": "urgent",
+      "shift": 1800000
+     }
+    ]
+   },
+   "blocked": "slot: deploy"
+  }
+ ],
+ "outside": [],
+ "quotas": [],
+ "agents": {
+  "slots": 8,
+  "running": []
+ },
+ "caps": {
+  "web-app": {
+   "prio": "low",
+   "at": 1791946050654
+  }
+ }
+}

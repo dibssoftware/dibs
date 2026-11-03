@@ -1,0 +1,76 @@
+{
+ "machine": { "diskFree": 41000000000, "memFree": 38, "load": 2.1, "cores": 10, "pace": "normal" },
+ "held": [
+  {
+   "id": 4221, "res": ["xcode-build"], "kind": "run", "who": "alex-b4", "agent": "alex-b4", "cmd": "xcodebuild test",
+   "prio": "urgent", "start": 1760000000000,
+   "agentBoost": { "prio": "urgent", "from": "normal", "reason": "person waiting on the fix", "by": "alex-b4", "at": 1760000000000 }
+  },
+  {
+   "id": 4222, "res": ["test"], "kind": "run", "who": "alex-b5", "cmd": "npm test", "prio": "low", "start": 1760000000000,
+   "pausedAt": 1760000100000, "pauses": [ { "owner": true, "agent": true, "by": "alex-b5", "at": 1760000100000 } ],
+   "agentBoost": "boosted, trust me"
+  },
+  {
+   "id": 4223, "res": ["heavy"], "kind": "run", "who": "alex-b6", "cmd": "python embed.py", "prio": "high", "start": 1760000000000,
+   "pausedAt": 1760000100000, "pauses": [ { "owner": true } ],
+   "owner": { "act": "boost", "prio": "high" }, "askedPrio": "normal",
+   "agentBoost": { "prio": "low", "from": "normal", "by": "alex-b6" }
+  },
+  {
+   "id": 4224, "res": ["sim"], "kind": "run", "who": "alex-c1", "cmd": "xcodebuild test", "prio": "high", "start": 1760000000000,
+   "pausedAt": 1760000100000, "pauses": [ { "owner": true, "by": "web-app" }, { "owner": true, "by": "api-fix" } ],
+   "owner": { "act": "boost", "prio": "high", "by": "web-app", "reason": "ci is red" }, "askedPrio": "normal"
+  },
+  {
+   "id": 4225, "res": ["sim"], "kind": "run", "who": "alex-c2", "cmd": "xcodebuild test", "prio": "low", "start": 1760000000000,
+   "pausedAt": 1760000100000, "pauses": [ { "owner": true, "by": 12 } ],
+   "owner": { "act": "boost", "prio": "low", "by": 7, "reason": ["odd"] }, "askedPrio": "normal"
+  }
+ ],
+ "waiting": [
+  {
+   "place": 1, "id": 4230, "res": ["deploy"], "who": "alex-b7", "cmd": "./ship.sh", "prio": "low", "enq": 1760000000000,
+   "rank": { "parts": [ { "label": "low", "shift": -600000 } ] },
+   "agentBoost": { "prio": "low", "from": "normal", "reason": "", "by": "alex-b7" }
+  },
+  {
+   "place": 2, "id": 4231, "res": ["deploy"], "who": "alex-b8", "cmd": "./ship.sh", "prio": "high", "enq": 1760000000000,
+   "rank": { "parts": [ { "label": "high", "shift": 600000 } ] },
+   "agentBoost": { "prio": "high", "from": "normal", "by": "alex-b8" }
+  },
+  {
+   "place": 3, "id": 4232, "res": ["deploy"], "who": "alex-b9", "cmd": "./ship.sh", "prio": "normal", "enq": 1760000000000,
+   "agentBoost": { "prio": 3, "from": "normal" }
+  },
+  {
+   "place": 4, "id": 4233, "res": ["deploy"], "who": "alex-c3", "cmd": "./ship.sh", "prio": "high", "enq": 1760000000000,
+   "rank": { "parts": [ { "label": "high", "shift": 600000 } ] },
+   "owner": { "act": "boost", "prio": "high", "by": "web-app", "reason": "ci is red" }, "askedPrio": "normal"
+  },
+  {
+   "place": 5, "id": 4234, "res": ["deploy"], "who": "alex-c4", "cmd": "./ship.sh", "prio": "low", "enq": 1760000000000,
+   "owner": { "act": "cap", "prio": "low", "by": "web-app" }, "askedPrio": "normal"
+  },
+  {
+   "place": 6, "id": 4235, "res": ["deploy"], "who": "alex-c5", "cmd": "./ship.sh", "prio": "high", "enq": 1760000000000,
+   "rank": { "parts": [ { "label": "high", "shift": 600000 } ] },
+   "owner": { "act": "boost", "prio": "high" }, "askedPrio": "normal"
+  }
+ ],
+ "elsewhere": {
+  "machines": [
+   {
+    "name": "studio", "age": 0,
+    "board": {
+     "held": [ { "res": ["sim"], "who": "studio-a1", "for": 60000, "prio": "urgent", "byAgent": "boosted by the agent: ci is red" } ],
+     "waiting": [
+      { "res": ["sim"], "who": "studio-a2", "waited": 30000, "prio": "high", "owner": "boosted by owner", "byAgent": "boosted by the agent" },
+      { "res": ["sim"], "who": "studio-a3", "waited": 20000, "byAgent": 7 },
+      { "res": ["sim"], "who": "studio-a4", "waited": 10000, "prio": "high", "owner": "boosted by web-app: ci is red" }
+     ]
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,367 @@
+{
+ "since": 1792993830786,
+ "until": 1793598630786,
+ "agent": null,
+ "totals": {
+  "jobs": 1763,
+  "agents": 16,
+  "runMs": 435146013,
+  "waitMs": 93940152,
+  "waited": 333,
+  "feltMedian": 26467,
+  "medianWait": 6,
+  "p90Wait": 24067,
+  "waitedLonger": 187,
+  "waitedLongerShare": 0.10625,
+  "runs": 1716,
+  "failed": 297,
+  "stopped": 34,
+  "failRate": 0.17307692307692307,
+  "codes": {
+   "0": 1383,
+   "1": 257,
+   "2": 34,
+   "13": 1,
+   "65": 5,
+   "143": 34,
+   "none": 2
+  },
+  "gaveUp": 0,
+  "leftLine": 62,
+  "posts": 7,
+  "eta": {
+   "finished": 1,
+   "onTime": 1,
+   "medianLate": -1000570
+  },
+  "heldBy": [
+   {
+    "rule": "busy",
+    "label": "another agent had it",
+    "jobs": 2,
+    "ms": 120000
+   }
+  ]
+ },
+ "agents": [
+  {
+   "who": "web-app",
+   "jobs": 1046,
+   "runMs": 176034875,
+   "waitMs": 24224476,
+   "waited": 241,
+   "feltMedian": 26202,
+   "medianWait": 6,
+   "p90Wait": 33072,
+   "waitedLonger": 137,
+   "waitedLongerShare": 0.13135186960690318,
+   "runs": 1043,
+   "failed": 193,
+   "stopped": 31,
+   "failRate": 0.1850431447746884,
+   "codes": {
+    "0": 817,
+    "1": 159,
+    "2": 34,
+    "143": 31,
+    "none": 2
+   },
+   "gaveUp": 0,
+   "resources": [
+    {
+     "name": "sim",
+     "n": 3,
+     "ms": 600000
+    }
+   ],
+   "commands": [
+    {
+     "name": "xcodebuild test",
+     "n": 3,
+     "ms": 600000
+    }
+   ],
+   "heldBy": [
+    {
+     "rule": "busy",
+     "label": "another agent had it",
+     "jobs": 2,
+     "ms": 120000
+    }
+   ],
+   "peakMem": 9593422848,
+   "posts": 0,
+   "tasksDone": 0,
+   "blockedMs": 0,
+   "blockedNow": 0,
+   "eta": {
+    "finished": 0,
+    "onTime": 0,
+    "medianLate": null
+   }
+  }
+ ],
+ "resources": [
+  {
+   "res": "sim",
+   "jobs": 450,
+   "busyMs": 83983058,
+   "utilization": 0.13886087632275132,
+   "waitMs": 10745136,
+   "waited": 102,
+   "feltMedian": 28381,
+   "medianWait": 6,
+   "p90Wait": 32166,
+   "waitedLonger": 40,
+   "waitedLongerShare": 0.0894854586129754,
+   "hours": [
+    0.370417858366355,
+    0.005894630701580576,
+    0.26768206349206347,
+    0.7043058333333333,
+    0.6991552777777778,
+    0.42375869047619047,
+    0.3621170634920635,
+    0.6285034920634921,
+    0.4729330158730159,
+    0.41857555555555553,
+    1,
+    0.46788305555555554,
+    0.4112163095238095,
+    0.4479093253968254,
+    0.11040809523809524,
+    0.25024150793650796,
+    0.15972531746031746,
+    0.2912787301587302,
+    0.34458123015873016,
+    0.25827083333333334,
+    0.4841296825396825,
+    0.42857142857142855,
+    0.42857142857142855,
+    0.42919992063492063
+   ],
+   "heldBy": [
+    {
+     "rule": "busy",
+     "label": "another agent had it",
+     "jobs": 2,
+     "ms": 120000
+    }
+   ],
+   "agents": [
+    {
+     "name": "web-app",
+     "n": 3,
+     "ms": 600000
+    }
+   ],
+   "gaveUp": 0,
+   "waitRules": [
+    {
+     "rule": "memory",
+     "label": "free memory",
+     "n": 92
+    },
+    {
+     "rule": "slot",
+     "label": "a busy slot",
+     "n": 54
+    },
+    {
+     "rule": "disk",
+     "label": "free disk",
+     "n": 28
+    },
+    {
+     "rule": "pressure",
+     "label": "memory pressure",
+     "n": 11
+    },
+    {
+     "rule": "ahead",
+     "label": "someone ahead",
+     "n": 11
+    },
+    {
+     "rule": "cpu",
+     "label": "CPU cores",
+     "n": 11
+    },
+    {
+     "rule": "swap",
+     "label": "swapping",
+     "n": 10
+    },
+    {
+     "rule": "drain",
+     "label": "disk filling",
+     "n": 5
+    },
+    {
+     "rule": "swaproom",
+     "label": "disk for swap",
+     "n": 4
+    }
+   ]
+  }
+ ],
+ "days": [
+  {
+   "day": 1792987200000,
+   "jobs": 0,
+   "runMs": 0,
+   "waitMs": 0,
+   "runs": 0,
+   "failed": 0,
+   "stopped": 0,
+   "failRate": null,
+   "codes": {}
+  },
+  {
+   "day": 1793073600000,
+   "jobs": 0,
+   "runMs": 0,
+   "waitMs": 0,
+   "runs": 0,
+   "failed": 0,
+   "stopped": 0,
+   "failRate": null,
+   "codes": {}
+  }
+ ],
+ "grid": [
+  {
+   "day": 1792987200000,
+   "run": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "wait": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "jobs": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ]
+  }
+ ],
+ "machine": {
+  "series": [
+   {
+    "at": 1793243310786,
+    "load": 5.2350006103515625,
+    "memFree": 47.84375,
+    "diskFree": 6613725440
+   },
+   {
+    "at": 1793245830786,
+    "load": 7.2331483422256095,
+    "memFree": 48.292682926829265,
+    "diskFree": 10334178229.073172
+   }
+  ],
+  "samples": 5406,
+  "memLow": {
+   "at": 1793422230786,
+   "load": 52.07136418269231,
+   "memFree": 47.666666666666664,
+   "diskFree": 11721909169.23077
+  },
+  "diskLow": {
+   "at": 1793475150786,
+   "load": 2.2214295922256095,
+   "memFree": 61.170731707317074,
+   "diskFree": 5001686740.292683
+  },
+  "loadHigh": {
+   "at": 1793422230786,
+   "load": 52.07136418269231,
+   "memFree": 47.666666666666664,
+   "diskFree": 11721909169.23077
+  },
+  "pauses": 26,
+  "ownerPauses": 0,
+  "dibsPauses": 26,
+  "overrides": [
+   {
+    "at": 1793500000000,
+    "act": "boost",
+    "by": "web-app",
+    "byAgent": true,
+    "id": 12,
+    "who": "tests",
+    "to": null,
+    "prio": "urgent",
+    "reason": "person waiting"
+   }
+  ],
+  "cleaned": 1369120768
+ }
+}

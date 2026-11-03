@@ -1,0 +1,50 @@
+{
+ "threads": [
+  {
+   "agent": "web-app",
+   "label": "web-app",
+   "session": null,
+   "agentId": "main",
+   "to": "web-app",
+   "alive": true,
+   "working": "idle",
+   "unread": 2,
+   "last": 1791954186437,
+   "messages": [
+    {
+     "id": "q1",
+     "at": 1791954186242,
+     "from": "agent",
+     "kind": "question",
+     "text": "Ship 1.4 to prod now?",
+     "options": [
+      "yes",
+      "no"
+     ],
+     "questionId": 1,
+     "state": "open"
+    },
+    {
+     "id": "m1",
+     "at": 1791954186340,
+     "from": "agent",
+     "kind": "note",
+     "text": "Dry run passed.",
+     "options": null,
+     "questionId": null,
+     "state": null
+    },
+    {
+     "id": "m2",
+     "at": 1791954186437,
+     "from": "person",
+     "kind": "message",
+     "text": "Run the migration dry run first.",
+     "options": null,
+     "questionId": null,
+     "state": "queued"
+    }
+   ]
+  }
+ ]
+}

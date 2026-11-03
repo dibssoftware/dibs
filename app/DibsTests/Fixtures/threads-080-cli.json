@@ -1,0 +1,96 @@
+{
+ "threads": [
+  {
+   "agent": "web-app",
+   "label": "",
+   "session": null,
+   "agentId": "main",
+   "to": "web-app",
+   "alive": true,
+   "working": "using deploy for \"prod is down\"",
+   "unread": 1,
+   "last": 1791961164267,
+   "messages": [
+    {
+     "id": "m1",
+     "at": 1791961163931,
+     "from": "agent",
+     "kind": "note",
+     "text": "Dry run passed. Waiting on the deploy queue for the real one.",
+     "options": null,
+     "questionId": null,
+     "state": null
+    },
+    {
+     "id": "m2",
+     "at": 1791961164267,
+     "from": "person",
+     "kind": "message",
+     "text": "use the staging database",
+     "options": null,
+     "questionId": null,
+     "state": "queued"
+    }
+   ]
+  },
+  {
+   "agent": "onboarding",
+   "label": "",
+   "session": null,
+   "agentId": "main",
+   "to": "onboarding",
+   "alive": true,
+   "working": "waiting for sim for \"snapshot tests\"",
+   "unread": 1,
+   "last": 1791961164183,
+   "messages": [
+    {
+     "id": "q2",
+     "at": 1791961164096,
+     "from": "agent",
+     "kind": "question",
+     "text": "Rename the onboarding target?",
+     "options": null,
+     "questionId": 2,
+     "state": "answered"
+    },
+    {
+     "id": "q2a",
+     "at": 1791961164183,
+     "from": "person",
+     "kind": "answer",
+     "text": "no",
+     "options": null,
+     "questionId": 2,
+     "state": null
+    }
+   ]
+  },
+  {
+   "agent": "api",
+   "label": "",
+   "session": null,
+   "agentId": "main",
+   "to": "api",
+   "alive": true,
+   "working": "using test for \"smoke tests\"",
+   "unread": 1,
+   "last": 1791961164013,
+   "messages": [
+    {
+     "id": "q1",
+     "at": 1791961164013,
+     "from": "agent",
+     "kind": "question",
+     "text": "Ship 1.4 to TestFlight?",
+     "options": [
+      "yes",
+      "no"
+     ],
+     "questionId": 1,
+     "state": "open"
+    }
+   ]
+  }
+ ]
+}

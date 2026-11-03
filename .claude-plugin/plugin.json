@@ -1,0 +1,19 @@
+{
+  "name": "dibs",
+  "version": "0.0.174",
+  "description": "A hook that sends heavy Bash commands (xcodebuild, simctl, test suites, deploys) through dibs, guards leased files and caps subagents across sessions, and a skill that tells agents how to use it",
+  "author": {
+    "name": "dibs maintainers"
+  },
+  "homepage": "https://dibs.cc",
+  "repository": "https://github.com/dibssoftware/dibs",
+  "icon": "brand/dibs-icon-1024.png",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "simulator",
+    "xcode",
+    "queue",
+    "parallel-agents",
+    "hooks"
+  ]
+}

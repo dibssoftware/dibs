@@ -1,0 +1,122 @@
+{
+ "machine": {
+  "at": 1791944209442,
+  "diskFree": 5580636160,
+  "swapUsed": 4894626938.88,
+  "memFree": 60,
+  "load": 1.892578125,
+  "cores": 10,
+  "os": "macos",
+  "memHandedOut": 3221225472,
+  "memBudget": 11811160064,
+  "coresHandedOut": 2,
+  "pace": "normal",
+  "maxLoad": 10,
+  "loadAhead": 0
+ },
+ "resets": [],
+ "held": [
+  {
+   "id": 637,
+   "res": ["sim-own"],
+   "mem": 3221225472,
+   "cpu": 2,
+   "kind": "hold",
+   "who": "shop-perf",
+   "agent": "shop-perf",
+   "label": "",
+   "spid": 23171,
+   "purpose": "perf: instruments #21",
+   "cmd": "",
+   "key": "sim-own|hold",
+   "cwd": "/Users/someone/shop",
+   "start": 1791940166897,
+   "waited": 50,
+   "pid": 23171,
+   "pstart": "Mon Oct 12 19:24:59 2026",
+   "expires": 1791947458039,
+   "waiters": [],
+   "remaining": 3248593,
+   "idleMs": 0
+  }
+ ],
+ "waiting": [
+  {
+   "place": 1,
+   "id": 692,
+   "ticket": "23171|sim-own|xcrun simctl install",
+   "res": ["sim-own"],
+   "mem": 3674241024,
+   "cpu": 5,
+   "disk": 6442450944,
+   "pid": 35955,
+   "pstart": "Tue Oct 13 22:14:49 2026",
+   "enq": 1791944089461,
+   "who": "shop-perf",
+   "agent": "shop-perf",
+   "label": "",
+   "spid": 23171,
+   "purpose": "perf: install",
+   "cmd": "xcrun simctl install 06549A8D Shop.app",
+   "key": "sim-own|xcrun simctl",
+   "kind": "run",
+   "sessionId": "00000000-0000-0000-0000-000000000000",
+   "expectStart": 1791944209446,
+   "rank": {
+    "value": 1791944338769,
+    "parts": [
+     { "label": "short job", "shift": 296143 },
+     { "label": "recent use", "shift": -545451 }
+    ]
+   }
+  }
+ ],
+ "outside": [],
+ "quotas": [],
+ "agents": {
+  "slots": 8,
+  "running": [
+   { "who": "lead", "type": "dibs-human", "for": 56561, "starting": false },
+   { "who": "lead", "type": "dibs-macapp", "for": 15794, "starting": false }
+  ]
+ },
+ "elsewhere": {
+  "now": 1791944209451,
+  "version": "0.0.63",
+  "machines": [
+   {
+    "name": "Alexs-Mac-mini",
+    "os": "macos",
+    "cores": 10,
+    "load": 1.892578125,
+    "memFree": 60,
+    "diskFree": 5580681216,
+    "version": "0.0.63",
+    "lost": false,
+    "age": 1911,
+    "board": {
+     "memUsed": 3221225472,
+     "memBudget": 11811160064,
+     "cpuUsed": 2,
+     "cores": 10,
+     "held": [
+      {
+       "res": ["sim-own"], "who": "shop-perf", "label": "", "for": 4040635, "left": 3250507, "idle": 0,
+       "paused": null, "purpose": "perf: instruments #21", "cmd": null, "mem": 3221225472, "use": null, "over": false, "grew": null
+      }
+     ],
+     "waiting": [
+      {
+       "res": ["sim-own"], "who": "shop-perf", "label": "", "waited": 118071, "in": 0, "due": null,
+       "yielded": false, "kept": false, "holds": null, "blocked": "blocked by disk: 5.2G free, needs 6.0G", "purpose": "perf: install"
+      }
+     ],
+     "free": ["sim", "sim-own(3)", "xcode-build(2)", "playwright(2)", "test(3)", "deploy", "heavy"],
+     "quotas": [],
+     "agents": { "slots": 8, "running": [] }
+    }
+   }
+  ],
+  "jobs": []
+ }
+}

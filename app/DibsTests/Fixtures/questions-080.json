@@ -1,0 +1,42 @@
+{
+ "questions": [
+  {
+   "id": 1,
+   "who": "api",
+   "agent": "api",
+   "session": null,
+   "text": "Ship 1.4 to TestFlight?",
+   "options": [
+    "yes",
+    "no"
+   ],
+   "prio": "normal",
+   "purpose": "yes uploads build 212",
+   "asked": 1791961164013,
+   "due": null,
+   "state": "open",
+   "answer": null,
+   "answeredAt": null,
+   "waiting": false,
+   "held": false
+  },
+  {
+   "id": 2,
+   "who": "onboarding",
+   "agent": "onboarding",
+   "session": null,
+   "text": "Rename the onboarding target?",
+   "options": null,
+   "prio": "normal",
+   "purpose": "",
+   "asked": 1791961164096,
+   "due": null,
+   "state": "answered",
+   "answer": "no",
+   "answeredAt": 1791961164183,
+   "waiting": false,
+   "held": false
+  }
+ ],
+ "hours": null
+}

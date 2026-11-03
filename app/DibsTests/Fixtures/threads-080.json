@@ -1,0 +1,216 @@
+{
+ "threads": [
+  {
+   "agent": "web-app",
+   "label": "web-app",
+   "to": "web-app",
+   "agentId": "main",
+   "alive": true,
+   "working": "waiting for deploy for \"ship 1.4 to prod\"",
+   "unread": 2,
+   "last": 1791945880000,
+   "messages": [
+    {
+     "id": "m0",
+     "at": 1791852400000,
+     "from": "agent",
+     "kind": "note",
+     "text": "Picked up the 1.4 release. Changelog is drafted, tests are running.",
+     "options": null,
+     "questionId": null,
+     "state": null
+    },
+    {
+     "id": "m0b",
+     "at": 1791852520000,
+     "from": "agent",
+     "kind": "note",
+     "text": "Two flaky checkout tests. Retrying them once before I look closer.",
+     "options": null,
+     "questionId": null,
+     "state": null
+    },
+    {
+     "id": "m0c",
+     "at": 1791856000000,
+     "from": "person",
+     "kind": "message",
+     "text": "Fine. Skip the iPad screenshots this time.",
+     "options": null,
+     "questionId": null,
+     "state": "delivered"
+    },
+    {
+     "id": "m1",
+     "at": 1791943000000,
+     "from": "agent",
+     "kind": "note",
+     "text": "Release build is green. Starting the prod deploy next.",
+     "options": null,
+     "questionId": null,
+     "state": null
+    },
+    {
+     "id": "m2",
+     "at": 1791943600000,
+     "from": "person",
+     "kind": "message",
+     "text": "Run the migration dry run before you ship.",
+     "options": null,
+     "questionId": null,
+     "state": "delivered"
+    },
+    {
+     "id": "m3",
+     "at": 1791943660000,
+     "from": "agent",
+     "kind": "delivered",
+     "text": "got it with its next tool call",
+     "options": null,
+     "questionId": null,
+     "state": null,
+     "about": "m2"
+    },
+    {
+     "id": "q14",
+     "at": 1791945820000,
+     "from": "agent",
+     "kind": "question",
+     "text": "The prod migration drops the old sessions table (about 40k rows, nothing reads it since March). Go ahead?",
+     "options": [
+      "yes",
+      "no",
+      "wait until tonight"
+     ],
+     "questionId": 14,
+     "state": "open"
+    },
+    {
+     "id": "m4",
+     "at": 1791945880000,
+     "from": "agent",
+     "kind": "note",
+     "text": "Dry run passed: 41,288 rows would go, and nothing else changes.",
+     "options": null,
+     "questionId": null,
+     "state": null
+    }
+   ]
+  },
+  {
+   "agent": "ios-checkout",
+   "label": "ios-checkout",
+   "to": "ios-checkout",
+   "agentId": "main",
+   "alive": true,
+   "working": "using sim for \"checkout flow screenshots\"",
+   "unread": 1,
+   "last": 1791945460000,
+   "messages": [
+    {
+     "id": "q12",
+     "at": 1791935200000,
+     "from": "agent",
+     "kind": "question",
+     "text": "Use Apple Pay as the default on the checkout screen?",
+     "options": [
+      "yes",
+      "no"
+     ],
+     "questionId": 12,
+     "state": "answered"
+    },
+    {
+     "id": "q12a",
+     "at": 1791935440000,
+     "from": "person",
+     "kind": "answer",
+     "text": "yes",
+     "options": null,
+     "questionId": 12,
+     "state": "delivered"
+    },
+    {
+     "id": "q15",
+     "at": 1791945460000,
+     "from": "agent",
+     "kind": "question",
+     "text": "Build 123 passed every UI test. Ship it to TestFlight now?",
+     "options": [
+      "yes",
+      "no"
+     ],
+     "questionId": 15,
+     "state": "open"
+    }
+   ]
+  },
+  {
+   "agent": "onboarding",
+   "label": "onboarding",
+   "to": "onboarding",
+   "agentId": "main",
+   "alive": true,
+   "working": "waiting for sim for \"snapshot tests\"",
+   "unread": 0,
+   "last": 1791938800000,
+   "messages": [
+    {
+     "id": "q11",
+     "at": 1791935200000,
+     "from": "agent",
+     "kind": "question",
+     "text": "Use the new illustration set on the welcome screen?",
+     "options": [
+      "yes",
+      "no"
+     ],
+     "questionId": 11,
+     "state": "answered"
+    },
+    {
+     "id": "q11a",
+     "at": 1791938800000,
+     "from": "person",
+     "kind": "answer",
+     "text": "yes, but keep the old one for iPad",
+     "options": null,
+     "questionId": 11,
+     "state": "delivered"
+    },
+    {
+     "id": "m5",
+     "at": 1791939100000,
+     "from": "person",
+     "kind": "message",
+     "text": "When the snapshots pass, send me the diff.",
+     "options": null,
+     "questionId": null,
+     "state": "queued"
+    }
+   ]
+  },
+  {
+   "agent": "api-refactor",
+   "label": "tests",
+   "to": "api-refactor/tests",
+   "agentId": "a91c",
+   "alive": false,
+   "working": "idle",
+   "unread": 0,
+   "last": 1791928000000,
+   "messages": [
+    {
+     "id": "m6",
+     "at": 1791928000000,
+     "from": "agent",
+     "kind": "note",
+     "text": "All 412 tests pass on the new orders path.",
+     "options": null,
+     "questionId": null,
+     "state": null
+    }
+   ]
+  }
+ ]
+}

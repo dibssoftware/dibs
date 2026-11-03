@@ -1,0 +1,2201 @@
+{
+ "from": "2026-10-14T03:15:40.725Z",
+ "to": "2026-10-14T04:36:18.179Z",
+ "jobs": [
+  {
+   "id": 744,
+   "who": "agent2",
+   "res": [
+    "sim-own"
+   ],
+   "kind": "hold",
+   "prio": "normal",
+   "arrive": -780938,
+   "realStart": -780938,
+   "dur": 2452457,
+   "key": "sim-own|hold",
+   "before": true
+  },
+  {
+   "id": 761,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 9901,
+   "realStart": 31602,
+   "dur": 13903,
+   "key": "xcode-build|cmd1",
+   "peakMem": 883146752,
+   "peakCpu": 2
+  },
+  {
+   "id": 762,
+   "who": "agent2",
+   "res": [
+    "sim-own"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 159291,
+   "realStart": 159290,
+   "dur": 506160,
+   "key": "sim-own|cmd2",
+   "peakMem": 5546162176,
+   "peakCpu": 2.3
+  },
+  {
+   "id": 763,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 374498,
+   "realStart": 1104835,
+   "dur": 25448,
+   "key": "heavy|cmd5",
+   "peakMem": 1478492160,
+   "peakCpu": 2.2
+  },
+  {
+   "id": 764,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 735694,
+   "realStart": 735694,
+   "dur": 3540,
+   "key": "test|run"
+  },
+  {
+   "id": 765,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 745406,
+   "realStart": 745406,
+   "dur": 3486,
+   "key": "test|run"
+  },
+  {
+   "id": 766,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 787984,
+   "realStart": 787984,
+   "dur": 59693,
+   "key": "test|run"
+  },
+  {
+   "id": 767,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 798187,
+   "realStart": 798187,
+   "dur": 28916,
+   "key": "xcode-build|run"
+  },
+  {
+   "id": 768,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 834402,
+   "realStart": 848249,
+   "dur": 25138,
+   "key": "xcode-build|run"
+  },
+  {
+   "id": 769,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 853328,
+   "realStart": 873469,
+   "dur": 54274,
+   "key": "test|run"
+  },
+  {
+   "id": 770,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 887042,
+   "realStart": 928880,
+   "dur": 8357,
+   "key": "xcode-build|cmd1",
+   "peakMem": 155844608,
+   "peakCpu": 1.1
+  },
+  {
+   "id": 771,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 992821,
+   "realStart": 992821,
+   "dur": 56064,
+   "key": "test|run"
+  },
+  {
+   "id": 772,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1018324,
+   "realStart": 1049119,
+   "dur": 7221,
+   "key": "xcode-build|cmd1",
+   "peakMem": 186171392,
+   "peakCpu": 0.2
+  },
+  {
+   "id": 773,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1062525,
+   "realStart": 1062525,
+   "dur": 19851,
+   "key": "test|cmd3",
+   "peakMem": 255328256,
+   "peakCpu": 0.1
+  },
+  {
+   "id": 774,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1097164,
+   "realStart": 1097164,
+   "dur": 6461,
+   "key": "xcode-build|cmd1",
+   "peakMem": 634847232,
+   "peakCpu": 1.3
+  },
+  {
+   "id": 775,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1121572,
+   "realStart": 1121572,
+   "dur": 3879,
+   "key": "test|cmd4"
+  },
+  {
+   "id": 776,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1130444,
+   "realStart": 1130444,
+   "dur": 94987,
+   "key": "deploy|cmd7",
+   "peakMem": 114294784,
+   "peakCpu": 0
+  },
+  {
+   "id": 777,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1166955,
+   "realStart": 1166954,
+   "dur": 56411,
+   "key": "test|cmd6",
+   "peakMem": 1194229760,
+   "peakCpu": 2
+  },
+  {
+   "id": 778,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1189371,
+   "realStart": 1279528,
+   "dur": 5180,
+   "key": "xcode-build|cmd1",
+   "peakMem": 120668160,
+   "peakCpu": 0.2
+  },
+  {
+   "id": 779,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1223627,
+   "realStart": 1223627,
+   "dur": 54992,
+   "key": "test|cmd6",
+   "peakMem": 1210843136,
+   "peakCpu": 3.1
+  },
+  {
+   "id": 780,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1242949,
+   "realStart": 1284742,
+   "dur": 25860,
+   "key": "heavy|cmd5",
+   "peakMem": 1387266048,
+   "peakCpu": 2.6
+  },
+  {
+   "id": 781,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1310762,
+   "realStart": 1310762,
+   "dur": 85808,
+   "key": "deploy|cmd7",
+   "peakMem": 118489088,
+   "peakCpu": 0
+  },
+  {
+   "id": 782,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1411382,
+   "realStart": 1411382,
+   "dur": 26585,
+   "key": "heavy|cmd5",
+   "peakMem": 1173356544,
+   "peakCpu": 1.9
+  },
+  {
+   "id": 783,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1412451,
+   "realStart": 1412450,
+   "dur": 5901,
+   "key": "xcode-build|cmd1",
+   "peakMem": 69206016,
+   "peakCpu": 0.2
+  },
+  {
+   "id": 784,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1438131,
+   "realStart": 1438131,
+   "dur": 81630,
+   "key": "deploy|cmd7",
+   "peakMem": 116391936,
+   "peakCpu": 0
+  },
+  {
+   "id": 785,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1495485,
+   "realStart": 1495485,
+   "dur": 7948,
+   "key": "xcode-build|cmd1",
+   "peakMem": 211304448,
+   "peakCpu": 0.1
+  },
+  {
+   "id": 786,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1535405,
+   "realStart": 1535405,
+   "dur": 25265,
+   "key": "heavy|cmd5",
+   "peakMem": 2521694208,
+   "peakCpu": 6.3
+  },
+  {
+   "id": 787,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1560826,
+   "realStart": 1560826,
+   "dur": 97452,
+   "key": "deploy|cmd7",
+   "peakMem": 115343360,
+   "peakCpu": 0
+  },
+  {
+   "id": 788,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1578480,
+   "realStart": 1578479,
+   "dur": 57634,
+   "key": "test|run"
+  },
+  {
+   "id": 789,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1657531,
+   "realStart": 1657531,
+   "dur": 56069,
+   "key": "test|run"
+  },
+  {
+   "id": 790,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1668372,
+   "realStart": 1714803,
+   "dur": 25236,
+   "key": "heavy|cmd5",
+   "peakMem": 1517289472,
+   "peakCpu": 3
+  },
+  {
+   "id": 791,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1720771,
+   "realStart": 1736081,
+   "dur": 54441,
+   "key": "test|cmd6",
+   "peakMem": 1390198784,
+   "peakCpu": 1.9
+  },
+  {
+   "id": 792,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1740408,
+   "realStart": 1774557,
+   "dur": 82529,
+   "key": "deploy|cmd7",
+   "peakMem": 123731968,
+   "peakCpu": 0
+  },
+  {
+   "id": 793,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1790667,
+   "realStart": 1790667,
+   "dur": 59481,
+   "key": "test|cmd6",
+   "peakMem": 1343750144,
+   "peakCpu": 2.7
+  },
+  {
+   "id": 794,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1872127,
+   "realStart": 1872127,
+   "dur": 24813,
+   "key": "heavy|cmd5",
+   "peakMem": 1192230912,
+   "peakCpu": 2.2
+  },
+  {
+   "id": 795,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1880868,
+   "realStart": 1896302,
+   "dur": 52079,
+   "key": "test|cmd6",
+   "peakMem": 1436581888,
+   "peakCpu": 2.4
+  },
+  {
+   "id": 796,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1897403,
+   "realStart": 1897402,
+   "dur": 82552,
+   "key": "deploy|cmd7",
+   "peakMem": 124780544,
+   "peakCpu": 0.1
+  },
+  {
+   "id": 797,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1948529,
+   "realStart": 1948529,
+   "dur": 51452,
+   "key": "test|cmd6",
+   "peakMem": 997883904,
+   "peakCpu": 2.1
+  },
+  {
+   "id": 798,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1949698,
+   "realStart": 1984077,
+   "dur": 11219,
+   "key": "xcode-build|cmd1",
+   "peakMem": 277413888,
+   "peakCpu": 0.2
+  },
+  {
+   "id": 799,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 1990083,
+   "realStart": 2000866,
+   "dur": 23352,
+   "key": "heavy|cmd5",
+   "peakMem": 1418723328,
+   "peakCpu": 1.7
+  },
+  {
+   "id": 800,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2024350,
+   "realStart": 2024350,
+   "dur": 66293,
+   "key": "deploy|cmd7",
+   "peakMem": 113246208,
+   "peakCpu": 0
+  },
+  {
+   "id": 801,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2025837,
+   "realStart": 2025837,
+   "dur": 54585,
+   "key": "test|cmd6",
+   "peakMem": 1133690880,
+   "peakCpu": 2.8
+  },
+  {
+   "id": 802,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2080568,
+   "realStart": 2080567,
+   "dur": 51531,
+   "key": "test|cmd6",
+   "peakMem": 1231273984,
+   "peakCpu": 2.4
+  },
+  {
+   "id": 803,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2121147,
+   "realStart": 2121147,
+   "dur": 24940,
+   "key": "heavy|cmd5",
+   "peakMem": 860880896,
+   "peakCpu": 2.1
+  },
+  {
+   "id": 804,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2146222,
+   "realStart": 2146222,
+   "dur": 80265,
+   "key": "deploy|cmd7",
+   "peakMem": 112197632,
+   "peakCpu": 0
+  },
+  {
+   "id": 805,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2193580,
+   "realStart": 2193580,
+   "dur": 3161,
+   "key": "test|cmd4"
+  },
+  {
+   "id": 806,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2199336,
+   "realStart": 2199335,
+   "dur": 4871,
+   "key": "xcode-build|cmd1",
+   "peakMem": 68157440,
+   "peakCpu": 0.6
+  },
+  {
+   "id": 807,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2203847,
+   "realStart": 2203847,
+   "dur": 3247,
+   "key": "test|run"
+  },
+  {
+   "id": 808,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2213308,
+   "realStart": 2213308,
+   "dur": 51510,
+   "key": "test|cmd6",
+   "peakMem": 1305460736,
+   "peakCpu": 1.9
+  },
+  {
+   "id": 809,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2264942,
+   "realStart": 2264942,
+   "dur": 51338,
+   "key": "test|cmd6",
+   "peakMem": 1060257792,
+   "peakCpu": 4.4
+  },
+  {
+   "id": 810,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2352852,
+   "realStart": 2352851,
+   "dur": 51638,
+   "key": "test|cmd6",
+   "peakMem": 1209450496,
+   "peakCpu": 1.2
+  },
+  {
+   "id": 811,
+   "who": "agent4",
+   "res": [
+    "xcode-build",
+    "sf-compile"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2377389,
+   "realStart": 2398965,
+   "dur": 149385,
+   "key": "xcode-build,sf-compile|cmd8",
+   "peakMem": 8647655424,
+   "peakCpu": 8.5
+  },
+  {
+   "id": 812,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2404661,
+   "realStart": 2664814,
+   "dur": 55497,
+   "key": "test|cmd6",
+   "peakMem": 1490436096,
+   "peakCpu": 3.1
+  },
+  {
+   "id": 813,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2419994,
+   "realStart": 2759167,
+   "dur": 8388,
+   "key": "xcode-build|run"
+  },
+  {
+   "id": 814,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "high",
+   "arrive": 2434050,
+   "realStart": 2549074,
+   "dur": 56142,
+   "key": "test|cmd6",
+   "peakMem": 1078919168,
+   "peakCpu": 2.8
+  },
+  {
+   "id": 816,
+   "who": "agent4",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2569943,
+   "realStart": 2778521,
+   "dur": 1218,
+   "key": "heavy|run"
+  },
+  {
+   "id": 817,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2584644,
+   "realStart": 2805295,
+   "dur": 23610,
+   "key": "heavy|cmd5",
+   "peakMem": 1521483776,
+   "peakCpu": 2.9
+  },
+  {
+   "id": 818,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "high",
+   "arrive": 2605389,
+   "realStart": 2605389,
+   "dur": 54473,
+   "key": "test|cmd6",
+   "peakMem": 1235042304,
+   "peakCpu": 3
+  },
+  {
+   "id": 819,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2632292,
+   "realStart": 2659996,
+   "dur": 4583,
+   "key": "test|cmd9"
+  },
+  {
+   "id": 820,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2670470,
+   "realStart": 2802089,
+   "dur": 1143,
+   "key": "test|run"
+  },
+  {
+   "id": 821,
+   "who": "agent5",
+   "res": [
+    "playwright"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2682771,
+   "realStart": 2748175,
+   "dur": 44726,
+   "key": "playwright|run"
+  },
+  {
+   "id": 822,
+   "who": "agent5",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2703637,
+   "realStart": 2728358,
+   "dur": 30298,
+   "key": "test|cmd10",
+   "peakMem": 872513536,
+   "peakCpu": 2.4
+  },
+  {
+   "id": 823,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2777106,
+   "realStart": 2780168,
+   "dur": 22189,
+   "key": "xcode-build|run"
+  },
+  {
+   "id": 824,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "hold",
+   "prio": "normal",
+   "arrive": 2788441,
+   "realStart": 2833278,
+   "dur": 1176793,
+   "key": "sim-promax|hold"
+  },
+  {
+   "id": 825,
+   "who": "agent4",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "high",
+   "arrive": 2797797,
+   "realStart": 2797797,
+   "dur": 2253,
+   "key": "heavy|run"
+  },
+  {
+   "id": 826,
+   "who": "agent3",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2800255,
+   "realStart": 2803320,
+   "dur": 1585,
+   "key": "test|cmd11"
+  },
+  {
+   "id": 828,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2810358,
+   "realStart": 2833478,
+   "dur": 55040,
+   "key": "test|cmd6",
+   "peakMem": 1249787904,
+   "peakCpu": 2.2
+  },
+  {
+   "id": 829,
+   "who": "agent5",
+   "res": [
+    "playwright"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2810912,
+   "realStart": 2889220,
+   "dur": 35648,
+   "key": "playwright|run"
+  },
+  {
+   "id": 830,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2813299,
+   "realStart": 2829004,
+   "dur": 3655,
+   "key": "xcode-build|cmd1",
+   "peakMem": 181960704,
+   "peakCpu": 0.4
+  },
+  {
+   "id": 831,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2829173,
+   "realStart": 2908429,
+   "dur": 84637,
+   "key": "deploy|cmd7",
+   "peakMem": 120586240,
+   "peakCpu": 0.2
+  },
+  {
+   "id": 832,
+   "who": "agent4",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2835439,
+   "realStart": 3641622,
+   "dur": 566544,
+   "key": "xcode-build|cmd8",
+   "peakMem": 15105425408,
+   "peakCpu": 7.9
+  },
+  {
+   "id": 833,
+   "who": "agent4",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "high",
+   "arrive": 2836414,
+   "realStart": 2836414,
+   "dur": 2303,
+   "key": "heavy|cmd12"
+  },
+  {
+   "id": 834,
+   "who": "agent4",
+   "res": [
+    "sim-own"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2837648,
+   "realStart": 2918896,
+   "dur": 47397,
+   "key": "sim-own|cmd13",
+   "peakMem": 3773036544,
+   "peakCpu": 4.4
+  },
+  {
+   "id": 835,
+   "who": "agent4",
+   "res": [
+    "sim-own"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2856003,
+   "realStart": 3243506,
+   "dur": 16811,
+   "key": "sim-own|cmd14",
+   "peakMem": 115738624,
+   "peakCpu": 0
+  },
+  {
+   "id": 836,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2909825,
+   "realStart": 3196723,
+   "dur": 4785,
+   "key": "xcode-build|cmd1",
+   "peakMem": 314572800,
+   "peakCpu": 0.5
+  },
+  {
+   "id": 837,
+   "who": "agent5",
+   "res": [
+    "playwright"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2940850,
+   "realStart": 3180923,
+   "dur": 37090,
+   "key": "playwright|run"
+  },
+  {
+   "id": 838,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2962709,
+   "realStart": 3230661,
+   "dur": 4810,
+   "key": "test|run"
+  },
+  {
+   "id": 839,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2965241,
+   "realStart": 3169905,
+   "dur": 10870,
+   "key": "xcode-build|run"
+  },
+  {
+   "id": 840,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 2981636,
+   "realStart": 3254462,
+   "dur": 18554,
+   "key": "sim-promax|cmd15",
+   "peakMem": 11534336,
+   "peakCpu": 0
+  },
+  {
+   "id": 841,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3015160,
+   "realStart": 3211625,
+   "dur": 27697,
+   "key": "heavy|cmd5",
+   "peakMem": 1819279360,
+   "peakCpu": 2.4
+  },
+  {
+   "id": 842,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3197218,
+   "realStart": 3201837,
+   "dur": 9633,
+   "key": "xcode-build|cmd1",
+   "peakMem": 365248512,
+   "peakCpu": 0.1
+  },
+  {
+   "id": 843,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3216826,
+   "realStart": 3244852,
+   "dur": 8860,
+   "key": "xcode-build|cmd1",
+   "peakMem": 81788928,
+   "peakCpu": 0.2
+  },
+  {
+   "id": 844,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3232388,
+   "realStart": 4552191,
+   "dur": 31199,
+   "key": "test|run"
+  },
+  {
+   "id": 845,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3239418,
+   "realStart": 3239418,
+   "dur": 4009,
+   "key": "test|cmd9",
+   "peakMem": 81395712,
+   "peakCpu": 0
+  },
+  {
+   "id": 846,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3239592,
+   "realStart": 3244195,
+   "dur": 82826,
+   "key": "deploy|cmd7",
+   "peakMem": 112197632,
+   "peakCpu": 0
+  },
+  {
+   "id": 847,
+   "who": "agent4",
+   "res": [
+    "sim"
+   ],
+   "kind": "hold",
+   "prio": "normal",
+   "arrive": 3252432,
+   "realStart": 3254051,
+   "dur": 662589,
+   "key": "sim|hold"
+  },
+  {
+   "id": 848,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3263184,
+   "realStart": 3309516,
+   "dur": 56687,
+   "key": "test|run"
+  },
+  {
+   "id": 849,
+   "who": "agent4",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3266734,
+   "realStart": 3639490,
+   "dur": 48436,
+   "key": "xcode-build|cmd8",
+   "peakMem": 2511503360,
+   "peakCpu": 3.3
+  },
+  {
+   "id": 850,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3278882,
+   "realStart": 3494619,
+   "dur": 7226,
+   "key": "xcode-build|cmd1",
+   "peakMem": 479477760,
+   "peakCpu": 0.1
+  },
+  {
+   "id": 851,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3279577,
+   "realStart": 3366723,
+   "dur": 57710,
+   "key": "test|cmd6",
+   "peakMem": 1467383808,
+   "peakCpu": 1.8
+  },
+  {
+   "id": 852,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3295994,
+   "realStart": 3481402,
+   "dur": 17385,
+   "key": "sim-promax|cmd16",
+   "peakMem": 12582912,
+   "peakCpu": 0
+  },
+  {
+   "id": 853,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3379282,
+   "realStart": 3502483,
+   "dur": 54839,
+   "key": "test|cmd6",
+   "peakMem": 1215823872,
+   "peakCpu": 1.6
+  },
+  {
+   "id": 854,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3411332,
+   "realStart": 3557987,
+   "dur": 82401,
+   "key": "test|run"
+  },
+  {
+   "id": 855,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3424627,
+   "realStart": 3424627,
+   "dur": 56035,
+   "key": "test|cmd6",
+   "peakMem": 1593393152,
+   "peakCpu": 2.6
+  },
+  {
+   "id": 856,
+   "who": "agent3",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3499313,
+   "realStart": 4354448,
+   "dur": 2119,
+   "key": "test|cmd11"
+  },
+  {
+   "id": 857,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3516021,
+   "realStart": 3641723,
+   "dur": 8374,
+   "key": "sim-promax|run"
+  },
+  {
+   "id": 858,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3557605,
+   "realStart": 4265965,
+   "dur": 71726,
+   "key": "test|cmd18"
+  },
+  {
+   "id": 861,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3657545,
+   "realStart": 4267444,
+   "dur": 27944,
+   "key": "sim-promax|cmd17",
+   "peakMem": 23068672,
+   "peakCpu": 0.3
+  },
+  {
+   "id": 862,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3771106,
+   "realStart": 4357087,
+   "dur": 85475,
+   "key": "test|cmd6",
+   "peakMem": 1565540352,
+   "peakCpu": 1.8
+  },
+  {
+   "id": 864,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 3964266,
+   "realStart": 4345382,
+   "dur": 9014,
+   "key": "xcode-build|cmd1",
+   "peakMem": 1609990144,
+   "peakCpu": 7
+  },
+  {
+   "id": 866,
+   "who": "agent3",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4094539,
+   "realStart": 4781426,
+   "dur": 2356,
+   "key": "test|cmd22",
+   "peakMem": 759562240,
+   "peakCpu": 3.2
+  },
+  {
+   "id": 867,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4177898,
+   "realStart": 4677877,
+   "dur": 88872,
+   "key": "test|run"
+  },
+  {
+   "id": 869,
+   "who": "agent6",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4261484,
+   "realStart": 4547891,
+   "dur": 3489,
+   "key": "heavy|cmd21",
+   "peakMem": 631128064,
+   "peakCpu": 1.4
+  },
+  {
+   "id": 870,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "high",
+   "arrive": 4324020,
+   "realStart": 4338051,
+   "dur": 362,
+   "key": "test|cmd18"
+  },
+  {
+   "id": 871,
+   "who": "agent3",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4330374,
+   "realStart": 4552451,
+   "dur": 28734,
+   "key": "heavy|cmd5",
+   "peakMem": 2592079872,
+   "peakCpu": 5.7
+  },
+  {
+   "id": 872,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4332843,
+   "realStart": 4332842,
+   "dur": 6289,
+   "key": "sim-promax|run"
+  },
+  {
+   "id": 874,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4354718,
+   "realStart": 4354718,
+   "dur": 18637,
+   "key": "sim-promax|cmd19",
+   "peakMem": 68173824,
+   "peakCpu": 0.3
+  },
+  {
+   "id": 875,
+   "who": "agent3",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4375080,
+   "realStart": 4584008,
+   "dur": 2643,
+   "key": "test|cmd22"
+  },
+  {
+   "id": 876,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "high",
+   "arrive": 4383371,
+   "realStart": 4383371,
+   "dur": 75087,
+   "key": "test|cmd6",
+   "peakMem": 1424474112,
+   "peakCpu": 2.5
+  },
+  {
+   "id": 877,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4383626,
+   "realStart": 4383618,
+   "dur": 23941,
+   "key": "sim-promax|run"
+  },
+  {
+   "id": 878,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4419922,
+   "realStart": 4517842,
+   "dur": 8450,
+   "key": "xcode-build|cmd1",
+   "peakMem": 206077952,
+   "peakCpu": 0.5
+  },
+  {
+   "id": 879,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4425415,
+   "realStart": 4425415,
+   "dur": 58669,
+   "key": "sim-promax|run"
+  },
+  {
+   "id": 880,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4442793,
+   "realStart": 4587416,
+   "dur": 59207,
+   "key": "test|cmd6",
+   "peakMem": 1225654272,
+   "peakCpu": 2.2
+  },
+  {
+   "id": 881,
+   "who": "agent1",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "high",
+   "arrive": 4458646,
+   "realStart": 4458646,
+   "dur": 59081,
+   "key": "test|cmd6",
+   "peakMem": 1166196736,
+   "peakCpu": 2.2
+  },
+  {
+   "id": 882,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4490023,
+   "realStart": 4490023,
+   "dur": 579,
+   "key": "sim-promax|cmd20"
+  },
+  {
+   "id": 883,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4499790,
+   "realStart": 4499789,
+   "dur": 17005,
+   "key": "sim-promax|run"
+  },
+  {
+   "id": 884,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4522689,
+   "realStart": 4522687,
+   "dur": 563,
+   "key": "sim-promax|cmd20"
+  },
+  {
+   "id": 885,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4538830,
+   "realStart": 4538829,
+   "dur": 8947,
+   "key": "sim-promax|cmd19",
+   "peakMem": 9519104,
+   "peakCpu": 0
+  },
+  {
+   "id": 886,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4558802,
+   "realStart": 4677778,
+   "dur": 16297,
+   "key": "sim-promax|cmd23",
+   "peakMem": 23068672,
+   "peakCpu": 0
+  },
+  {
+   "id": 888,
+   "who": "agent3",
+   "res": [
+    "deploy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4581385,
+   "realStart": 4581385,
+   "dur": 96354,
+   "key": "deploy|cmd7",
+   "peakMem": 113246208,
+   "peakCpu": 0.2
+  },
+  {
+   "id": 889,
+   "who": "agent6",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4583643,
+   "realStart": 4766800,
+   "dur": 1712,
+   "key": "test|cmd24"
+  },
+  {
+   "id": 890,
+   "who": "agent6",
+   "res": [
+    "heavy"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4609773,
+   "realStart": 4779111,
+   "dur": 1470,
+   "key": "heavy|cmd25"
+  },
+  {
+   "id": 891,
+   "who": "agent1",
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4615526,
+   "realStart": 4769300,
+   "dur": 6576,
+   "key": "xcode-build|cmd1",
+   "peakMem": 193527808,
+   "peakCpu": 0.8
+  },
+  {
+   "id": 892,
+   "who": "agent3",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4687104,
+   "realStart": 4767817,
+   "dur": 1435,
+   "key": "test|cmd11"
+  },
+  {
+   "id": 894,
+   "who": "agent4",
+   "res": [
+    "sim-promax"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4700780,
+   "realStart": 4778874,
+   "dur": 9496,
+   "key": "sim-promax|cmd26",
+   "peakMem": 9404416,
+   "peakCpu": 0
+  },
+  {
+   "id": 897,
+   "who": "agent3",
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "prio": "normal",
+   "arrive": 4718676,
+   "realStart": 4775905,
+   "dur": 2558,
+   "key": "test|cmd22"
+  }
+ ],
+ "samples": [
+  {
+   "at": 0,
+   "load": 7.634765625,
+   "memFree": 53
+  },
+  {
+   "at": 61312,
+   "load": 7.78857421875,
+   "memFree": 49
+  },
+  {
+   "at": 122619,
+   "load": 4.32861328125,
+   "memFree": 50
+  },
+  {
+   "at": 184069,
+   "load": 3.5390625,
+   "memFree": 50
+  },
+  {
+   "at": 245611,
+   "load": 2.46630859375,
+   "memFree": 52
+  },
+  {
+   "at": 307059,
+   "load": 2.30615234375,
+   "memFree": 50
+  },
+  {
+   "at": 368572,
+   "load": 2.58154296875,
+   "memFree": 47
+  },
+  {
+   "at": 429770,
+   "load": 2.9609375,
+   "memFree": 49
+  },
+  {
+   "at": 491021,
+   "load": 2.7939453125,
+   "memFree": 44
+  },
+  {
+   "at": 552346,
+   "load": 3.04052734375,
+   "memFree": 43
+  },
+  {
+   "at": 613557,
+   "load": 3.98876953125,
+   "memFree": 37
+  },
+  {
+   "at": 675053,
+   "load": 3.47216796875,
+   "memFree": 46
+  },
+  {
+   "at": 736704,
+   "load": 3.3486328125,
+   "memFree": 46
+  },
+  {
+   "at": 798716,
+   "load": 4.9306640625,
+   "memFree": 43
+  },
+  {
+   "at": 863631,
+   "load": 7.7822265625,
+   "memFree": 41
+  },
+  {
+   "at": 927272,
+   "load": 9.48974609375,
+   "memFree": 47
+  },
+  {
+   "at": 988815,
+   "load": 6.96240234375,
+   "memFree": 45
+  },
+  {
+   "at": 1050796,
+   "load": 7.390625,
+   "memFree": 45
+  },
+  {
+   "at": 1112335,
+   "load": 4.9306640625,
+   "memFree": 37
+  },
+  {
+   "at": 1173851,
+   "load": 7.98876953125,
+   "memFree": 42
+  },
+  {
+   "at": 1239407,
+   "load": 10.6328125,
+   "memFree": 43
+  },
+  {
+   "at": 1301111,
+   "load": 8.0732421875,
+   "memFree": 42
+  },
+  {
+   "at": 1362619,
+   "load": 4.22509765625,
+   "memFree": 47
+  },
+  {
+   "at": 1424005,
+   "load": 3.50390625,
+   "memFree": 40
+  },
+  {
+   "at": 1485789,
+   "load": 3.9150390625,
+   "memFree": 50
+  },
+  {
+   "at": 1547002,
+   "load": 3.46435546875,
+   "memFree": 43
+  },
+  {
+   "at": 1609330,
+   "load": 8.50830078125,
+   "memFree": 43
+  },
+  {
+   "at": 1672776,
+   "load": 6.35498046875,
+   "memFree": 48
+  },
+  {
+   "at": 1733883,
+   "load": 4.95166015625,
+   "memFree": 64
+  },
+  {
+   "at": 1795631,
+   "load": 7.1767578125,
+   "memFree": 69
+  },
+  {
+   "at": 1857821,
+   "load": 7.28076171875,
+   "memFree": 67
+  },
+  {
+   "at": 1919656,
+   "load": 7.91845703125,
+   "memFree": 69
+  },
+  {
+   "at": 1982093,
+   "load": 7.91259765625,
+   "memFree": 70
+  },
+  {
+   "at": 2046932,
+   "load": 9.5419921875,
+   "memFree": 67
+  },
+  {
+   "at": 2107862,
+   "load": 8.376953125,
+   "memFree": 69
+  },
+  {
+   "at": 2168759,
+   "load": 5.03564453125,
+   "memFree": 67
+  },
+  {
+   "at": 2229966,
+   "load": 8.3251953125,
+   "memFree": 70
+  },
+  {
+   "at": 2291011,
+   "load": 7.9033203125,
+   "memFree": 71
+  },
+  {
+   "at": 2351919,
+   "load": 4.71240234375,
+   "memFree": 71
+  },
+  {
+   "at": 2415490,
+   "load": 8.20849609375,
+   "memFree": 65
+  },
+  {
+   "at": 2481467,
+   "load": 25.39892578125,
+   "memFree": 47
+  },
+  {
+   "at": 2547726,
+   "load": 16.56591796875,
+   "memFree": 66
+  },
+  {
+   "at": 2613560,
+   "load": 12.80517578125,
+   "memFree": 68
+  },
+  {
+   "at": 2660831,
+   "load": 9.26708984375,
+   "memFree": 66
+  },
+  {
+   "at": 2723052,
+   "load": 10.92333984375,
+   "memFree": 69
+  },
+  {
+   "at": 2784781,
+   "load": 7.85498046875,
+   "memFree": 58
+  },
+  {
+   "at": 2849060,
+   "load": 10.34521484375,
+   "memFree": 68
+  },
+  {
+   "at": 2910866,
+   "load": 8.513671875,
+   "memFree": 59
+  },
+  {
+   "at": 2973558,
+   "load": 173.14599609375,
+   "memFree": 54
+  },
+  {
+   "at": 3035845,
+   "load": 75.0185546875,
+   "memFree": 46
+  },
+  {
+   "at": 3097748,
+   "load": 29.1552734375,
+   "memFree": 45
+  },
+  {
+   "at": 3160151,
+   "load": 11.20556640625,
+   "memFree": 47
+  },
+  {
+   "at": 3222071,
+   "load": 7.16845703125,
+   "memFree": 51
+  },
+  {
+   "at": 3284280,
+   "load": 13.4345703125,
+   "memFree": 53
+  },
+  {
+   "at": 3348438,
+   "load": 9.27001953125,
+   "memFree": 50
+  },
+  {
+   "at": 3412170,
+   "load": 10.59423828125,
+   "memFree": 49
+  },
+  {
+   "at": 3474051,
+   "load": 11.58935546875,
+   "memFree": 51
+  },
+  {
+   "at": 3536993,
+   "load": 9.5498046875,
+   "memFree": 50
+  },
+  {
+   "at": 3600381,
+   "load": 8.81005859375,
+   "memFree": 49
+  },
+  {
+   "at": 3667781,
+   "load": 11.3759765625,
+   "memFree": 36
+  },
+  {
+   "at": 3729953,
+   "load": 13.27392578125,
+   "memFree": 32
+  },
+  {
+   "at": 3795070,
+   "load": 21.92724609375,
+   "memFree": 44
+  },
+  {
+   "at": 3857835,
+   "load": 14.9287109375,
+   "memFree": 39
+  },
+  {
+   "at": 3919916,
+   "load": 14.18798828125,
+   "memFree": 32
+  },
+  {
+   "at": 3981614,
+   "load": 9.3115234375,
+   "memFree": 37
+  },
+  {
+   "at": 4042883,
+   "load": 7.2939453125,
+   "memFree": 36
+  },
+  {
+   "at": 4104432,
+   "load": 7.6220703125,
+   "memFree": 38
+  },
+  {
+   "at": 4171271,
+   "load": 19.470703125,
+   "memFree": 38
+  },
+  {
+   "at": 4239491,
+   "load": 14.4775390625,
+   "memFree": 65
+  },
+  {
+   "at": 4306504,
+   "load": 14.7724609375,
+   "memFree": 67
+  },
+  {
+   "at": 4370036,
+   "load": 16.4853515625,
+   "memFree": 64
+  },
+  {
+   "at": 4430127,
+   "load": 19.8720703125,
+   "memFree": 64
+  },
+  {
+   "at": 4494159,
+   "load": 17.9169921875,
+   "memFree": 63
+  },
+  {
+   "at": 4518693,
+   "load": 13.49267578125,
+   "memFree": 63
+  },
+  {
+   "at": 4580744,
+   "load": 9.89208984375,
+   "memFree": 49
+  },
+  {
+   "at": 4647109,
+   "load": 10.150390625,
+   "memFree": 63
+  },
+  {
+   "at": 4712238,
+   "load": 14.20654296875,
+   "memFree": 63
+  },
+  {
+   "at": 4774202,
+   "load": 6.66357421875,
+   "memFree": 60
+  },
+  {
+   "at": 4837454,
+   "load": 12.7763671875,
+   "memFree": 58
+  }
+ ]
+}

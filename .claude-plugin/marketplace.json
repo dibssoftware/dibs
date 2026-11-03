@@ -1,0 +1,14 @@
+{
+  "name": "dibs",
+  "description": "dibs: agents take turns on simulators, builds, test suites and deploys",
+  "owner": {
+    "name": "dibs maintainers"
+  },
+  "plugins": [
+    {
+      "name": "dibs",
+      "source": "./",
+      "description": "A hook that sends heavy Bash commands (xcodebuild, simctl, test suites, deploys) through dibs, guards leased files and caps subagents across sessions, and a skill that tells agents how to use it"
+    }
+  ]
+}

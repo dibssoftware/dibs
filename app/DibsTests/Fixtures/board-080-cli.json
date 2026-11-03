@@ -1,0 +1,405 @@
+{
+ "me": {
+  "name": "mini"
+ },
+ "machine": {
+  "at": 1791961165532,
+  "load": 2.4,
+  "cores": 6,
+  "diskFree": 200000000000,
+  "swapUsed": 0,
+  "memFree": 34,
+  "busy": 2.4,
+  "memTotal": 17179869184,
+  "memHandedOut": 8053063680,
+  "memBudget": 8589934592,
+  "coresHandedOut": 6,
+  "pace": "normal",
+  "maxLoad": 10,
+  "loadAhead": 4.32772503754261
+ },
+ "resets": [],
+ "held": [
+  {
+   "id": 3,
+   "res": [
+    "sim"
+   ],
+   "mem": 3221225472,
+   "cpu": 1,
+   "kind": "run",
+   "who": "ios-checkout",
+   "agent": "ios-checkout",
+   "label": "",
+   "spid": null,
+   "purpose": "checkout flow screenshots",
+   "cmd": "sleep 603",
+   "key": "sim|sleep 603",
+   "cwd": "/Users/me/projects/shop",
+   "start": 1791961126389,
+   "waited": 27,
+   "pid": 51148,
+   "pstart": "Wed Oct 14 02:58:46 2026",
+   "pgid": 51204,
+   "notify": true,
+   "background": false,
+   "pgstart": "Wed Oct 14 02:58:46 2026",
+   "idleSince": 1791961127950,
+   "use": {
+    "mem": 851968,
+    "cpu": 0,
+    "at": 1791961129424
+   },
+   "peak": {
+    "mem": 851968,
+    "cpu": 0
+   },
+   "remaining": 800857,
+   "idleMs": 0,
+   "plain": {
+    "headline": "Using the simulator",
+    "endsText": "about 13 min left",
+    "paused": null
+   }
+  },
+  {
+   "id": 5,
+   "res": [
+    "test"
+   ],
+   "mem": 2147483648,
+   "cpu": 1,
+   "kind": "run",
+   "who": "api-refactor",
+   "agent": "api-refactor",
+   "label": "",
+   "spid": null,
+   "purpose": "full suite",
+   "cmd": "sleep 600",
+   "key": "test|sleep 600",
+   "est": 600000,
+   "cwd": "/Users/me/projects/shop",
+   "start": 1791961128032,
+   "waited": 51,
+   "pid": 51416,
+   "pstart": "Wed Oct 14 02:58:47 2026",
+   "pgid": 51600,
+   "notify": true,
+   "background": false,
+   "pgstart": "Wed Oct 14 02:58:48 2026",
+   "idleSince": 1791961128168,
+   "use": {
+    "mem": 851968,
+    "cpu": 0,
+    "at": 1791961129424
+   },
+   "peak": {
+    "mem": 851968,
+    "cpu": 0
+   },
+   "remaining": 562500,
+   "idleMs": 0,
+   "plain": {
+    "headline": "Running tests",
+    "endsText": "about 9 min left",
+    "paused": null
+   }
+  },
+  {
+   "id": 6,
+   "res": [
+    "deploy"
+   ],
+   "mem": 536870912,
+   "cpu": 1,
+   "kind": "run",
+   "who": "web-app",
+   "agent": "web-app",
+   "label": "",
+   "spid": null,
+   "purpose": "prod is down",
+   "cmd": "sleep 605",
+   "key": "deploy|sleep 605",
+   "prio": "urgent",
+   "cwd": "/Users/me/projects/shop",
+   "start": 1791961128169,
+   "waited": 49,
+   "pid": 51415,
+   "pstart": "Wed Oct 14 02:58:47 2026",
+   "pgid": 51709,
+   "notify": true,
+   "background": false,
+   "pgstart": "Wed Oct 14 02:58:48 2026",
+   "idleSince": 1791961129489,
+   "use": {
+    "mem": 851968,
+    "cpu": 0,
+    "at": 1791961129424
+   },
+   "peak": {
+    "mem": 851968,
+    "cpu": 0
+   },
+   "remaining": null,
+   "idleMs": 0,
+   "plain": {
+    "headline": "Deploying",
+    "endsText": "time left unknown",
+    "paused": null
+   }
+  },
+  {
+   "id": 7,
+   "res": [
+    "test"
+   ],
+   "mem": 2147483648,
+   "cpu": 3,
+   "kind": "run",
+   "who": "api",
+   "agent": "api",
+   "label": "",
+   "spid": null,
+   "purpose": "smoke tests",
+   "cmd": "sleep 601",
+   "key": "test|sleep 601",
+   "cwd": "/Users/me/projects/shop",
+   "start": 1791961159987,
+   "waited": 49,
+   "alongside": {
+    "kind": "fit",
+    "res": [
+     "test"
+    ],
+    "with": [
+     "api-refactor"
+    ],
+    "mem": 644245094,
+    "usually": 120000
+   },
+   "pid": 54932,
+   "pstart": "Wed Oct 14 02:59:19 2026",
+   "pgid": 55006,
+   "notify": true,
+   "background": false,
+   "pgstart": "Wed Oct 14 02:59:19 2026",
+   "idleSince": 1791961160337,
+   "remaining": 114455,
+   "idleMs": 0,
+   "plain": {
+    "headline": "Running tests",
+    "endsText": "about 2 min left",
+    "paused": null,
+    "alongside": "Running alongside api-refactor, since the machine had room"
+   }
+  }
+ ],
+ "waiting": [
+  {
+   "place": 1,
+   "id": 4,
+   "ticket": "onboarding|sim|sleep 604",
+   "res": [
+    "sim"
+   ],
+   "mem": 3221225472,
+   "cpu": 1,
+   "disk": 8589934592,
+   "pid": 51414,
+   "pstart": "Wed Oct 14 02:58:47 2026",
+   "enq": 1791961127902,
+   "who": "onboarding",
+   "agent": "onboarding",
+   "label": "",
+   "spid": null,
+   "purpose": "snapshot tests",
+   "cmd": "sleep 604",
+   "key": "sim|sleep 604",
+   "kind": "run",
+   "expectStart": 1791961966389,
+   "rank": {
+    "value": 1791961127902,
+    "parts": []
+   },
+   "blocked": "slot: sim",
+   "plain": {
+    "place": 1,
+    "of": 1,
+    "headline": "Next in the simulator queue",
+    "startsIn": 800857,
+    "startsText": "about 13 min",
+    "waitingFor": "ios-checkout's checkout flow screenshots to finish (about 13 min left)",
+    "moves": []
+   }
+  },
+  {
+   "place": 2,
+   "id": 8,
+   "ticket": "ios-checkout|xcode-build|sleep 602",
+   "res": [
+    "xcode-build"
+   ],
+   "mem": 8589934592,
+   "cpu": 6,
+   "disk": 4294967296,
+   "asked": 4294967296,
+   "askedCpu": 4,
+   "usual": 15032385536,
+   "pid": 55313,
+   "pstart": "Wed Oct 14 02:59:21 2026",
+   "enq": 1791961161945,
+   "who": "ios-checkout",
+   "agent": "ios-checkout",
+   "label": "",
+   "spid": null,
+   "purpose": "release build",
+   "cmd": "sleep 602",
+   "key": "xcode-build|sleep 602",
+   "kind": "run",
+   "expectStart": 1791961165532,
+   "rank": {
+    "value": 1791961161945,
+    "parts": []
+   },
+   "blocked": "memory",
+   "plain": {
+    "place": 1,
+    "of": 1,
+    "headline": "Next in the Xcode build queue",
+    "startsIn": null,
+    "startsText": "unknown",
+    "waitingFor": "all the memory dibs shares out to be free (it usually uses 14 GB, more than the 8.0 GB there is, and jobs running now have 7.5 GB)",
+    "moves": []
+   }
+  }
+ ],
+ "lines": [
+  {
+   "res": "sim",
+   "label": "Simulator",
+   "serving": [
+    {
+     "id": 3,
+     "who": "ios-checkout",
+     "label": null,
+     "purpose": "checkout flow screenshots",
+     "endsIn": 800857,
+     "endsText": "about 13 min left"
+    }
+   ],
+   "waiting": [
+    4
+   ],
+   "clearsIn": null,
+   "summary": "1 in use, 1 waiting"
+  },
+  {
+   "res": "test",
+   "label": "Test runs",
+   "serving": [
+    {
+     "id": 5,
+     "who": "api-refactor",
+     "label": null,
+     "purpose": "full suite",
+     "endsIn": 562500,
+     "endsText": "about 9 min left"
+    },
+    {
+     "id": 7,
+     "who": "api",
+     "label": null,
+     "purpose": "smoke tests",
+     "endsIn": 114455,
+     "endsText": "about 2 min left"
+    }
+   ],
+   "waiting": [],
+   "clearsIn": 562500,
+   "summary": "2 in use, clear in about 9 min"
+  },
+  {
+   "res": "xcode-build",
+   "label": "Xcode builds",
+   "serving": [],
+   "waiting": [
+    8
+   ],
+   "clearsIn": null,
+   "summary": "Free, 1 waiting"
+  },
+  {
+   "res": "deploy",
+   "label": "Deploys",
+   "serving": [
+    {
+     "id": 6,
+     "who": "web-app",
+     "label": null,
+     "purpose": "prod is down",
+     "endsIn": null,
+     "endsText": "time left unknown"
+    }
+   ],
+   "waiting": [],
+   "clearsIn": null,
+   "summary": "1 in use"
+  },
+  {
+   "res": "sim-own",
+   "label": "Private simulators",
+   "serving": [],
+   "waiting": [],
+   "clearsIn": 0,
+   "summary": "Free"
+  },
+  {
+   "res": "playwright",
+   "label": "Browser tests",
+   "serving": [],
+   "waiting": [],
+   "clearsIn": 0,
+   "summary": "Free"
+  },
+  {
+   "res": "heavy",
+   "label": "Heavy jobs",
+   "serving": [],
+   "waiting": [],
+   "clearsIn": 0,
+   "summary": "Free"
+  }
+ ],
+ "outside": [],
+ "quotas": [],
+ "agents": null,
+ "questions": 1,
+ "notes": 1,
+ "caps": {},
+ "later": [
+  {
+   "id": "l1",
+   "state": "scheduled",
+   "res": [
+    "test"
+   ],
+   "who": "ios-checkout",
+   "agent": "ios-checkout",
+   "purpose": "nightly suite",
+   "cmd": "true",
+   "cwd": "/Users/me/projects/shop",
+   "when": "at 05:59 AM",
+   "at": 1791971964348,
+   "after": null,
+   "ok": false,
+   "created": 1791961164348,
+   "fired": null,
+   "late": null,
+   "ended": null,
+   "code": null,
+   "why": null,
+   "log": "/Users/me/.dibs/later/l1.log",
+   "in": 10798816
+  }
+ ]
+}

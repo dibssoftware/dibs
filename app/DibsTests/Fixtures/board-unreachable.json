@@ -1,0 +1,6 @@
+{
+ "machine": { "memFree": 50, "load": 1, "pace": null },
+ "held": [],
+ "waiting": [],
+ "elsewhere": { "error": "no answer in 1.5s" }
+}

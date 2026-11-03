@@ -1,0 +1,44 @@
+// The dibs relay. Deploy steps and what they touch: README.md in this folder.
+{
+  "name": "dibs-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-01",
+  // The page's only origin. dibs.cc and www.dibs.cc stay the waitlist's.
+  "routes": [
+    { "pattern": "app.dibs.cc", "custom_domain": true },
+    // Remote MCP: https://mcp.dibs.cc/<machine>/mcp and its sign-in, nothing else (src/index.js mcp()).
+    { "pattern": "mcp.dibs.cc", "custom_domain": true },
+    // Routes win over the waitlist's custom domain for these paths only, which redirect here.
+    // Exactly /app and /app/..., so /apple-touch-icon.png and the like stay the waitlist's.
+    { "pattern": "dibs.cc/app", "zone_name": "dibs.cc" },
+    { "pattern": "dibs.cc/app/*", "zone_name": "dibs.cc" }
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": { "PAGE_HOST": "app.dibs.cc", "MCP_HOST": "mcp.dibs.cc" },
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "durable_objects": { "bindings": [{ "name": "MACHINE", "class_name": "Machine" }, { "name": "INDEX", "class_name": "CodeIndex" }] },
+  // CodeIndex holds sign-in code hashes and machine ids for ten minutes at most (src/index.js).
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Machine"] }, { "tag": "v2", "new_sqlite_classes": ["CodeIndex"] }],
+  // Keyed per connecting address in memory only.
+  "ratelimits": [
+    { "name": "RL", "namespace_id": "7423", "simple": { "limit": 20, "period": 60 } },
+    // MCP requests per address: a client's session makes a few dozen a minute.
+    { "name": "RLM", "namespace_id": "7424", "simple": { "limit": 120, "period": 60 } }
+  ],
+  // No request or console logs leave the Worker: nothing about who connected, and never a frame.
+  "observability": { "enabled": false },
+  "logpush": false,
+  "env": {
+    // wrangler dev --env local: the page and the relay on 127.0.0.1, for test/e2e.mjs.
+    "local": {
+      "vars": { "PAGE_HOST": "" },
+      "routes": [],
+      "durable_objects": { "bindings": [{ "name": "MACHINE", "class_name": "Machine" }, { "name": "INDEX", "class_name": "CodeIndex" }] },
+      "ratelimits": [
+        { "name": "RL", "namespace_id": "7423", "simple": { "limit": 1000, "period": 60 } },
+        { "name": "RLM", "namespace_id": "7424", "simple": { "limit": 1000, "period": 60 } }
+      ]
+    }
+  }
+}

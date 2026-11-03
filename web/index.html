@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>dibs</title>
+<link rel="icon" href="/web/logo.png">
+<link rel="preload" href="/web/SchibstedGrotesk.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+<canvas id="dither" aria-hidden="true"></canvas>
+<a class="mark" href="/" aria-label="dibs"><img src="/web/logo.png" alt="" width="38" height="38"></a>
+
+<main id="signin" class="signin" hidden>
+  <div class="ticket-wrap"><form id="signin-form" class="signin-card ticket" autocomplete="off">
+    <h1>Sign in to dibs</h1>
+    <p>Run <code>dibs pair</code> in a terminal on this Mac and type the code it prints. Each code works once, for ten minutes.</p>
+    <label for="code">Code</label>
+    <input id="code" name="code" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH" maxlength="20" required>
+    <p id="signin-error" class="error" role="alert"></p>
+    <button type="submit">Sign in</button>
+  </form></div>
+</main>
+
+<div id="app" class="shell" hidden>
+  <nav class="rail" aria-label="dibs">
+    <div class="views" id="views">
+      <button class="rail-row view" data-view="now"><span class="rail-name">Now</span><span class="rail-meta" id="c-now"></span></button>
+      <button class="rail-row view" data-view="questions"><span class="rail-name">Questions</span><span class="rail-meta" id="c-questions"></span></button>
+      <button class="rail-row view" data-view="messages"><span class="rail-name">Messages</span><span class="rail-meta" id="c-messages"></span></button>
+      <button class="rail-row view" data-view="progress"><span class="rail-name">Progress</span><span class="rail-meta"></span></button>
+      <button class="rail-row view" data-view="queues"><span class="rail-name">Queues</span><span class="rail-meta" id="c-queues"></span></button>
+      <button class="rail-row view" data-view="schedule"><span class="rail-name">Schedule</span><span class="rail-meta"></span></button>
+      <button class="rail-row view" data-view="machines"><span class="rail-name">Machines</span><span class="rail-meta" id="c-machines"></span></button>
+      <button class="rail-row view" data-view="later"><span class="rail-name">Later</span><span class="rail-meta" id="c-later"></span></button>
+      <button class="rail-row view" data-view="stats"><span class="rail-name">Stats</span><span class="rail-meta"></span></button>
+      <button class="rail-row view" data-view="history"><span class="rail-name">History</span><span class="rail-meta"></span></button>
+      <button class="rail-row view" data-view="settings"><span class="rail-name">Settings</span><span class="rail-meta"></span></button>
+    </div>
+    <div class="agents">
+      <div class="rail-head">
+        <span class="rail-title">Agents</span>
+        <span id="agent-count" class="count"></span>
+      </div>
+      <button class="rail-row" data-agent="" aria-current="true">
+        <span class="dot all"></span><span class="rail-name">Everyone</span>
+      </button>
+      <div id="agent-list"></div>
+    </div>
+    <div class="rail-foot">
+      <div class="mach-head"><span class="rail-title" id="mach-name">This Mac</span></div>
+      <div id="meters" class="meters"></div>
+    </div>
+  </nav>
+
+  <main class="panel">
+    <header class="panel-head">
+      <p id="eyebrow" class="eyebrow"></p>
+      <h1 id="title">Now</h1>
+      <p id="summary" class="summary"></p>
+      <p id="asks" class="hold" hidden></p>
+      <p id="hold" class="hold" hidden></p>
+      <p id="toast" class="toast" role="status" hidden></p>
+    </header>
+
+    <div id="v-now" class="view-body">
+      <div id="cap" class="cap" hidden></div>
+      <section id="needs-sec" aria-labelledby="t-needs" hidden>
+        <div class="sec-head"><h2 id="t-needs">Needs you</h2><span id="needs-note" class="sec-note"></span></div>
+        <div id="needs" class="needs"></div>
+      </section>
+      <section aria-labelledby="t-time">
+        <div class="sec-head"><h2 id="t-time">Jobs</h2><span id="tl-note" class="sec-note"></span></div>
+        <div id="timeline" class="sched"></div>
+      </section>
+      <section id="files-sec" aria-labelledby="t-files" hidden>
+        <div class="sec-head"><h2 id="t-files">File locks</h2><span id="files-note" class="sec-note"></span></div>
+        <div id="files" class="list"></div>
+      </section>
+      <section aria-labelledby="t-today">
+        <div class="sec-head"><h2 id="t-today">Today</h2><span class="sec-note">Agents running and waiting at the busiest point of each hour</span></div>
+        <div id="today" class="chart-card"></div>
+      </section>
+    </div>
+
+    <div id="v-questions" class="view-body" hidden></div>
+    <div id="v-messages" class="view-body" hidden></div>
+    <div id="v-progress" class="view-body" hidden></div>
+    <div id="v-queues" class="view-body" hidden></div>
+    <div id="v-schedule" class="view-body" hidden></div>
+    <div id="v-stats" class="view-body" hidden></div>
+    <div id="v-machines" class="view-body" hidden></div>
+    <div id="v-later" class="view-body" hidden></div>
+    <div id="v-history" class="view-body" hidden></div>
+    <div id="v-settings" class="view-body" hidden></div>
+  </main>
+</div>
+
+<dialog id="job" class="sheet" aria-labelledby="job-title"></dialog>
+<script src="/web/transport.js"></script>
+<script src="/web/dither.js"></script>
+<script src="/web/app.js"></script>
+</body>
+</html>

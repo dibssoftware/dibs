@@ -1,0 +1,9 @@
+{
+ "installed": false,
+ "file": "/Users/me/.claude/settings.json",
+ "command": null,
+ "complete": false,
+ "matchers": [],
+ "rewrite": "bypass",
+ "subagents": null
+}

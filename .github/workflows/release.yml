@@ -1,0 +1,65 @@
+name: release
+
+# A tag like v0.0.161: run the suite on both platforms, check every version
+# number agrees with the tag, then attach the source tarball and its checksum
+# to a GitHub release. The Mac app's DMG is signed and notarized on a Mac with
+# app/release.sh, not here: the signing key never leaves that machine.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+      - run: node -e "console.log(require('os').availableParallelism(), 'cores')"
+      # node --test runs one fewer file at a time than there are cores; on a 2-core runner
+      # that was one file at a time (12 min on Linux vs 3.5 on macOS). The tests mostly wait.
+      - run: node --test --test-concurrency=4 --test-timeout=120000 test/*.test.mjs
+
+  publish:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+      - name: The tag matches src/version.mjs
+        run: |
+          v=$(node -e 'import("./src/version.mjs").then(m => console.log(m.VERSION))')
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but src/version.mjs says $v"; exit 1; }
+      - name: Source tarball
+        run: |
+          git archive --format=tar.gz --prefix="dibs-${GITHUB_REF_NAME#v}/" -o "dibs-${GITHUB_REF_NAME#v}.tar.gz" HEAD
+          sha256sum "dibs-${GITHUB_REF_NAME#v}.tar.gz" > "dibs-${GITHUB_REF_NAME#v}.tar.gz.sha256"
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(node -e '
+            const s = require("fs").readFileSync("CHANGELOG.md", "utf8");
+            const parts = s.split(/^## /m);
+            console.log(parts[1] ? parts[1].split("\n").slice(1).join("\n").trim() : "");
+          ')
+          gh release create "$GITHUB_REF_NAME" --title "dibs ${GITHUB_REF_NAME#v}" --notes "$notes" \
+            "dibs-${GITHUB_REF_NAME#v}.tar.gz" "dibs-${GITHUB_REF_NAME#v}.tar.gz.sha256"

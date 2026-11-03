@@ -1,0 +1,38 @@
+{
+  "fill": {
+    "solid": "srgb:0.11765,0.10980,0.10196,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "queue.png",
+          "name": "queue"
+        }
+      ],
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "ticket.png",
+          "name": "ticket"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.35
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.1
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

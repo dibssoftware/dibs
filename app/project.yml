@@ -1,0 +1,67 @@
+name: Dibs
+options:
+  bundleIdPrefix: cc.dibs
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    # Signed to run on this Mac only: no team, no provisioning profile.
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    DEAD_CODE_STRIPPING: YES
+targets:
+  dibs:
+    type: application
+    platform: macOS
+    sources:
+      - path: Dibs
+      # The web page's face and logo, the same files the page serves.
+      - path: ../web/SchibstedGrotesk.woff2
+        buildPhase: resources
+      - path: ../web/logo.png
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: dibs
+        # Screenshot and test builds pass DIBS_BUNDLE_SUFFIX=.dev so they keep
+        # their own settings and never touch the installed app's.
+        DIBS_BUNDLE_SUFFIX: ""
+        PRODUCT_BUNDLE_IDENTIFIER: cc.dibs.mac$(DIBS_BUNDLE_SUFFIX)
+        MARKETING_VERSION: "0.0.174"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: dibs
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # The app runs the dibs command line, which a sandbox would block.
+        ENABLE_APP_SANDBOX: NO
+  DibsTests:
+    type: bundle.unit-test
+    platform: macOS
+    # The tests cover decoding and the alert rules, which are plain Swift, so
+    # they compile those files directly and never launch the app.
+    sources:
+      - path: DibsTests
+        excludes:
+          - "Fixtures/**"
+      - path: DibsTests/Fixtures
+        buildPhase: resources
+      - path: Dibs/Models
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cc.dibs.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  dibs:
+    build:
+      targets:
+        dibs: all
+        DibsTests: [test]
+    test:
+      targets:
+        - DibsTests

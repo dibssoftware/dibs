@@ -1,0 +1,25 @@
+{
+ "since": 1791339400000,
+ "until": 1791944200000,
+ "resources": {
+  "sim": { "busyMs": 39600000, "waits": 41, "waitMs": 11520000, "p50WaitMs": 180000, "p90WaitMs": 840000, "peakQueue": 5, "timeouts": 3 },
+  "xcode-build": { "busyMs": 21600000, "waits": 12, "waitMs": 1800000, "p50WaitMs": 60000, "p90WaitMs": 300000, "peakQueue": 2, "timeouts": 0 },
+  "deploy": { "busyMs": 600000, "waits": 0, "waitMs": 0 }
+ },
+ "agents": {
+  "ios-checkout": { "runs": 80, "holdMs": 20000000, "waitMs": 6000000, "timeouts": 2 },
+  "web-app": { "runs": 12, "holdMs": 4000000, "waitMs": 500000, "timeouts": 0 }
+ },
+ "hourly": [
+  { "hour": 1791932400000, "load": 4.2, "waiting": 1, "held": 2 },
+  { "hour": 1791936000000, "load": 6.8, "waiting": 5, "held": 3 },
+  { "hour": 1791939600000, "load": 3.1, "waiting": 0, "held": 1 }
+ ],
+ "events": [
+  { "at": 1791936100000, "kind": "wait", "res": ["sim"], "who": "ios-checkout", "prio": "normal" },
+  { "at": 1791936200000, "kind": "wait", "res": ["sim"], "who": "web-app" },
+  { "at": 1791932500000, "kind": "wait", "res": "sim", "who": "web-app" },
+  { "at": 1791936300000, "kind": "start", "res": ["sim"], "who": "ios-checkout", "ms": 200000 },
+  { "at": 1791936400000, "kind": "override", "res": ["test"], "who": "owner", "code": null }
+ ]
+}

@@ -1,0 +1,47 @@
+{
+ "machine": { "diskFree": 41000000000, "swapUsed": 0, "memFree": 38, "load": 7.4, "cores": 10, "pace": "quiet", "maxLoad": 5 },
+ "held": [
+  {
+   "id": 801, "res": ["xcode-build"], "kind": "run", "who": "ios-checkout", "agent": "ios-checkout", "label": "tests",
+   "purpose": "release build", "cmd": "xcodebuild -scheme App build", "prio": "high", "start": 1791944000000,
+   "remaining": 60000, "idleMs": 0, "you": true
+  },
+  {
+   "id": 802, "res": ["test"], "kind": "run", "who": "api-refactor", "label": "", "purpose": "", "cmd": "npm test",
+   "prio": "low", "start": 1791943900000, "pausedAt": 1791944100000,
+   "pauses": [ { "lease": 801, "who": "ios-checkout" }, { "lease": 801, "who": "ios-checkout" } ]
+  },
+  {
+   "id": 803, "res": ["heavy"], "kind": "run", "who": "indexer", "purpose": "embeddings", "cmd": "python embed.py",
+   "prio": "idle", "start": 1791943000000, "pausedAt": 1791944150000, "pauses": [ { "who": "memory" } ]
+  }
+ ],
+ "waiting": [
+  {
+   "place": 1, "id": 810, "res": ["deploy"], "who": "web-app", "agent": "web-app", "purpose": "ship 1.4 to prod",
+   "cmd": "./ship.sh", "prio": "urgent", "enq": 1791943500000, "expectStart": 1791944300000, "by": 1791945000000,
+   "blocked": "blocked by deploy", "rank": { "parts": [ { "label": "urgent", "shift": 1800000 } ] }
+  },
+  {
+   "place": 2, "id": 811, "res": ["sim", "xcode-build"], "who": "ios-checkout", "label": "ui", "purpose": "snapshot tests",
+   "cmd": "./ui-test.sh", "enq": 1791944100000
+  }
+ ],
+ "quotas": [ { "name": "asc", "left": 212.4, "limit": 300, "per": "1h" }, { "name": "broken", "error": "per must be a duration" } ],
+ "agents": null,
+ "elsewhere": {
+  "machines": [
+   {
+    "name": "studio", "load": 2.1, "memFree": 71, "diskFree": 300000000000, "version": "0.0.70", "lost": false, "age": 25000,
+    "board": {
+     "held": [ { "res": ["sim"], "who": "studio-agent", "label": "", "for": 120000, "left": null, "paused": null, "purpose": "", "cmd": null } ],
+     "waiting": [ { "res": ["sim"], "who": "lead@this-mac", "waited": 30000, "in": 90000, "due": null, "blocked": "behind studio-agent", "purpose": "", "prio": "high" } ],
+     "free": ["xcode-build(2)"]
+    }
+   },
+   { "name": "old-mini", "version": "0.0.50", "lost": false, "age": 1000 },
+   { "name": "laptop", "version": "0.0.70", "lost": true, "age": 600000 },
+   { "name": "this-mac", "version": "0.0.70", "lost": false, "age": 0, "board": { "held": [], "waiting": [], "free": [] } }
+  ]
+ }
+}

@@ -1,0 +1,433 @@
+{
+ "me": {
+  "name": "mini"
+ },
+ "machine": {
+  "diskFree": 38400000000,
+  "swapUsed": 1200000000,
+  "memFree": 41,
+  "load": 6.2,
+  "cores": 10,
+  "pace": "normal",
+  "maxLoad": 10
+ },
+ "held": [
+  {
+   "id": 901,
+   "res": [
+    "sim"
+   ],
+   "kind": "hold",
+   "who": "ios-checkout",
+   "label": "",
+   "purpose": "checkout flow screenshots",
+   "cmd": "",
+   "start": 1791945628000,
+   "remaining": 840000,
+   "plain": {
+    "headline": "Using the simulator",
+    "endsText": "up to 14 min left",
+    "paused": null
+   }
+  },
+  {
+   "id": 902,
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "who": "web-app",
+   "label": "ci",
+   "purpose": "release build",
+   "cmd": "xcodebuild -scheme Shop -configuration Release build",
+   "prio": "high",
+   "start": 1791945870000,
+   "remaining": 180000,
+   "plain": {
+    "headline": "Using Xcode builds",
+    "endsText": "about 3 min left",
+    "paused": null
+   }
+  },
+  {
+   "id": 903,
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "who": "api-refactor",
+   "label": "",
+   "purpose": "full suite",
+   "cmd": "npm test",
+   "prio": "low",
+   "start": 1791945340000,
+   "pausedAt": 1791945960000,
+   "pauses": [
+    {
+     "owner": true,
+     "at": 1791945960000
+    }
+   ],
+   "plain": {
+    "headline": "Using test runs",
+    "endsText": "time left unknown",
+    "paused": "Paused by the person at this machine"
+   }
+  }
+ ],
+ "waiting": [
+  {
+   "place": 1,
+   "id": 910,
+   "res": [
+    "sim"
+   ],
+   "who": "onboarding",
+   "purpose": "snapshot tests",
+   "cmd": "./ui-test.sh",
+   "prio": "normal",
+   "enq": 1791945758000,
+   "expectStart": 1791946840000,
+   "blocked": "slot: sim",
+   "pid": 1,
+   "rank": {
+    "parts": [
+     {
+      "label": "short job",
+      "shift": 180000
+     },
+     {
+      "label": "recent use",
+      "shift": -330000
+     }
+    ]
+   },
+   "plain": {
+    "place": 1,
+    "of": 2,
+    "headline": "Next for the simulator",
+    "startsIn": 840000,
+    "startsText": "about 14 min",
+    "waitingFor": "ios-checkout to give the simulator back (up to 14 min left)",
+    "moves": [
+     {
+      "dir": "up",
+      "amount": "3 min",
+      "label": "short job",
+      "reason": "it's a short job (about 2 min)"
+     },
+     {
+      "dir": "down",
+      "amount": "5 min",
+      "label": "taking turns",
+      "reason": "this agent used the simulator a lot in the last hour"
+     }
+    ]
+   }
+  },
+  {
+   "place": 2,
+   "id": 911,
+   "res": [
+    "sim",
+    "xcode-build"
+   ],
+   "who": "ios-checkout",
+   "label": "ui",
+   "purpose": "install and tap through",
+   "cmd": "./build-and-install.sh",
+   "enq": 1791945920000,
+   "expectStart": 1791947140000,
+   "blocked": "behind onboarding",
+   "pid": 3,
+   "plain": {
+    "place": 2,
+    "of": 2,
+    "headline": "2nd in line for the simulator",
+    "startsIn": 1140000,
+    "startsText": "as soon as onboarding finishes",
+    "waitingFor": "onboarding's snapshot tests to go first. They're ahead in line.",
+    "moves": []
+   }
+  },
+  {
+   "place": 1,
+   "id": 912,
+   "res": [
+    "deploy"
+   ],
+   "who": "web-app",
+   "purpose": "ship 1.4 to prod",
+   "cmd": "./ship.sh",
+   "prio": "urgent",
+   "askedPrio": "normal",
+   "owner": {
+    "act": "boost",
+    "prio": "urgent",
+    "at": 1791945970000
+   },
+   "enq": 1791945750000,
+   "expectStart": 1791946060000,
+   "by": 1791947800000,
+   "blocked": "load",
+   "pid": 2,
+   "rank": {
+    "parts": [
+     {
+      "label": "urgent",
+      "shift": 1800000
+     }
+    ]
+   },
+   "plain": {
+    "place": 1,
+    "of": 1,
+    "headline": "Next for deploys",
+    "startsIn": 60000,
+    "startsText": "about 1 min",
+    "waitingFor": "this Mac to cool down. It is working hard, so new work waits a moment.",
+    "moves": [
+     {
+      "dir": "up",
+      "amount": "30 min",
+      "label": "set by the person",
+      "reason": "the person at this machine set it to urgent"
+     }
+    ]
+   }
+  },
+  {
+   "place": 1,
+   "id": 913,
+   "res": [
+    "heavy"
+   ],
+   "who": "indexer",
+   "purpose": "rebuild embeddings",
+   "cmd": "python embed.py",
+   "prio": "idle",
+   "enq": 1791944500000,
+   "expectStart": null,
+   "blocked": "idle",
+   "pid": 4,
+   "owner": {
+    "act": "cap",
+    "prio": "idle",
+    "at": 1791938800000
+   },
+   "askedPrio": "normal",
+   "rank": {
+    "parts": [
+     {
+      "label": "idle",
+      "shift": -3600000
+     }
+    ]
+   },
+   "plain": {
+    "place": 1,
+    "of": 1,
+    "headline": "Next for heavy jobs",
+    "startsIn": null,
+    "startsText": "unknown",
+    "waitingFor": "everyone else to finish. Background work goes last.",
+    "moves": [
+     {
+      "dir": "down",
+      "amount": "1 hr",
+      "label": "capped by the person",
+      "reason": "the person at this machine capped this agent at idle"
+     }
+    ]
+   }
+  }
+ ],
+ "lines": [
+  {
+   "res": "sim",
+   "label": "Simulator",
+   "serving": [
+    {
+     "id": 901,
+     "who": "ios-checkout",
+     "label": "",
+     "purpose": "checkout flow screenshots",
+     "endsIn": 840000,
+     "endsText": "up to 14 min left"
+    }
+   ],
+   "waiting": [
+    910,
+    911
+   ],
+   "clearsIn": 1860000,
+   "summary": "1 in use, 2 waiting, clear in about 31 min"
+  },
+  {
+   "res": "xcode-build",
+   "label": "Xcode builds",
+   "serving": [
+    {
+     "id": 902,
+     "who": "web-app",
+     "label": "ci",
+     "purpose": "release build",
+     "endsIn": 180000,
+     "endsText": "about 3 min left"
+    }
+   ],
+   "waiting": [
+    911
+   ],
+   "clearsIn": 1560000,
+   "summary": "1 in use, 1 waiting, clear in about 26 min"
+  },
+  {
+   "res": "deploy",
+   "label": "Deploys",
+   "serving": [],
+   "waiting": [
+    912
+   ],
+   "clearsIn": 300000,
+   "summary": "1 waiting, clear in about 5 min"
+  },
+  {
+   "res": "heavy",
+   "label": "Heavy jobs",
+   "serving": [],
+   "waiting": [
+    913
+   ],
+   "clearsIn": null,
+   "summary": "1 waiting"
+  },
+  {
+   "res": "test",
+   "label": "Test runs",
+   "serving": [
+    {
+     "id": 903,
+     "who": "api-refactor",
+     "label": "",
+     "purpose": "full suite",
+     "endsIn": null,
+     "endsText": "time left unknown"
+    }
+   ],
+   "waiting": [],
+   "clearsIn": null,
+   "summary": "1 in use"
+  },
+  {
+   "res": "playwright",
+   "label": "Browser tests",
+   "serving": [],
+   "waiting": [],
+   "clearsIn": null,
+   "summary": "Free"
+  },
+  {
+   "res": "sim-own",
+   "label": "Private simulators",
+   "serving": [],
+   "waiting": [],
+   "clearsIn": null,
+   "summary": "Free"
+  }
+ ],
+ "caps": {
+  "indexer": {
+   "prio": "idle",
+   "at": 1791938800000
+  }
+ },
+ "quotas": [
+  {
+   "name": "asc",
+   "left": 212,
+   "limit": 300,
+   "per": "1h"
+  }
+ ],
+ "agents": {
+  "slots": 8,
+  "running": [
+   {
+    "who": "lead",
+    "type": "review"
+   },
+   {
+    "who": "lead",
+    "type": "tests"
+   },
+   {
+    "who": "web-app",
+    "type": "search"
+   }
+  ]
+ },
+ "elsewhere": {
+  "machines": [
+   {
+    "name": "mini",
+    "version": "0.8.0",
+    "lost": false,
+    "age": 300,
+    "board": {
+     "held": [],
+     "waiting": [],
+     "free": [
+      "playwright",
+      "sim-own"
+     ]
+    }
+   },
+   {
+    "name": "studio",
+    "load": 2.1,
+    "memFree": 72,
+    "diskFree": 310000000000,
+    "version": "0.7.0",
+    "lost": false,
+    "age": 1500,
+    "board": {
+     "held": [
+      {
+       "res": [
+        "heavy"
+       ],
+       "who": "indexer",
+       "label": "",
+       "for": 1920000,
+       "left": 1200000,
+       "paused": null,
+       "purpose": "rebuild embeddings",
+       "cmd": "python embed.py",
+       "prio": "idle"
+      }
+     ],
+     "waiting": [
+      {
+       "res": [
+        "heavy"
+       ],
+       "who": "ios-checkout@mini",
+       "waited": 40000,
+       "in": 1200000,
+       "due": null,
+       "blocked": "blocked by budget: 4G of 8G left",
+       "purpose": "archive"
+      }
+     ],
+     "free": [
+      "sim",
+      "xcode-build(1)",
+      "test(3)",
+      "deploy"
+     ]
+    }
+   }
+  ]
+ }
+}

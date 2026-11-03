@@ -1,0 +1,30 @@
+{
+ "installed": true,
+ "file": "/Users/me/.dibs/settings.json",
+ "command": "/Users/me/.dibs-cli/bin/dibs-guard.mjs",
+ "complete": true,
+ "matchers": [
+  {
+   "event": "PreToolUse",
+   "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit"
+  },
+  {
+   "event": "PreToolUse",
+   "matcher": "Agent|Task"
+  },
+  {
+   "event": "SubagentStart",
+   "matcher": null
+  },
+  {
+   "event": "SubagentStop",
+   "matcher": null
+  },
+  {
+   "event": "Stop",
+   "matcher": null
+  }
+ ],
+ "rewrite": "bypass",
+ "subagents": null
+}

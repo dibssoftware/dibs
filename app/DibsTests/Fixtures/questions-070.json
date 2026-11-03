@@ -1,0 +1,45 @@
+{
+ "questions": [
+  {
+   "id": 1,
+   "who": "ios-checkout",
+   "agent": "ios-checkout",
+   "session": "00000000-0000-0000-0000-000000000000",
+   "text": "Ship 123 to TestFlight now?",
+   "options": [
+    "yes",
+    "no"
+   ],
+   "prio": "high",
+   "purpose": "",
+   "asked": 1791946067040,
+   "due": null,
+   "state": "open",
+   "answer": null,
+   "answeredAt": null,
+   "waiting": false,
+   "held": false
+  },
+  {
+   "id": 2,
+   "who": "web-app",
+   "agent": "web-app",
+   "session": "00000000-0000-0000-0000-000000000000",
+   "text": "Drop the sessions table?",
+   "options": null,
+   "prio": "normal",
+   "purpose": "",
+   "asked": 1791946067117,
+   "due": null,
+   "state": "answered",
+   "answer": "not yet",
+   "answeredAt": 1791946067346,
+   "waiting": false,
+   "held": false
+  }
+ ],
+ "hours": {
+  "start": "09:00",
+  "end": "23:00"
+ }
+}

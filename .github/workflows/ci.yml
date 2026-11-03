@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # 26.12.1 has the fix for CVE-2026-111497 (Brotli decoder). Pinned, never a range.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+      - run: node --version
+      - run: node -e "console.log(require('os').availableParallelism(), 'cores')"
+      # node --test runs one fewer file at a time than there are cores; on a 2-core runner
+      # that was one file at a time (12 min on Linux vs 3.5 on macOS). The tests mostly wait.
+      - run: node --test --test-concurrency=4 --test-timeout=120000 test/*.test.mjs

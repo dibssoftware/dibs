@@ -1,0 +1,261 @@
+{
+ "me": {
+  "name": "mini"
+ },
+ "machine": {
+  "diskFree": 38400000000,
+  "swapUsed": 1200000000,
+  "memFree": 41,
+  "load": 6.2,
+  "cores": 10,
+  "pace": "normal",
+  "maxLoad": 10
+ },
+ "held": [
+  {
+   "id": 901,
+   "res": [
+    "sim"
+   ],
+   "kind": "hold",
+   "who": "ios-checkout",
+   "label": "",
+   "purpose": "checkout flow screenshots",
+   "cmd": "",
+   "start": 1791945628000,
+   "remaining": 840000
+  },
+  {
+   "id": 902,
+   "res": [
+    "xcode-build"
+   ],
+   "kind": "run",
+   "who": "web-app",
+   "label": "ci",
+   "purpose": "release build",
+   "cmd": "xcodebuild -scheme Shop -configuration Release build",
+   "prio": "high",
+   "start": 1791945870000,
+   "remaining": 180000
+  },
+  {
+   "id": 903,
+   "res": [
+    "test"
+   ],
+   "kind": "run",
+   "who": "api-refactor",
+   "label": "",
+   "purpose": "full suite",
+   "cmd": "npm test",
+   "prio": "low",
+   "start": 1791945340000,
+   "pausedAt": 1791945960000,
+   "pauses": [
+    {
+     "owner": true,
+     "at": 1791945960000
+    }
+   ]
+  }
+ ],
+ "waiting": [
+  {
+   "place": 1,
+   "id": 910,
+   "res": [
+    "sim"
+   ],
+   "who": "onboarding",
+   "purpose": "snapshot tests",
+   "cmd": "./ui-test.sh",
+   "prio": "normal",
+   "enq": 1791945758000,
+   "expectStart": 1791946840000,
+   "blocked": "slot: sim",
+   "pid": 1,
+   "rank": {
+    "parts": [
+     {
+      "label": "short job",
+      "shift": 180000
+     },
+     {
+      "label": "recent use",
+      "shift": -330000
+     }
+    ]
+   }
+  },
+  {
+   "place": 2,
+   "id": 911,
+   "res": [
+    "sim",
+    "xcode-build"
+   ],
+   "who": "ios-checkout",
+   "label": "ui",
+   "purpose": "install and tap through",
+   "cmd": "./build-and-install.sh",
+   "enq": 1791945920000,
+   "expectStart": 1791947140000,
+   "blocked": "behind onboarding",
+   "pid": 3
+  },
+  {
+   "place": 1,
+   "id": 912,
+   "res": [
+    "deploy"
+   ],
+   "who": "web-app",
+   "purpose": "ship 1.4 to prod",
+   "cmd": "./ship.sh",
+   "prio": "urgent",
+   "askedPrio": "normal",
+   "owner": {
+    "act": "boost",
+    "prio": "urgent",
+    "at": 1791945970000
+   },
+   "enq": 1791945750000,
+   "expectStart": 1791946060000,
+   "by": 1791947800000,
+   "blocked": "load",
+   "pid": 2,
+   "rank": {
+    "parts": [
+     {
+      "label": "urgent",
+      "shift": 1800000
+     }
+    ]
+   }
+  },
+  {
+   "place": 1,
+   "id": 913,
+   "res": [
+    "heavy"
+   ],
+   "who": "indexer",
+   "purpose": "rebuild embeddings",
+   "cmd": "python embed.py",
+   "prio": "idle",
+   "enq": 1791944500000,
+   "expectStart": null,
+   "blocked": "idle",
+   "pid": 4,
+   "owner": {
+    "act": "cap",
+    "prio": "idle",
+    "at": 1791938800000
+   },
+   "askedPrio": "normal",
+   "rank": {
+    "parts": [
+     {
+      "label": "idle",
+      "shift": -3600000
+     }
+    ]
+   }
+  }
+ ],
+ "caps": {
+  "indexer": {
+   "prio": "idle",
+   "at": 1791938800000
+  }
+ },
+ "quotas": [
+  {
+   "name": "asc",
+   "left": 212,
+   "limit": 300,
+   "per": "1h"
+  }
+ ],
+ "agents": {
+  "slots": 8,
+  "running": [
+   {
+    "who": "lead",
+    "type": "review"
+   },
+   {
+    "who": "lead",
+    "type": "tests"
+   },
+   {
+    "who": "web-app",
+    "type": "search"
+   }
+  ]
+ },
+ "elsewhere": {
+  "machines": [
+   {
+    "name": "mini",
+    "version": "0.8.0",
+    "lost": false,
+    "age": 300,
+    "board": {
+     "held": [],
+     "waiting": [],
+     "free": [
+      "playwright",
+      "sim-own"
+     ]
+    }
+   },
+   {
+    "name": "studio",
+    "load": 2.1,
+    "memFree": 72,
+    "diskFree": 310000000000,
+    "version": "0.7.0",
+    "lost": false,
+    "age": 1500,
+    "board": {
+     "held": [
+      {
+       "res": [
+        "heavy"
+       ],
+       "who": "indexer",
+       "label": "",
+       "for": 1920000,
+       "left": 1200000,
+       "paused": null,
+       "purpose": "rebuild embeddings",
+       "cmd": "python embed.py",
+       "prio": "idle"
+      }
+     ],
+     "waiting": [
+      {
+       "res": [
+        "heavy"
+       ],
+       "who": "ios-checkout@mini",
+       "waited": 40000,
+       "in": 1200000,
+       "due": null,
+       "blocked": "blocked by budget: 4G of 8G left",
+       "purpose": "archive"
+      }
+     ],
+     "free": [
+      "sim",
+      "xcode-build(1)",
+      "test(3)",
+      "deploy"
+     ]
+    }
+   }
+  ]
+ }
+}

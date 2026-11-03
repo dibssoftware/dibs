@@ -1,0 +1,15 @@
+{
+ "questions": [
+  { "id": 4, "who": "ios-checkout", "agent": "ios-checkout", "session": "abc", "text": "Ship 123 to TestFlight now?",
+    "options": ["yes", "no"], "prio": "normal", "asked": 1791944000000, "due": null, "state": "open", "answer": null, "answeredAt": null },
+  { "id": 5, "who": "web-app", "text": "Prod migration drops the old sessions table. Go ahead?", "options": null,
+    "prio": "high", "asked": 1791944100000, "due": 1791947000000, "state": "open" },
+  { "id": 6, "who": "web-app", "text": "Which region first?", "options": ["us-east", "eu-west"],
+    "prio": "high", "asked": 1791944050000, "due": null, "state": "open" },
+  { "id": 2, "who": "api-refactor", "text": "Rename the v1 routes?", "options": null, "prio": "normal",
+    "asked": 1791930000000, "due": null, "state": "answered", "answer": "not yet", "answeredAt": 1791931000000 },
+  { "id": "q-legacy", "who": "indexer", "text": "Rebuild the index tonight?", "prio": "low",
+    "asked": 1791920000000, "state": "snoozed" }
+ ],
+ "hours": { "start": "09:00", "end": "23:00" }
+}
