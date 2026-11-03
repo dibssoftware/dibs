@@ -308,7 +308,10 @@ test('a stuck broker is replaced by the throttle watcher, and its waiters go on'
   assert.ok(!alive(old), 'the stuck one is gone');
   // The watcher logs it once the new broker is up, a moment after.
   const cool = path.join(home, 'cool.log');
-  await until(() => fs.existsSync(cool) && fs.readFileSync(cool, 'utf8').includes(`broker ${old} stuck`));
+  await until(() => fs.existsSync(cool) && fs.readFileSync(cool, 'utf8').includes(`broker ${old} stuck`)).catch(e => {
+    throw new Error(`${e.message}\nwatcher alive ${alive(watcher.pid)}\ncool.log: ${fs.existsSync(cool) ? fs.readFileSync(cool, 'utf8').slice(-1500) : '(none)'}`
+      + `\nthin events: ${JSON.stringify(events(home).filter(x => x.kind === 'thin'))}\nbroker: ${JSON.stringify(state(home).broker)}`);
+  });
   assert.ok(events(home).some(e => e.kind === 'thin' && e.why === 'stuck broker replaced' && e.pid === old));
   unblock(home);
   assert.equal(await p.done, 0, p.err);
