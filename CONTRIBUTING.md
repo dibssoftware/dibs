@@ -12,7 +12,7 @@ Open your pull request first. A maintainer replies with the agreement to sign, o
 
 [AGENTS.md](AGENTS.md) has the rules every change follows, for people and coding agents alike. The short version:
 
-- No dependencies. Node built-ins only, no package.json, no build step.
+- No dependencies. Node built-ins only. `package.json` exists only so `npm i -g @dibssoftware/dibs` works: it has no dependencies and no scripts, and it stays that way.
 - Exit codes and `~/.dibs/state.json` are an API. Agents on the old version and the new one share the state file.
 - Every bug fix comes with a test that failed before the fix.
 - No emojis, no em dashes, no curly quotes, in code, output or docs.

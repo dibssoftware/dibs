@@ -15,6 +15,7 @@ const found = (re, text) => text.match(re)?.[1] ?? null;
 test('the version is the same in every file a release bumps, and the CHANGELOG starts with it', () => {
   const places = {
     '.claude-plugin/plugin.json version': JSON.parse(read('.claude-plugin/plugin.json')).version,
+    'package.json version': JSON.parse(read('package.json')).version,
     'install.sh DEFAULT_VERSION': found(/^DEFAULT_VERSION="v([\d.]+)"/m, read('install.sh')),
     'README.md install link': found(/raw\.githubusercontent\.com\/[^/]+\/dibs\/v([\d.]+)\/install\.sh/, read('README.md')),
     'app/project.yml MARKETING_VERSION': found(/MARKETING_VERSION: "([\d.]+)"/, read('app/project.yml')),
@@ -28,3 +29,12 @@ test('the version is the same in every file a release bumps, and the CHANGELOG s
   assert.deepEqual(wrong, [], `src/version.mjs says ${VERSION}, but:\n  ${wrong.join('\n  ')}`);
 });
 
+
+// package.json exists only so npm i -g @dibssoftware/dibs works: nothing to install and
+// nothing that runs on the installing machine.
+test('package.json has no dependencies and no scripts, and ships the folders install.sh ships', () => {
+  const pkg = JSON.parse(read('package.json'));
+  for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'bundleDependencies', 'scripts']) assert.equal(pkg[k], undefined, `package.json has ${k}`);
+  assert.equal(pkg.bin.dibs, 'bin/dibs.mjs');
+  for (const f of ['bin/', 'src/', 'LICENSE']) assert.ok(pkg.files.includes(f), `package.json files lacks ${f}`);
+});

@@ -14,7 +14,7 @@ curl -fsSL https://dibs.cc/install.sh | sh
 
 It downloads the release tarball from dibs.cc, checks its sha256, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and exits nonzero, having installed nothing. Each release's tarball and sum are at `https://dibs.cc/releases/dibs-v<version>.tar.gz` and `.tar.gz.sha256`.
 
-Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.178/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
+Or from npm: `npm i -g @dibssoftware/dibs`. Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.178/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
 
 ## The first five commands
 
@@ -64,7 +64,7 @@ The guard rewrites a bare `xcodebuild` or `npm test` into `dibs run ...` only in
 
 If you run one agent at a time, you don't need this.
 
-**Upgrade** by running the install line again. It swaps `~/.dibs-cli` in one step, and your queue and settings in `~/.dibs` stay. Then `dibs guard install` again, from Terminal, so the hook has every event the new version listens to. A plugin install updates with `claude plugin update dibs@dibs` in Terminal, or in Claude Code from `/plugin`, Installed, dibs, Update now. Run `/reload-plugins` to load it in a session that's already open.
+**Upgrade** by running the install line again (or `npm i -g @dibssoftware/dibs` again). It swaps `~/.dibs-cli` in one step, and your queue and settings in `~/.dibs` stay. Then `dibs guard install` again, from Terminal, so the hook has every event the new version listens to. A plugin install updates with `claude plugin update dibs@dibs` in Terminal, or in Claude Code from `/plugin`, Installed, dibs, Update now. Run `/reload-plugins` to load it in a session that's already open.
 
 **Uninstall**, from Terminal:
 

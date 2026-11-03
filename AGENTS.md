@@ -12,7 +12,7 @@ If the `dibs` on your PATH is a link into a git checkout (`~/bin/dibs` -> `~/dib
 
 ## Rules that don't bend
 
-- **No dependencies.** Node built-ins only, on Node 22.23.4, 24.22.1, 26.12.1 or newer (src/nodecheck.mjs: older lines have the Brotli hole CVE-2026-111497). No package.json, no build step. If you want a library, write the 30 lines you actually need.
+- **No dependencies.** Node built-ins only, on Node 22.23.4, 24.22.1, 26.12.1 or newer (src/nodecheck.mjs: older lines have the Brotli hole CVE-2026-111497). No build step. `package.json` is only for distribution (`npm i -g @dibssoftware/dibs`): no dependencies, no scripts, ever. If you want a library, write the 30 lines you actually need.
 - **The lease ends when the command ends.** Exit, crash or kill -9: the lease is released and the process tree is killed (or resumed and killed, if paused). Any new state must be reaped the same way, on the next state read, by whoever reads it.
 - **State stays compatible.** Agents on the old version and the new one share `~/.dibs/state.json` during a rollout. New fields are optional; never rename or repurpose one.
 - **Exit codes are an API.** The command's own code, or 75 timed out waiting (did not run), 74 not enough disk, 76 lost the coordinator or remote machine before the job started (safe to send again), 77 lost it after the job started on another machine (it may have run; check before rerunning), 70 dibs itself crashed (a bug in dibs, never the command's failure), 127 command didn't start, 2 bad usage, 1 nothing matched. Agents branch on these. A new one goes in DIBS_CODES (src/commands.mjs), `dibs help all`, the README's table, SKILL.md and the session primer (src/primer.mjs).
@@ -91,7 +91,7 @@ Every bug fix comes with a test that failed before the fix.
 ## Releasing
 
 1. The suite passes twice in a row on the branch.
-2. Bump `src/version.mjs`, the `version` in `.claude-plugin/plugin.json` (installed plugins only update when it changes), `DEFAULT_VERSION` in `install.sh`, the install link in README.md and `MARKETING_VERSION` in `app/project.yml`, then run `xcodegen generate` in `app/`. test/version.test.mjs fails until they all agree with each other and with the top CHANGELOG section.
+2. Bump `src/version.mjs`, the `version` in `.claude-plugin/plugin.json` (installed plugins only update when it changes), `DEFAULT_VERSION` in `install.sh`, the `version` in `package.json`, the install link in README.md and `MARKETING_VERSION` in `app/project.yml`, then run `xcodegen generate` in `app/`. test/version.test.mjs fails until they all agree with each other and with the top CHANGELOG section.
 3. `claude plugin validate --strict .` passes. The repo root is the plugin root, so everything in it ships in the plugin's copy, and a `CLAUDE.md` at the root fails the check; contributor instructions live in `.claude/CLAUDE.md`.
 4. Add a section to the top of `CHANGELOG.md`. Every session sees it once, so write it for agents: what to do differently, not how it works inside.
 5. If the way agents should call dibs changed, update `skills/dibs/SKILL.md`, the "Tell your agents" snippet in README.md, and the dibs section in your own global agent instructions.
@@ -155,6 +155,7 @@ hooks/hooks.json    the plugin's guard hook
 skills/dibs/        the plugin's skill: how agents should use dibs
 docs/               the deep parts of the user docs
 install.sh          per-user install into ~/.dibs-cli; dibs.cc serves it, the release's sum written in
+package.json        only so npm i -g @dibssoftware/dibs works: no dependencies, no scripts
 release.sh          publishing a release on dibs.cc: the tarball, its sum, install.sh and the Mac app
 ```
 
