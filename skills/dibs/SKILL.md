@@ -1,6 +1,6 @@
 ---
 name: dibs
-description: How to take turns with other agents on this machine's simulators, Xcode builds, test suites, browser runs, deploys and shared files using the dibs CLI, post progress, and ask the person questions. Use before running xcodebuild, xcrun simctl, swift test, Playwright, jest, vitest, npm test, node --test or a deploy, before editing files other agents may touch, before asking the person anything, when a command, edit or subagent spawn was blocked or rewritten by dibs guard, or when dibs exits 1, 2, 70, 74, 75, 76 or 77.
+description: How to take turns with other agents on this machine's simulators, Xcode builds, test suites, browser runs, deploys and shared files using the dibs CLI, post progress, and ask the person questions. Use before running xcodebuild, xcrun simctl, swift test, Playwright, jest, vitest, npm test, node --test or a deploy, before editing files other agents may touch, before asking the person anything, before ending a turn while waiting on another agent or the person, when a command, edit or subagent spawn was blocked or rewritten by dibs guard, or when dibs exits 1, 2, 3, 70, 74, 75, 76 or 77.
 ---
 
 # dibs
@@ -45,6 +45,20 @@ dibs run test -- sh -c 'npm run build && npm test'                  # a shell li
 - A resource name close to a real one (`simulator`, `tests`) is refused with exit 2 and the right name. A new name of your own starts its own queue.
 - A suite that takes minutes: `dibs run test --shards 2 -- npx vitest run` splits it across the group's machines and merges the output and exit codes. vitest and `node --test` suites that usually take over 5 minutes split on their own; `--no-shard` keeps one piece.
 
+### Listening for messages
+
+`dibs listen`, started with run_in_background, waits until something comes for you, prints all of it and exits 0, and that exit wakes you even while you sit idle. Start it at the start of your session and again each time it exits. What wakes it:
+
+- a message for you (`dibs tell`, from the person or another agent)
+- the person answering your question in their own words
+- a notice from dibs about your own jobs
+- dibs on this machine was updated: it prints what changed since your last version, once
+- a newer dibs is out on dibs.cc ("dibs X is out (you have Y)"): the person upgrades it; don't upgrade it yourself. Asked at most every 6 hours per machine, never from a git checkout, off with `"updateCheck": false` in config.json.
+
+Exit 0 ends with "To keep listening, start dibs listen again with run_in_background." Exit 3 means nothing came within `--for` (60m by default). Either way, start it again. `--json` gives `{ messages }`, `{ updated, changes }` or `{ release }`.
+
+One listener per agent: the main agent of a session, and each subagent, separately. A newer one replaces the older, which exits 0 saying another took over. Messages that arrive while you work come with your next tool call instead; none is lost or handed over twice. If you end a turn after your listener exited, the hook keeps you going once with "re-arm: your dibs listen has ended". The board, `dibs threads` and `dibs tell` say who is listening.
+
 ### Holding across tool calls
 
 `dibs hold <res> --for 20m -m "why"` waits for its turn like `dibs run`, then returns. Keep wrapping each command in `dibs run <res> -- ...`: under your hold it starts without waiting. Run the hold again to extend it; an hour is the most it gets at once. `dibs release <res>` when you're done. `dibs mine` lists what you hold and wait for, and exits 1 when that's nothing, which is the clean result after a release.
@@ -54,7 +68,7 @@ A script running under `dibs run deploy` that calls `dibs run xcode-build` waits
 ### When dibs holds you back
 
 - **Memory, swap or disk** ("waiting for memory pressure to ease", "this machine to stop swapping", "free disk to stop falling"): dibs is protecting the machine. Keep waiting. Don't pass a smaller `--mem` or a higher `-p` to get past it. A memory wait names the jobs holding the most: if one is yours and finished, end it.
-- **Disk at your turn:** a resource that declares a disk need (the simulator asks 8 GB) is refused with exit 74 when that much isn't free and nothing running will free it. If your job needs less, pass `--disk 1G` on the hold and on each `dibs run`. From 0.0.173, a job whose own past runs ate more disk than is free waits for disk too, even alone. While you wait on something else, the wait message says early when disk will hold you next, so free your own build output then.
+- **Disk at your turn:** a resource that declares a disk need (the simulator asks 8 GB) is refused with exit 74 when that much isn't free and nothing running will free it. If your job needs less, pass `--disk 1G` on the hold and on each `dibs run`. A job whose own past runs ate more disk than is free waits for disk too, even alone. While you wait on something else, the wait message says early when disk will hold you next, so free your own build output then.
 - **Paused** ("paused your job: free disk is low", or for urgent work): leave it, it resumes by itself.
 - **Load** ("waiting for the machine to cool down"): ends within 20 minutes.
 - **A person is waiting on the job now:** run it with `-p high -m "why"`, or send it to another machine with `--on <machine>` (`dibs machines`). That's the only reason to raise it.
@@ -74,6 +88,7 @@ A script running under `dibs run deploy` that calls `dibs run xcode-build` waits
 | 127 | the command didn't start | check the command and its path |
 | 2 | bad usage: a near-miss resource name, a high or urgent boost without `-m`, a job bigger than this machine (ask for what it names, or `--anywhere`), `--on` or `dibs machines` outside a group, or a run you already have going | read the message: it names the fix |
 | 1 | nothing matched (`mine` with nothing held, `release` with nothing to give back) | usually the clean result |
+| 3 | `dibs listen` heard nothing within `--for` (60m by default) | start it again with run_in_background |
 
 ### Files other agents may edit
 
@@ -92,7 +107,7 @@ dibs progress "Done: migrated 4,210 rows on prod, checks pass" --task billing-mi
 
 - Post when you start (with `--eta`), when you learn something (a test fails, a cause found, a plan changed, with the numbers), when you hand off or wait (`--blocked`), and at the end (`--done`). A task of a minute or two needs just the `--done` post.
 - Keep `--task` the same short name across posts, and move `--eta` (`30m` or `17:30`) when the estimate moves.
-- A task still open past its `--eta` shows as overdue, and (from 0.0.173) dibs tells you once: post a new `--eta`, or `--done`. You hear once too if an open task goes 45 minutes without a post. Ending a task without finishing it: `--done` with a post that says what isn't done.
+- A task still open past its `--eta` shows as overdue, and dibs tells you once: post a new `--eta`, or `--done`. You hear once too if an open task goes 45 minutes without a post. Ending a task without finishing it: `--done` with a post that says what isn't done.
 - Posts are for the record. Questions go through `dibs question`; a note the person should see now goes through `dibs say`.
 
 ### The guard
@@ -115,7 +130,7 @@ dibs cap pushy low       # that agent's work waits and runs at low or below unti
 dibs yield web-app       # let another agent go first
 ```
 
-The same goes for `answer`, `cap`, `hours`, `pace`, `tell`, `join`, `invite`, `kick`, `limit`, `pair --machine`, `service install` and `guard install`. dibs records who did each, on the board and in `dibs history`, so act the way you'd defend to the person. Raise a job to high or urgent only when a person is waiting on it now or something is broken. Prefer a message and `dibs yield` over stopping someone else's work. If your own job was **stopped by** someone, it was ended on purpose: find out why (`dibs history`, or ask them) before running it again.
+The same goes for `answer`, `cap`, `hours`, `pace`, `tell`, `join`, `invite`, `kick`, `limit`, `connect`, `service install` and `guard install`. dibs records who did each, on the board and in `dibs history`, so act the way you'd defend to the person. Raise a job to high or urgent only when a person is waiting on it now or something is broken. Prefer a message and `dibs yield` over stopping someone else's work. If your own job was **stopped by** someone, it was ended on purpose: find out why (`dibs history`, or ask them) before running it again.
 
 ### The person: questions, notes and messages
 
@@ -140,7 +155,7 @@ dibs machines                                    # the group, its load and lines
 
 The job takes the git working copy (tracked files plus new ones git doesn't ignore). `.env` files, keys and certificates never leave this machine, and a project's `.dibs.json` `stayOn` limits where its code may go. `--bring <path>` copies a file or folder back when the job ends.
 
-On a machine that isn't in a group, `--anywhere` runs here and says so, `--on` exits 2 with the setup line, and `dibs machines` says it isn't in a group (exit 0). `dibs leave` takes a machine out of its group; only run it when the person asks. To start a group, one machine is the coordinator: `dibs service install serve worker` there (or `dibs serve` in a terminal). To add a machine: on the coordinator, `dibs invite <name>` prints the join line to run on the new machine, then `dibs service install worker` there keeps it taking jobs. From 0.0.173, `dibs pair --machine` on the coordinator prints a one-time code instead, and `dibs join <code>` on the new machine finds the coordinator (same network, Tailscale, or `--at <address>`). Details: docs/machines.md.
+On a machine that isn't in a group, `--anywhere` runs here and says so, `--on` exits 2 with the setup line, and `dibs machines` says it isn't in a group (exit 0). `dibs leave` takes a machine out of its group; only run it when the person asks. To start a group, one machine is the coordinator: `dibs service install serve worker` there (or `dibs serve` in a terminal). To add a machine: `dibs connect --machine` on the coordinator prints a one-time code, `dibs join <code>` on the new machine finds the coordinator (same network, Tailscale, or `--at <address>`), and `dibs service install worker` there keeps it taking jobs. `dibs invite <name>` and its join line still work. Details: docs/machines.md.
 
 ### Run it later
 
@@ -153,11 +168,14 @@ dibs later list                                                  # state, exit c
 
 When it's due it runs as `dibs run --wait` in this folder, with PATH, HOME and LANG (more with `--env NAME`). At most 7 days out. Details: docs/later.md.
 
-### The person's page and MCP
+### Connecting things to dibs
 
-If the person asks you to connect something to dibs:
+If the person asks you to connect something to dibs, `dibs connect` is the one way in. On its own it explains each choice and, in a terminal, asks which:
 
-- From a phone or any browser: `dibs pair --remote` prints a one-time link to https://app.dibs.cc, end-to-end encrypted through the relay; it can only look unless paired with `--allow-actions`.
-- The page and MCP server: `dibs web` (or `dibs service install web`) at `http://127.0.0.1:7421`, MCP at `/mcp`. Another machine on Tailscale reaches it with `dibs web --bind <tailscale address>`. A claude.ai connector on another account uses `https://mcp.dibs.cc/mcp` after the person runs `dibs relay mcp on`.
-- Sign-in is a one-time code from `dibs pair` (10 minutes, one use), which gives read-only tools. From 0.0.173, a code from `dibs pair --allow-actions` adds tools that act (post progress, answer questions, message agents, hold, boost, pause, stop); the client acts as an agent named `mcp-<name>`, never as the person. A code from `dibs pair --allow-commands` also lets a client signed in at this Mac's own address queue commands, never through mcp.dibs.cc.
-- `dibs pair --list` shows what's signed in and what each may do; `dibs pair --revoke <id|all>` signs it out. Details: README.md and docs/relay.md.
+- `dibs connect --browser`: a one-time code for the page at `http://127.0.0.1:7421` (10 minutes, one use).
+- `dibs connect --phone`: a link and QR code for a phone or any browser at https://app.dibs.cc, end-to-end encrypted through the relay.
+- `dibs connect --account`: every browser the person signs in with at app.dibs.cc opens this Mac.
+- `dibs connect --mcp`: another Claude account's connector reads dibs over MCP at `https://mcp.dibs.cc/mcp`.
+- `dibs connect --machine`: another machine joins the group (above).
+
+A browser, phone, account or MCP client can only look unless connected with `--allow-actions`. An MCP client that acts does so as an agent named `mcp-<name>`, never as the person. `dibs pair --allow-commands` also lets a client signed in at this Mac's own address queue commands; never through mcp.dibs.cc. `dibs connect --list` shows everything connected and what each may do; `dibs connect --remove <id>` disconnects one. Details: README.md and docs/relay.md.

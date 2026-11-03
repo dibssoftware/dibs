@@ -476,7 +476,9 @@ test('a new session starts with the rules in a few lines, and each subagent hear
   assert.ok(!start.mods.includes('talk') && !start.mods.includes('commands'), `the primer loads no more of dibs: ${start.mods}`);
 
   const sub = { hook_event_name: 'SubagentStart', session_id: 's1', agent_id: 'a1', agent_type: 'Explore' };
-  assert.match(JSON.parse(loads(home, sub).out).hookSpecificOutput.additionalContext, /^dibs runs on this machine/);
+  const subText = JSON.parse(loads(home, sub).out).hookSpecificOutput.additionalContext;
+  assert.match(subText, /^dibs runs on this machine/);
+  assert.doesNotMatch(subText, /dibs listen/, 'a subagent ends with its task: no listener');
   assert.equal(loads(home, sub).out, '', 'a teammate taking its next message is not told again');
   assert.equal(JSON.parse(loads(home, { ...sub, agent_id: 'a2' }).out).hookSpecificOutput.hookEventName, 'SubagentStart');
   // A broken config still starts the session, with the rules.

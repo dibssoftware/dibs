@@ -39,7 +39,8 @@ export function rules(res = resources(), more = 'is in dibs.md beside dibs (the 
   ];
 }
 
-export const primerText = () => rules().join('\n');
+// A subagent ends with its task, so it isn't told to keep a listener running.
+export const primerText = ({ subagent = false } = {}) => rules().filter(l => !(subagent && l.includes('dibs listen'))).join('\n');
 
 // The rules as the skill and the README carry them, between their markers, with the
 // built-in resources (a machine's config adds its own; the primer names those).
@@ -83,5 +84,5 @@ function firstTime(agentId) {
 export function primer(input, out) {
   const event = input.hook_event_name;
   if (event === 'SubagentStart' && (typeof input.agent_id !== 'string' || !firstTime(input.agent_id))) return out;
-  return { ...out, hookSpecificOutput: { hookEventName: event, additionalContext: primerText() } };
+  return { ...out, hookSpecificOutput: { hookEventName: event, additionalContext: primerText({ subagent: event === 'SubagentStart' }) } };
 }
