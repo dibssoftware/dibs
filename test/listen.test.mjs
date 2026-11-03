@@ -149,7 +149,7 @@ test('a session whose listener ended is kept going once at its stop to start it 
 test('a new session is told to start dibs listen at once; a subagent is not', t => {
   const w = setup(t);
   const start = w.hook({ session_id: 'sess-a', cwd: '/work/app', hook_event_name: 'SessionStart', source: 'startup' });
-  assert.match(start.hookSpecificOutput.additionalContext, /Now, before anything else: start `dibs listen` with run_in_background, once\./);
+  assert.match(start.hookSpecificOutput.additionalContext, /First, start `dibs listen` with run_in_background: its exit wakes you when a message arrives/);
   const sub = w.hook({ session_id: 'sess-a', cwd: '/work/app', hook_event_name: 'SubagentStart', agent_id: 'agent-1', agent_type: 'general-purpose' });
   assert.doesNotMatch(sub.hookSpecificOutput.additionalContext, /dibs listen/);
 });
