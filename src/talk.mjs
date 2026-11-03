@@ -25,6 +25,8 @@ import { asked, forYou } from './questions.mjs';
 import { named, minutes, lower } from './plain.mjs';
 import { bold, dim, columns } from './style.mjs';
 import { die, now, say as note, sleepSync, fakeFull, ms, dur, SIGNALS, signalExit } from './util.mjs';
+import { VERSION } from './version.mjs';
+import { newer, since, seenBy, markSeen, diskVersion, latest, toldOf, tell as toldRelease, UPGRADE } from './news.mjs';
 
 const FILE = path.join(HOME, 'messages.json');
 const LOCK = path.join(HOME, 'messages.lock');
@@ -416,6 +418,8 @@ export async function listen(args) {
   const me = { pid: process.pid, pstart: pstart(process.pid), at: now() };
   const th = locked(s => {
     const t = mine(s, 'listen', args, o);
+    // The key the what's-new line knows this agent by (bin/dibs.mjs announce).
+    t.seenKey = String(identity(o).spid || identity(o).who);
     const l = readListeners();
     const up = makeAlive(Object.values(l).map(x => x.pid));
     // Dead ones stay until a new listener for the same thread replaces them: the hook's reminder
@@ -465,6 +469,12 @@ export async function listen(args) {
         });
         if (got) return finish(got);
       }
+      // dibs itself changed under this listener: what's on disk is what the agent's next call runs.
+      // Once per agent and version: seen.json, which the what's-new line shares, says what it heard.
+      const v = diskVersion();
+      if (v && newer(v, VERSION) && newer(v, seenBy(th.seenKey) || VERSION)) return finish({ updated: v });
+      const out = latest();
+      if (out && newer(out, VERSION) && toldOf(th.key) !== out) return finish({ release: out });
       if (now() >= end) finish({ timeout: true });
     };
     try { watcher = fs.watch(HOME, (ev, name) => { if (!name || name === 'messages.json' || name === 'listeners.json') check(); }); } catch {}
@@ -475,6 +485,18 @@ export async function listen(args) {
   if (r.replaced) {
     if (o.json) return console.log(JSON.stringify({ replaced: true, messages: [] }));
     return console.log('Another dibs listen for this agent took over, so this one stopped. Nothing was handed over here.');
+  }
+  // Heard here, so not again from the what's-new line on the agent's next dibs call.
+  if (r.updated) {
+    const changes = since(seenBy(th.seenKey) || VERSION, r.updated);
+    markSeen(th.seenKey, r.updated);
+    if (o.json) return console.log(JSON.stringify({ updated: r.updated, changes, again: AGAIN }));
+    return console.log(`dibs was updated to ${r.updated}. What changed for you:\n\n${changes.map(c => `${c.version}\n${c.body}`).join('\n\n') || '(no notes)'}\n\n${AGAIN}`);
+  }
+  if (r.release) {
+    toldRelease(th.key, r.release);
+    if (o.json) return console.log(JSON.stringify({ release: r.release, have: VERSION, upgrade: UPGRADE, again: AGAIN }));
+    return console.log(`dibs ${r.release} is out (you have ${VERSION}). The person upgrades with: ${UPGRADE}\nDon't upgrade it yourself; mention it to the person if it matters to your work.\n\n${AGAIN}`);
   }
   if (r.timeout) {
     if (o.json) console.log(JSON.stringify({ timeout: true, messages: [] }));

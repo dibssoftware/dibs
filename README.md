@@ -114,7 +114,7 @@ dibs tell web-app "use the staging database"   # reaches the agent on its next t
 dibs tell desk "why is my build waiting?"      # the agent config.json names as "desk" answers you with dibs say --to person
 dibs alerts             # what's wrong and the one fix for each: long waits, memory holding work back (and what to close), stuck jobs, failed or lost jobs, dibs itself, a full disk
 dibs alerts dismiss <id>   # close one for a day; it comes back if its cause is still there
-dibs listen                                    # an agent whose turn is over waits for a message (run_in_background); exit 3 after 60m with none
+dibs listen                                    # an agent waits for a message (run_in_background); exit 3 after 60m with none
 dibs history            # the last 7 days: busy time, waits and who waited, by resource, agent and hour
 dibs stats              # waits against run times, today and the last 7 days: the share of jobs that waited longer than they ran
 dibs stats --me         # your own: jobs, run and wait time, failures by exit code, what held you back, top commands, ETAs met (--agent <name>, --since 30d, --json)
@@ -122,6 +122,8 @@ dibs later sim --at 02:00 -m "snapshot suite" -- ./snapshots.sh   # run it tonig
 dibs later test --after web-app:deploy -- npm run smoke           # when that agent's deploy ends (--after-ok: only if it passed)
 dibs later list         # scheduled, waiting, running, and how the finished ones ended; dibs later cancel <id>
 ```
+
+`dibs listen` also wakes an agent when dibs on this machine is updated (with what changed) or when a newer release is out, which it learns by asking dibs.cc at most every 6 hours per machine (never from a git checkout). `"updateCheck": false` in `~/.dibs/config.json` turns that ask off.
 
 Anyone can override any job, the person or an agent. An agent acting on a job that isn't its own names the owner with `--owner <session>` (or `session/agent`), as the board shows it, or nothing changes (exit 2, with the owner, its `-m` and the command to rerun); the person never needs it. Every answer starts with whose job it was: `boosting #10167: alex-c8 deploy 'shop-api first deploy'`. `dibs boost <id> high -m "why"` (the `#` on `dibs --detail`), `dibs pause <id>` and `dibs resume <id>`, `dibs stop <id>` (kills the job; its agent is told who stopped it), and `dibs cap <agent> low` (that agent never waits or runs above low until `dibs cap <agent> off`). The same goes for `answer`, `questions dismiss`, `hours`, `pace <word>`, `tell`, `threads read`, `join`, `invite`, `pair --machine`, `kick`, `limit`, `service install`/`remove`, `guard install`/`remove` and `serve --force`: nothing is the person's alone.
 

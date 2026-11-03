@@ -80,6 +80,8 @@ Always run the suite through dibs: it spawns real processes and coordinators, an
 | `DIBS_CLAUDE_TMP` | stands for `/tmp` when the guard looks for Claude Code's temp folder (`claude-<uid>` under it), so tests never touch the real one |
 | `DIBS_NO_SESSION`, `DIBS_AGENT`, `DIBS_AS` | who dibs thinks is calling |
 | `DIBS_REPO` | the project a job belongs to, for resources one at a time per project (deploys); a worker sets it to the sender's origin for a job from another machine, whose copy has no .git |
+| `DIBS_VERSION_FILE` | the version.mjs a running `dibs listen` watches for an update (src/news.mjs), so a test can bump one |
+| `DIBS_UPDATE_URL` | where `dibs listen` asks for the newest release (default https://dibs.cc/mac/latest.json), so a test can count the asks; set, it also checks from a git checkout |
 | `DIBS_VIA` | the paired browser a page action came through the relay from (src/web.mjs sets it); the person's actions are then recorded as "the person via <device>". Ignored for an agent |
 | `CLAUDE_CODE_SESSION_ID` | the Claude Code session, which matches the guard's notes on which subagent took a file lease. test/helpers.mjs clears it |
 | `AI_AGENT`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CODEX_THREAD_ID`, `CURSOR_AGENT`, `GEMINI_CLI`, `OPENCODE` | any of them makes a call an agent's (AGENT_ENV in src/owner.mjs). test/helpers.mjs clears them; set one per test |

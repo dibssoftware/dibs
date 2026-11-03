@@ -153,3 +153,57 @@ test('a new session is told to start dibs listen at once; a subagent is not', t 
   const sub = w.hook({ session_id: 'sess-a', cwd: '/work/app', hook_event_name: 'SubagentStart', agent_id: 'agent-1', agent_type: 'general-purpose' });
   assert.doesNotMatch(sub.hookSpecificOutput.additionalContext, /dibs listen/);
 });
+
+const { VERSION } = await import('../src/version.mjs');
+
+test('dibs updated under a listener wakes it once with what changed, and the what\'s-new line stays quiet after', async t => {
+  const w = setup(t);
+  const file = path.join(w.home, 'version.mjs');
+  fs.writeFileSync(file, `export const VERSION = '${VERSION}';\n`);
+  const run = args => bg(t, w.home, ['listen', ...args], w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_VERSION_FILE: file } }));
+  // This agent ran this version before: the what's-new line compares against it.
+  sync(w.home, ['mine'], w.opts({ agent: 'web-app' }));
+  const p = run([]);
+  await until(() => listening(w));
+  fs.writeFileSync(file, "export const VERSION = '99.0.0';\n");
+  assert.equal(await p.done, 0, p.err);
+  assert.match(p.out, /^dibs was updated to 99\.0\.0\. What changed for you:/);
+  assert.match(p.out, /To keep listening, start dibs listen again with run_in_background\.$/m);
+  const again = run(['--for', '1s']);
+  assert.equal(await again.done, 3, 'told once: the next listener only listens');
+  const seen = JSON.parse(fs.readFileSync(path.join(w.home, 'seen.json'), 'utf8'));
+  assert.equal(seen['web-app'], '99.0.0', 'marked seen where the what\'s-new line looks');
+});
+
+// A stand-in for dibs.cc/mac/latest.json that counts how often it's asked.
+async function feed(t, version) {
+  const http = await import('node:http');
+  const f = { hits: 0 };
+  const srv = http.createServer((req, res) => { f.hits++; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ version })); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  t.after(() => srv.close());
+  f.url = `http://127.0.0.1:${srv.address().port}/latest.json`;
+  return f;
+}
+
+test('a newer release on dibs.cc is told to each listener once, and the machine asks dibs.cc at most every six hours', async t => {
+  const w = setup(t);
+  const f = await feed(t, '99.9.9');
+  const run = args => bg(t, w.home, ['listen', ...args], w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_UPDATE_URL: f.url } }));
+  const p = run(['--for', '20s']);
+  assert.equal(await p.done, 0, p.err);
+  assert.equal(p.out.split('\n')[0], `dibs 99.9.9 is out (you have ${VERSION}). The person upgrades with: curl -fsSL https://dibs.cc/install.sh | sh`);
+  assert.match(p.out, /Don't upgrade it yourself/);
+  const again = run(['--for', '1s']);
+  assert.equal(await again.done, 3, 'once per listener and version');
+  assert.equal(f.hits, 1, 'one ask for the machine, not one per listener');
+});
+
+test('config updateCheck: false asks dibs.cc nothing', async t => {
+  const w = setup(t);
+  fs.writeFileSync(path.join(w.home, 'config.json'), JSON.stringify({ updateCheck: false }));
+  const f = await feed(t, '99.9.9');
+  const p = bg(t, w.home, ['listen', '--for', '1s'], w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_UPDATE_URL: f.url } }));
+  assert.equal(await p.done, 3);
+  assert.equal(f.hits, 0);
+});
