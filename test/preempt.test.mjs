@@ -43,7 +43,10 @@ const stopped = pgid => allStopped(pgid);
 // Paused: every process in its group stopped. Running again: none stopped.
 // Watching the counter instead failed under the full suite's load, where a low
 // job at background priority can go 30 seconds without a core (helpers.mjs).
-const paused = p => until(() => allStopped(p.lease()?.pgid), 10e3);
+// A stop sent to a process waiting for a core lands when it next runs, so a job at background
+// priority that the load starves reads as running until then: under a full suite with other work
+// on the machine, more than 10 s (2026-11-03). 45 s is past the longest such starving seen in a suite.
+const paused = p => until(() => allStopped(p.lease()?.pgid), 45e3);
 async function runs(p, ms = 30e3) {
   const pgid = p.lease()?.pgid;
   try { await until(() => noneStopped(pgid), ms); } catch { throw new Error(`${p.agent} is still stopped after ${ms}ms:\n${groupTree(pgid)}`); }
