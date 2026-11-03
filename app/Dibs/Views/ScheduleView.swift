@@ -498,6 +498,10 @@ struct ScheduleView: View {
             .lineLimit(1)
             .fixedSize()
             Text(store.displayName(p.who)).font(Typeface.sized(12, .semibold)).lineLimit(1).fixedSize()
+            // What's still worth reading when the name won't fit: the run count, or the session's short suffix ("0b").
+            Text(p.runs > 1 ? "\(p.runs) runs\(p.failed > 0 ? ", \(p.failed) failed" : "")" : AgentLabel.handle(p.who))
+                .font(Typeface.sized(12, .semibold)).lineLimit(1).fixedSize()
+            if p.runs > 1 { Text("\u{00D7}\(p.runs)").font(Typeface.sized(12, .semibold)).lineLimit(1).fixedSize() }
             Color.clear.frame(width: 0, height: 0)
         }
         .foregroundStyle(ink)

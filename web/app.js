@@ -1026,7 +1026,8 @@
         for (const p of lane) {
           // Under a minute of history is a thin tick, not a pill that reads as a broken bar.
           const tick = !p.job && p.to - p.start < TICK_UNDER && p.runs.length === 1;
-          const b = el('button', `prog k-${p.kind}${p.open ? ' open' : ''}${tick ? ' tick' : ''}`, tick ? '' : p.runs.length > 1 ? `${p.who} \u00d7${p.runs.length}` : p.who);
+          const b = el('button', `prog k-${p.kind}${p.open ? ' open' : ''}${tick ? ' tick' : ''}`);
+          if (!tick) barLabels.all.set(b, barLabels(p));
           b.type = 'button';
           b.style.left = `${at(p.from)}%`;
           b.style.width = tick ? '' : `${Math.max(0.6, at(p.to) - at(p.from))}%`;
@@ -1054,14 +1055,17 @@
     const legend = el('div', 'legend');
     legend.append(el('i', 'key k-ran'), 'Ran', el('i', 'key k-run'), 'On now', el('i', 'key k-wait'), 'Waiting', el('i', 'key k-failed'), 'Failed');
     box.replaceChildren(section('Channels', legend, guide));
-    // A name only where it fits with room to spare; a bar too narrow for it says who on hover or tap.
-    for (const b of guide.querySelectorAll('.prog:not(.tick)')) if (b.clientWidth < LABEL_MIN) b.textContent = '';
+    // Each bar shows the longest of its labels that fits whole; none fits, nothing, and the tooltip or a tap says who.
+    for (const [b, options] of barLabels.all) {
+      b.textContent = options.find(text => { b.textContent = text; return b.scrollWidth <= b.clientWidth; }) ?? '';
+    }
+    barLabels.all.clear();
     // The axis's times never run into each other or into Now: on a phone, every other one goes.
     let right = -Infinity;
-    const nowBox = tag.getBoundingClientRect();
+    const nowBox = tag.getBoundingClientRect(), end = axis.getBoundingClientRect().right;
     for (const k of axis.querySelectorAll('.s-tick')) {
       const r = k.getBoundingClientRect();
-      if (r.left < right + 8 || (r.right > nowBox.left - 6 && r.left < nowBox.right + 6)) k.hidden = true;
+      if (r.left < right + 8 || r.right > end || (r.right > nowBox.left - 6 && r.left < nowBox.right + 6)) k.hidden = true;
       else right = r.right;
     }
   }
@@ -1069,7 +1073,7 @@
   // The Mac app's guide's rules (app/Dibs/Views/ScheduleView.swift Channel):
   // runs by one agent less than SITTING apart are one bar, each bar takes the
   // first row free at its start, and past MAX_LANES rows the rest are a +N.
-  const SITTING = 30e3, MAX_LANES = 4, LANE_H = 30, TICK_UNDER = 6e4, LABEL_MIN = 48;
+  const SITTING = 30e3, MAX_LANES = 4, LANE_H = 30, TICK_UNDER = 6e4;
   function sittings(progs) {
     const out = [], cur = new Map();
     for (const p of [...progs].sort((a, b) => a.from - b.from)) {
@@ -1095,6 +1099,17 @@
     }
     return lanes;
   }
+  // A bar's labels, longest first: the agent's name, then what's still worth
+  // reading when it won't fit. A merged bar: how many runs (and failures). One
+  // run: the session's short suffix, how agents tell each other apart ("0b").
+  function barLabels(p) {
+    const n = p.runs.length, failed = p.runs.filter(x => x.kind === 'failed').length;
+    const short = p.who.split('-').at(-1);
+    if (n > 1) return [`${p.who}: ${n} runs${failed ? `, ${failed} failed` : ''}`, `${n} runs${failed ? `, ${failed} failed` : ''}`, `${n} runs`, `${short} \u00d7${n}`, `\u00d7${n}`];
+    return [p.who, short];
+  }
+  barLabels.all = new Map();
+
   // Agent, job, what it was, when, how long, and how it ended or where it waits.
   function progTip(p) {
     const j = p.job;

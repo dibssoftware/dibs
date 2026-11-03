@@ -51,3 +51,11 @@ test('more than four rows: the first four are drawn, the rest wait behind a +N',
   assert.equal(lanes.length, 6);
   assert.equal(lanes.slice(MAX_LANES).flat().length, 2, 'two for the +N');
 });
+
+test("a bar too narrow for the agent's name falls back to what's still worth reading: the run count, or the session's short suffix", () => {
+  const { barLabels } = new Function(`${src.slice(from, to)}; return { barLabels };`)();
+  const [merged] = sittings(tests);
+  assert.deepEqual(barLabels(merged), ['alex-0b: 8 runs, 1 failed', '8 runs, 1 failed', '8 runs', '0b ×8', '×8']);
+  const [one] = sittings([deploys[0]]);
+  assert.deepEqual(barLabels({ ...one, who: 'alex-2e' }), ['alex-2e', '2e']);
+});
