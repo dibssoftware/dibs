@@ -268,6 +268,30 @@ test('every second a thin waiter waited is named in its start event, across a br
   assert.ok(Math.abs(start.held.unpolled - back / 2) < 5e3, `nobody looked for 8 minutes: ${JSON.stringify(start.held)}`);
 });
 
+test('a broker that steps down for a new version of dibs says so, and its waiter goes on', async t => {
+  // 2026-11-02: #17303's four "broker gone, starting another" lines were four releases, not
+  // crashes, and nothing in events.jsonl said so.
+  const home = tmp(t);
+  stopBroker(t, home);
+  // A copy of dibs whose version file this test can change, as a release does (test/ too: the
+  // suite's fake simctl is loaded from there).
+  const copy = tmp(t, 'copy');
+  for (const d of ['bin', 'src', 'test']) fs.cpSync(path.join(path.dirname(BIN), '..', d), path.join(copy, d), { recursive: true });
+  const bin = path.join(copy, 'bin', 'dibs.mjs');
+  block(home);
+  const p = spawn('/bin/sh', [path.join(copy, 'src', 'thin.sh'), bin, 'run', 'deploy', '--', 'true'], { env: env(home), stdio: ['ignore', 'pipe', 'pipe'] });
+  p.out = ''; p.err = '';
+  p.stdout.on('data', d => (p.out += d));
+  p.stderr.on('data', d => (p.err += d));
+  track(t, p);
+  await inLine(home, p);
+  const old = state(home).broker.pid;
+  fs.appendFileSync(path.join(copy, 'src', 'version.mjs'), '// a release\n');
+  await until(() => events(home).some(e => e.kind === 'thin' && e.why === 'a new version of dibs: the broker hands its waiters to a new one' && e.pid === old), 60e3);
+  unblock(home);
+  assert.equal(await p.done, 0, p.err);
+});
+
 test('with the broker unable to start, a thin waiter waits in Node within seconds', async t => {
   const home = tmp(t);
   block(home);

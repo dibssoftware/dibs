@@ -287,7 +287,13 @@ export function broker() {
     pending = forced = false;
     const t = now();
     // A release changed the code: the waiters' shells start the new one.
-    try { if (fs.readFileSync(path.join(SRC, 'version.mjs'), 'utf8') !== code) return leave(true); } catch {}
+    // Said in the log, so a waiter's "broker gone, starting another" that follows reads as a release, not a crash.
+    try {
+      if (fs.readFileSync(path.join(SRC, 'version.mjs'), 'utf8') !== code) {
+        event({ kind: 'thin', why: 'a new version of dibs: the broker hands its waiters to a new one', pid: me.pid, waiting: waits.size });
+        return leave(true);
+      }
+    } catch {}
     if (t - pruned > PRUNE_EVERY) { pruned = t; prune(); }
     // With nobody to wait for, the lock is taken only to keep the beat fresh.
     let quietNow = false, text = '';
