@@ -266,3 +266,27 @@ test('outside Claude Code, a notice comes with the next dibs command, on stderr,
   assert.doesNotMatch(r.out, /npm test/, 'stdout stays what scripts read');
   assert.doesNotMatch(dibs(w, 'codex-a', ['why']).err, /npm test/, 'once');
 });
+
+// 2026-11-03: an idle Shop session held two of the owner's messages for hours, while
+// dibs tell had said "it gets it with its next tool call".
+test('dibs tell says when the agent is idle and not listening, so nothing will hand the message over yet', t => {
+  const w = setup(t, [{ pid: process.pid, sessionId: 'sess-idle', name: 'quiet-one', status: 'idle' }]);
+  const r = tell(w, 'quiet-one', 'are you there?');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /queued for quiet-one, but quiet-one is idle and not listening: it won't see this until it next works/);
+  const busy = setup(t, [{ pid: process.pid, sessionId: 'sess-busy', name: 'busy-one', status: 'busy' }]);
+  assert.match(tell(busy, 'busy-one', 'hi').out, /queued for busy-one: it gets it with its next tool call/);
+});
+
+// 2026-11-03: "dibs tell alex-2e" said "isn't a Claude Code session" while session
+// 8176ff00 by that name ran; earlier, tells went to sessions long dead (a4 to 8e).
+test('dibs tell goes to the running session with that name, not an old thread or a dead session', t => {
+  const dead = deadPid();
+  const w = setup(t, [{ pid: dead, sessionId: 'sess-dead', name: 'web-app' }, { pid: process.pid, sessionId: 'sess-live', name: 'web-app', status: 'busy' }]);
+  // An old thread under that name with no session (a terminal once ran dibs say as web-app).
+  assert.equal(dibs(w, 'web-app', ['say', 'from a terminal']).code, 0);
+  const r = tell(w, 'web-app', 'use staging');
+  assert.match(r.out, /queued for web-app: it gets it with its next tool call/);
+  assert.equal(hook(w, bash('sess-dead', 'ls')), null, 'not to the dead session');
+  assert.match(hook(w, bash('sess-live', 'ls')).hookSpecificOutput.additionalContext, /Message from the person: use staging/);
+});

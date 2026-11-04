@@ -61,8 +61,9 @@ export function identity(o = {}) {
   return { who, agent, label, spid: se?.pid || null, sstart: se?.start || null };
 }
 
-// Claude Code's own record of each session it runs: { pid, sessionId, name }.
-// The person addresses an agent by the name; hooks know it by sessionId.
+// Claude Code's own record of each session it runs: { pid, sessionId, name, status, updated }.
+// The person addresses an agent by the name; hooks know it by sessionId. status is Claude
+// Code's word for what it's doing ("busy", "idle", "shell"), or null from an older one.
 export function sessionFiles() {
   let names = [];
   try { names = fs.readdirSync(SESSIONS).filter(n => /^\d+\.json$/.test(n)); } catch { return []; }
@@ -70,7 +71,7 @@ export function sessionFiles() {
   for (const n of names) {
     try {
       const x = JSON.parse(fs.readFileSync(path.join(SESSIONS, n), 'utf8'));
-      if (x.pid && x.sessionId) out.push({ pid: x.pid, sessionId: x.sessionId, name: x.name || null });
+      if (x.pid && x.sessionId) out.push({ pid: x.pid, sessionId: x.sessionId, name: x.name || null, status: typeof x.status === 'string' ? x.status : null, updated: x.statusUpdatedAt || x.updatedAt || 0 });
     } catch {}
   }
   return out;

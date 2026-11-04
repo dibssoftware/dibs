@@ -223,16 +223,21 @@ export function noteAs(by, text) {
   }, HOOK_LOCK_WAIT);
 }
 
-// The thread the person means by name: a live one, else a running session
-// by that name (a new thread), else the newest one that has ended.
+// The thread the person means by name: the running Claude Code session by that name first
+// (the most recently active, if two share it), then a live thread, then the newest that ended.
+// A session's own record outranks an old thread: 2026-11-03, "dibs tell alex-2e" went to
+// a thread with no session while session 8176ff00 by that name was running, and earlier tells
+// went to sessions long dead (a4 to 8e, 30 to b1).
 function target(s, name) {
   const named = names(s.threads);
   const alive = liveness(s.threads);
   const found = s.threads.filter(th => named.get(th.key) === name).sort((a, b) => b.last - a.last);
-  const live = found.find(alive);
-  if (live) return live;
   const files = sessionFiles().filter(f => f.name === name);
-  const running = files.filter(f => makeAlive([f.pid])(f.pid));
+  const up = makeAlive(files.map(f => f.pid));
+  const running = files.filter(f => up(f.pid)).sort((a, b) => b.updated - a.updated);
+  // A live thread (a subagent's, or a caller's outside Claude Code) only when no session by that name runs.
+  const live = found.find(alive);
+  if (live && !running.length) return live;
   const f = running[0] || (!found.length && files[0]);
   if (f) {
     const key = keyOf(f.sessionId, name, MAIN);
@@ -270,7 +275,9 @@ export function tell(args) {
     s.messages.push({ id: ++s.seq, key: th.key, at: t, from: 'person', kind: 'message', text: o.text, state: 'queued',
       session: th.session, agentId: th.agentId, ...(who.agent && { by: who.name }) });
     th.last = t;
-    return { th: { ...th }, alive: liveness([th])(th), listening: listening().has(th.key) };
+    // Claude Code's own word for whether the session is working now (its session file).
+    const status = th.agentId === MAIN ? sessionFiles().find(f => f.sessionId === th.session)?.status || null : null;
+    return { th: { ...th }, alive: liveness([th])(th), listening: listening().has(th.key), idle: status === 'idle' };
   });
   if (r.no) die(r.no, 1);
   const to = names([r.th]).get(r.th.key);
@@ -278,6 +285,9 @@ export function tell(args) {
   if (!r.th.session) console.log(`queued for ${to}, which isn't a Claude Code session: the hook can't hand it over. It gets it the next time it runs dibs say.`);
   else if (!r.alive) console.log(`queued for ${to}, but ${r.th.agentId === MAIN ? 'its session has ended' : 'that subagent has finished'}. It stays queued, shown as not delivered, in case it comes back.`);
   else if (r.listening) console.log(`queued for ${to}: it's listening (dibs listen), so it gets it within seconds.`);
+  // An idle agent makes no tool call and no stop, so nothing hands it over until it works again
+  // (2026-11-03: two of the owner's messages sat unread for hours in an idle session).
+  else if (r.idle) console.log(`queued for ${to}, but ${to} is idle and not listening: it won't see this until it next works. Once it runs dibs listen in the background, messages wake it.`);
   else console.log(`queued for ${to}: it gets it with its next tool call, or as it finishes its turn.`);
 }
 
