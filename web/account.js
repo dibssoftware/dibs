@@ -246,18 +246,52 @@
     await me.put({ session: res.session, aid: res.aid, ak: ak || (res.created ? b64u(random(32)) : null), ...(res.recovery && { recovery: true }) });
   }
 
-  // Email: a 6-digit code, typed here. The person check (Turnstile) runs on mcp.dibs.cc, never
-  // here (relay/src/index.js emailPage): the page goes there with the address and comes back with
-  // the request's id. A relay without it (the local e2e) takes the address here.
-  const emailPage = api('GET', '/account/config').then(c => c.emailPage, () => null);
+  // Email: a 6-digit code, typed here. The person check (Cloudflare Turnstile) runs in a frame
+  // from mcp.dibs.cc, out of sight (relay/src/index.js humanPage), never in this page beside the
+  // account key; it starts as soon as the email step shows and hands its token over by
+  // postMessage. Only the person's click sends it with the address. A relay without Turnstile
+  // (the local e2e) takes the address alone.
+  const config = api('GET', '/account/config').then(c => c || {}, () => ({}));
+  const humanOrigin = config.then(c => (c.human ? new URL(c.human).origin : null));
+  let frame = null, humanToken = null, waiters = [];
+  async function startHuman() {
+    const src = (await config).human;
+    if (!src || frame) return;
+    frame = root.document.createElement('iframe');
+    Object.assign(frame, { src, title: 'Person check', tabIndex: -1, className: 'human-frame' });
+    frame.setAttribute('aria-hidden', 'true');
+    root.document.body.append(frame);
+  }
+  root.addEventListener('message', async e => {
+    if (e.origin !== await humanOrigin || e.data?.dibs !== 'human') return;
+    if (e.data.token) { humanToken = e.data.token; for (const w of waiters.splice(0)) w.resolve(); }
+    else if (e.data.expired) humanToken = null;
+    else if (e.data.error) for (const w of waiters.splice(0)) w.reject(new Error('The check that you\u2019re a person didn\u2019t work in this browser. Reload the page, or sign in with a passkey.'));
+  });
+  // How long the check may take after the click before the page says more than "checking".
+  const HUMAN_SLOW = 12e3;
+  async function humanTokenNow() {
+    if (!humanToken) {
+      say('Checking you\u2019re a person…', 'busy');
+      const slow = setTimeout(() => say('The check that you\u2019re a person is taking a while. Hold on, or reload the page.', 'busy'), HUMAN_SLOW);
+      try { await new Promise((resolve, reject) => waiters.push({ resolve, reject })); } finally { clearTimeout(slow); }
+    }
+    const t = humanToken;
+    humanToken = null;
+    return t;
+  }
+  // A token works once: the frame starts a fresh check for the next code.
+  const checkAgain = async () => frame?.contentWindow?.postMessage({ dibs: 'again' }, await humanOrigin);
   // How soon another code may be asked for from the code screen: the email takes a few seconds,
   // and every code counts toward the address's hourly limit.
   const RESEND_AFTER = 30e3;
   async function askCode(to) {
-    const page = await emailPage;
-    say(page ? 'Opening the email step…' : 'Sending your code…', 'busy');
-    if (page) return root.location.assign(`${page}#e=${encodeURIComponent(to)}`);
-    const r = await api('POST', '/account/link', { email: to });
+    const human = !!(await config).human;
+    const token = human ? await humanTokenNow() : null;
+    say('Sending your code…', 'busy');
+    let r;
+    try { r = await api('POST', '/account/link', { email: to, ...(token && { token }) }); }
+    finally { if (human) checkAgain(); }
     const p = { rid: r.rid, to, exp: r.expires, sent: Date.now() };
     await pending.put(p);
     showCode(p);
@@ -273,6 +307,8 @@
   let resendTimer = 0;
   function showCode(p) {
     abortConditional();
+    // Started now, so a resend has its check ready.
+    startHuman();
     show('code');
     say('');
     $('code-to').textContent = p.to ? `We sent a 6-digit code to ${p.to}. It works once, for 10 minutes.` : 'We sent a 6-digit code to your email. It works once, for 10 minutes.';
@@ -336,6 +372,7 @@
     if (!to) return signedOut();
     $('code-resend').disabled = true;
     try { await askCode(to); } catch (x) { codeState(x.message, 'error'); $('code-resend').disabled = false; }
+    say('');
   });
   $('code-back').addEventListener('click', async () => { await pending.clear(); clearInterval(resendTimer); signedOut(); });
 
@@ -418,6 +455,7 @@
     $('account').classList.toggle('passkey-first', !!h?.passkey);
     show('signed-out');
     if (!h?.passkey) $('email').focus();
+    startHuman();
     offerAutofill();
   }
 

@@ -428,22 +428,22 @@ async function main() {
   assert.match(breg.json.client_id, /^b\./);
   step('bare host: discovery and registration answered by the relay, with nothing stored');
 
-  // The page that asks for a sign-in link lives here, never on the account page's origin:
-  // Turnstile's script is allowed on it and nowhere else. This relay has no site key, so it
-  // sends no links from it.
-  const ep = await mcpReq('GET', '/email');
-  assert.equal(ep.status, 200);
-  assert.equal((await mcpReq('HEAD', '/email')).status, 200);
-  assert.match(ep.text, /challenges\.cloudflare\.com\/turnstile/);
-  assert.match(ep.headers['content-security-policy'], /script-src 'self' https:\/\/challenges\.cloudflare\.com;/);
-  assert.match(ep.headers['content-security-policy'], /frame-ancestors 'none'/);
-  assert.deepEqual((await mcpReq('GET', '/email/config')).json.sitekey, null);
-  assert.equal((await mcpReq('POST', '/email/link', { body: { email: 'a@b.cc', token: 'x' }, headers: { Origin: BARE } })).status, 503);
-  assert.equal((await mcpReq('POST', '/email/link', { body: { email: 'a@b.cc', token: 'x' }, headers: { Origin: 'https://evil.example' } })).status, 403);
-  const onPage = await new Promise((resolve, reject) => http.get(`${ORIGIN}/email`, r => { r.resume(); resolve(r.statusCode); }).on('error', reject));
+  // The person check lives here, framed out of sight by the account page, never on the account
+  // page's origin: Turnstile's script is allowed on it and nowhere else. The old email page here
+  // sends people to the account page, where the email step is now.
+  const hp = await mcpReq('GET', '/human');
+  assert.equal(hp.status, 200);
+  assert.match(hp.text, /challenges\.cloudflare\.com\/turnstile/);
+  assert.match(hp.headers['content-security-policy'], /script-src 'self' https:\/\/challenges\.cloudflare\.com;/);
+  assert.match(hp.headers['content-security-policy'], /frame-ancestors https:\/\//, 'only the account page may frame it');
+  assert.equal(hp.headers['x-frame-options'], undefined);
+  assert.equal((await mcpReq('GET', '/human/config')).json.sitekey, null);
+  assert.equal((await mcpReq('GET', '/email')).status, 301);
+  assert.equal((await mcpReq('POST', '/email/link', { body: { email: 'a@b.cc', token: 'x' }, headers: { Origin: BARE } })).status, 404, 'nothing sends a code from here any more');
+  const onPage = await new Promise((resolve, reject) => http.get(`${ORIGIN}/human`, r => { r.resume(); resolve(r.statusCode); }).on('error', reject));
   assert.equal(onPage, 404, 'the account page\'s origin never serves it');
   assert.doesNotMatch(fs.readFileSync(path.join(HERE, 'public', 'account.html'), 'utf8'), /challenges\.cloudflare\.com/);
-  step('the sign-in link page is on the MCP host with Turnstile allowed there only, and sends nothing without a site key');
+  step('the person check is on the MCP host with Turnstile allowed there only, framed only by the account page; the old email page redirects');
 
   const bverifier = crypto.randomBytes(40).toString('base64url');
   const bchallenge = crypto.createHash('sha256').update(bverifier).digest('base64url');

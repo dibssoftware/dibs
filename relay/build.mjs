@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB = path.join(HERE, '..', 'web');
 const OUT = path.join(HERE, 'public');
-const FILES = ['app.css', 'app.js', 'transport.js', 'dither.js', 'authorize.js', 'account.js', 'email.js', 'logo.png', 'SchibstedGrotesk.woff2'];
+const FILES = ['app.css', 'app.js', 'transport.js', 'dither.js', 'authorize.js', 'account.js', 'human.js', 'logo.png', 'SchibstedGrotesk.woff2'];
 
 const sri = b => `sha384-${crypto.createHash('sha384').update(b).digest('base64')}`;
 fs.rmSync(OUT, { recursive: true, force: true });
@@ -39,9 +39,9 @@ hashes['/'] = page('index.html', true);
 hashes['/<machine>/authorize'] = page('authorize.html', false);
 // The account page talks to the relay as the main page does (transport.js), so it says so too.
 hashes['/account'] = page('account.html', true);
-// The page that asks for a sign-in link, at mcp.dibs.cc/email: it also loads Turnstile from
+// The person check the account page frames from mcp.dibs.cc/human: it also loads Turnstile from
 // challenges.cloudflare.com, which can't carry a hash (Cloudflare changes it).
-hashes['/email (mcp.dibs.cc)'] = page('email.html', false);
+hashes['/human (mcp.dibs.cc)'] = page('human.html', false);
 const list = Object.entries(hashes).map(([p, h]) => `${h}  ${p}`).join('\n') + '\n';
 fs.writeFileSync(path.join(OUT, 'hashes.txt'), list);
 process.stdout.write(list);

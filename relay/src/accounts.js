@@ -5,6 +5,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { AccountBook, LINK_LIFE } from './accountbook.js';
 import { signinMail, fromOf } from './mail.js';
+import { human as humanCheck } from './turnstile.js';
 export { fromOf } from './mail.js';
 
 const MAX_BODY = 80 * 1024;
@@ -15,7 +16,7 @@ const json = (status, data, headers = {}) => new Response(JSON.stringify(data), 
 const bearer = req => /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') || '')?.[1] || null;
 
 // The page's account routes. Every POST must come from the page itself. human: the request
-// passed Turnstile (index.js emailPage), which a sign-in link needs wherever a site key is set.
+// passed Turnstile, which a sign-in code needs wherever a site key is set.
 export async function accountRoute(req, env, url, { human = false, origin = url.origin, from = fromOf(req) } = {}) {
   if (req.method !== 'GET' && req.headers.get('Origin') !== url.origin) return json(403, { error: 'cross-site request refused' });
   if (Number(req.headers.get('content-length') || 0) > MAX_BODY) return json(413, { error: 'too big' });
@@ -26,6 +27,14 @@ export async function accountRoute(req, env, url, { human = false, origin = url.
   }
   const body = req.method === 'GET' ? null : await req.text();
   if (body && body.length > MAX_BODY) return json(413, { error: 'too big' });
+  // A code request carries the person check's token from the frame on the MCP host; Cloudflare
+  // says whether it's good (for that host and action, once) before anything is sent.
+  if (url.pathname === '/account/link' && req.method === 'POST' && env.TURNSTILE_SITEKEY && !human) {
+    let token = null;
+    try { token = JSON.parse(body).token; } catch {}
+    if (!(await humanCheck(env, token, ip))) return json(403, { error: 'The check that you\'re a person didn\'t pass. Try again.', human: false });
+    human = true;
+  }
   const r = await env.ACCOUNTS.get(env.ACCOUNTS.idFromName('accounts')).fetch('https://accounts.internal/route', {
     method: 'POST', body: JSON.stringify({ method: req.method, path: url.pathname, body, session: bearer(req), ip, origin, human, from,
       // A recovery session reads the keyring only with the account key's proof (accountbook.js keyring).
@@ -70,10 +79,11 @@ export class Accounts extends DurableObject {
     let b = {};
     if (body) { try { b = JSON.parse(body); } catch { throw Object.assign(new Error('not JSON'), { status: 400 }); } }
     const book = this.book;
-    const emailPage = this.env.TURNSTILE_SITEKEY && this.env.MCP_HOST ? `https://${this.env.MCP_HOST}/email` : null;
-    if (method === 'GET' && path === '/account/config') return { emailPage };
+    // The person check's frame, when this relay has Turnstile (index.js humanPage).
+    const humanFrame = this.env.TURNSTILE_SITEKEY && this.env.MCP_HOST ? `${new URL(origin).protocol}//${this.env.MCP_HOST}/human` : null;
+    if (method === 'GET' && path === '/account/config') return { human: humanFrame };
     if (method === 'POST' && path === '/account/link') {
-      if (this.env.TURNSTILE_SITEKEY && !human) throw Object.assign(new Error(`Ask for a sign-in link at ${emailPage}`), { status: 403 });
+      if (this.env.TURNSTILE_SITEKEY && !human) throw Object.assign(new Error('The check that you\'re a person didn\'t pass. Try again.'), { status: 403 });
       if (!this.env.EMAIL) throw Object.assign(new Error('email is not set up on this relay'), { status: 503 });
       const got = await book.requestLink(b.email, ip);
       const mail = signinMail(origin, got, from);

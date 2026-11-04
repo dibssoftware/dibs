@@ -893,3 +893,4 @@ button.prog { cursor: pointer; }
 .status.busy::before { content: ''; display: inline-block; width: 11px; height: 11px; margin-right: 8px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: dibs-spin 0.7s linear infinite; }
 @keyframes dibs-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .status.busy::before { animation: none; border-right-color: currentColor; opacity: 0.6; } }
+.human-frame { position: absolute; left: -10px; top: -10px; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
