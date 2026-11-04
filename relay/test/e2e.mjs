@@ -301,6 +301,12 @@ async function main() {
 
   // Nothing from the board stays in the browser: it's end to end.
   assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('dibs-board'))), []);
+  // The reports a new tab draws at once are kept with numbers and names only, and their time.
+  await until(() => page.evaluate(() => !!localStorage.getItem('dibs:/api/history?since=1d')), 30e3, 'the day\'s history to be kept');
+  const report = await page.evaluate(() => localStorage.getItem('dibs:/api/history?since=1d'));
+  assert.ok(JSON.parse(report).at > Date.now() - 60e3, 'a kept report says when');
+  assert.doesNotMatch(report, /"(cmd|key|purpose|reason|why|text)":"[^"]/, 'no command lines or words anyone wrote are kept');
+  assert.deepEqual(JSON.parse(report).v.lines, [], 'the written summary isn\'t kept');
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 30e3 });
   await until(() => page.evaluate(() => dibsTransport.state.state === 'ready' && !document.querySelector('#eyebrow.busy')), 30e3, 'the board after reload');
@@ -341,7 +347,8 @@ async function main() {
   await page.reload();
   await until(() => page.evaluate(() => dibsTransport.state.state === 'unpaired'), 30e3, 'the revoked page to be refused');
   assert.equal(await page.isVisible('#signin'), true);
-  step('after dibs pair --revoke all the page is refused and shows how to pair again');
+  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('dibs:/api/'))), [], 'the kept reports go with the pairing');
+  step('after dibs pair --revoke all the page is refused, shows how to pair again, and the kept reports are gone');
 
   // Remote MCP through mcp.dibs.cc (mcp.localhost here): off by default, then the whole sign-in.
   const B = `http://${MCP_HOST}/${mid}`;
