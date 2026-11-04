@@ -289,6 +289,8 @@ async function saved(w, fn) {
 // 2026-10-20 nine browser runs sized when one run had read 15 GB still waited,
 // two hours on, for the whole budget the new rule no longer planned.
 const POLLED_EVERY = 60e3;
+// Longer than this since a waiter's dibs last looked and nobody was deciding for it (src/board.mjs too).
+export const UNPOLLED = 3 * POLLED_EVERY;
 function resize(cur, w) {
   if (cur.sent) return;
   const base = { mem: cur.asked ?? cur.mem, cpu: cur.cpu, disk: cur.disk };
@@ -297,6 +299,25 @@ function resize(cur, w) {
   cur.mem = n.mem;
   if (n.usual != null) cur.usual = n.usual; else delete cur.usual;
   Object.assign(w.info.size, { mem: n.mem, usual: n.usual });
+}
+// Adds the time since the rule last changed to the rule that held it then, and
+// notes the new one. Kept on the queue entry, not in the waiter's memory: #17303
+// waited 10h22m on 2026-11-01 and its start event named 64 minutes of it, since
+// each of four new brokers began the count again. Written only when the rule
+// changes, so a poll that changes nothing still leaves the state file alone. A
+// stretch nobody decided for it (no broker, a waiter stopped) is 'unpolled',
+// from the last time its dibs looked, so every second it waited has a name.
+function heldFor(cur, rule, looked) {
+  const t = now(), held = { ...cur.held };
+  let from = cur.heldAt ?? cur.enq;
+  const add = (k, ms) => { if (k && ms > 0) held[k] = (held[k] || 0) + ms; };
+  const gap = looked != null && t - looked > UNPOLLED;
+  if (gap) { add(cur.heldRule ?? rule, looked - from); add('unpolled', t - Math.max(looked, from)); from = t; }
+  if (!gap && rule === cur.heldRule && cur.heldAt != null) return;
+  add(cur.heldRule ?? rule, t - from);
+  if (Object.keys(held).length) cur.held = held;
+  if (rule) cur.heldRule = rule; else delete cur.heldRule;
+  cur.heldAt = t;
 }
 export function decide(s, w) {
   const { me, cfg, hist, info } = w;
@@ -308,6 +329,7 @@ export function decide(s, w) {
   resize(cur, w);
   // When its dibs last looked, so the board can tell a waiter that could start from one nobody
   // is deciding for. Once a minute at most: a poll that changes nothing leaves the state file alone.
+  const looked = cur.polledAt;
   if (!(now() - (cur.polledAt || 0) < POLLED_EVERY)) cur.polledAt = now();
   // Kept on the entry, so other waiters rank it at the front too (src/schedule.mjs quickPass).
   if (quickPass(cur, hist, cfg)) cur.quickPass = true; else delete cur.quickPass;
@@ -316,12 +338,8 @@ export function decide(s, w) {
   if (!v.ok && v.rule === 'slot' && !cur.quickPass) v = quotaBlock(s, cur, cfg, hist) || preempt(s, cur, cfg, hist) || v;
   if (v.ok) v = quotaBlock(s, cur, cfg, hist) || v;
   // What held it and for how long, for its start event: on 2026-10-24 a 2-second test waited
-  // 3 minutes with 11 GB of disk free, and the log said only that it waited. Kept in the
-  // waiter's memory, so a poll that changes nothing still leaves the state file alone.
-  const t = now();
-  if (w.heldRule) w.heldBy = { ...w.heldBy, [w.heldRule]: (w.heldBy?.[w.heldRule] || 0) + t - w.heldAt };
-  w.heldRule = v.ok ? null : v.rule || 'other';
-  w.heldAt = t;
+  // 3 minutes with 11 GB of disk free, and the log said only that it waited.
+  heldFor(cur, v.ok ? null : v.rule || 'other', looked);
   // For the stall breaker (schedule.mjs): whether the machine, not the line, holds this one back.
   if (!v.ok && v.machine) cur.machineHeld = true; else delete cur.machineHeld;
   // When the load ceiling alone started holding it: after LOAD_STARVE it starts anyway (schedule.mjs).
@@ -355,7 +373,7 @@ export function decide(s, w) {
                   purpose: cur.purpose, cmd: me.cmd, key: me.key, est: info.est, prio: cur.prio, by: cur.by,
                   cwd: info.cwd, ppid: info.ppid, start: now(), waited: now() - cur.enq, agentId: info.agentId, sessionId: info.sessionId,
                   owner: cur.owner, askedPrio: cur.askedPrio };
-  if (w.heldBy) lease.held = Object.fromEntries(Object.entries(w.heldBy).map(([k, x]) => [k, Math.round(x)]));
+  if (cur.held) lease.held = Object.fromEntries(Object.entries(cur.held).map(([k, x]) => [k, Math.round(x)]));
   if (v.covered.length) lease.covered = v.covered;
   if (v.alongside) lease.alongside = v.alongside;
   if (v.trial) lease.trial = true;

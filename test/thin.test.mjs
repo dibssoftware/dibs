@@ -233,6 +233,40 @@ test('a broker killed with waiters in line: one waiter starts another, and every
   for (const p of ps) assert.equal(await p.done, 0, p.err);
 });
 
+// #17303 on 2026-11-01 waited 10h22m behind four broker restarts, and its start event
+// named 64 minutes of it: each new broker began the count again.
+test('every second a thin waiter waited is named in its start event, across a broker restart and a stretch nobody decided for it', async t => {
+  const home = tmp(t);
+  stopBroker(t, home);
+  block(home);
+  const p = thin(t, home, ['run', 'deploy', '--', 'true']);
+  await inLine(home, p);
+  await settled(p);
+  await new Promise(r => setTimeout(r, 2000));
+  const old = state(home).broker.pid;
+  process.kill(old, 'SIGKILL');
+  await until(() => { const b = state(home).broker; return b && b.pid !== old && alive(b.pid); });
+  await until(() => entry(home, p.pid)?.heldRule === 'slot');
+  // As if it joined 20 minutes ago and nobody had looked for the last 10, under the state lock.
+  const lock = path.join(home, 'lock');
+  await until(() => { try { fs.mkdirSync(lock); return true; } catch { return false; } });
+  fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
+  const s = state(home), q = s.queue.find(x => x.pid === p.pid), back = 20 * 6e4;
+  for (const k of ['enq', 'heldAt']) q[k] -= back;
+  q.polledAt = Date.now() - back / 2;
+  fs.writeFileSync(path.join(home, 'state.json.t'), JSON.stringify(s));
+  fs.renameSync(path.join(home, 'state.json.t'), path.join(home, 'state.json'));
+  fs.rmSync(lock, { recursive: true });
+  await until(() => entry(home, p.pid)?.held?.unpolled > 0);
+  unblock(home);
+  assert.equal(await p.done, 0, p.err);
+  const start = events(home).find(e => e.kind === 'start' && e.res.includes('deploy') && e.who !== 'other');
+  const named = Object.values(start.held).reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(named - start.ms) < 50, `held ${JSON.stringify(start.held)} adds to ${named}, waited ${start.ms}`);
+  assert.ok(start.held.slot > back / 2, `the slot held it through the restart: ${JSON.stringify(start.held)}`);
+  assert.ok(Math.abs(start.held.unpolled - back / 2) < 5e3, `nobody looked for 10 minutes: ${JSON.stringify(start.held)}`);
+});
+
 test('with the broker unable to start, a thin waiter waits in Node within seconds', async t => {
   const home = tmp(t);
   block(home);

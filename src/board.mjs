@@ -2,7 +2,7 @@
 // joined to a coordinator, on every other machine too.
 import { resCfg } from './config.mjs';
 import { tag, isMine } from './proc.mjs';
-import { idleFor } from './acquire.mjs';
+import { idleFor, UNPOLLED } from './acquire.mjs';
 import { forecast, byRank, remaining, used, overBy, verdict, memUsed, cpuUsed, shownFree, swapGrowing, diskSqueeze, BREAKER_LINE, QUICK_LINE } from './schedule.mjs';
 import { grewLine, cappedLine } from './measure.mjs';
 import { pauseLabel } from './preempt.mjs';
@@ -29,7 +29,6 @@ const blockedBy = v => { const r = waitReason(v); return r && !/^(behind|held by
 // line and the machine, then a shared rate limit), or, when nothing does, that
 // nobody has decided for it lately. On 2026-10-20 two test runs showed no
 // reason at all and didn't start, with free slots and memory.
-const UNPOLLED = 3 * 6e4;   // a waiter's dibs decides every few seconds, and notes it once a minute (acquire.mjs POLLED_EVERY)
 function waitingOn(s, q, cfg, hist, t) {
   const v = verdict(s, q, cfg, hist, t);
   if (!v.ok) return blockedBy(v);
