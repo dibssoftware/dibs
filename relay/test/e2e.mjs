@@ -302,12 +302,14 @@ async function main() {
   // The board this browser got is kept for its next visit, with no command lines in it.
   await page.evaluate(() => dispatchEvent(new Event('pagehide')));
   const keptBoard = await page.evaluate(() => localStorage.getItem('dibs-board:'));
-  assert.ok(JSON.parse(keptBoard).v.agents, 'the board is kept');
-  assert.doesNotMatch(keptBoard, /"cmd":"[^"]/, 'no command line is kept');
+  const kb = JSON.parse(keptBoard);
+  assert.ok(Array.isArray(kb.v.agents) && kb.at > Date.now() - 60e3, 'the board\'s shape is kept, with when');
+  assert.deepEqual([kb.v.posts, kb.v.alerts], [[], []], 'no posts or alerts are kept');
+  assert.doesNotMatch(keptBoard, /"(cmd|text|purpose|reason)":"[^"]/, 'no words anyone wrote are kept');
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 30e3 });
   await until(() => page.evaluate(() => dibsTransport.state.state === 'ready' && !document.querySelector('#app.stale')), 30e3, 'a live board after reload');
-  step('a reload draws the kept board at once (no commands in it), then opens a fresh session from the stored keys, no link needed');
+  step('a reload draws the kept board\'s shape at once (no posts, purposes or commands), then opens a fresh session from the stored keys, no link needed');
 
   // A tab holding this browser's real token is let in; once the Mac goes, it's closed after the
   // grace even while it keeps sending.
