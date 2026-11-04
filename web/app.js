@@ -319,7 +319,8 @@
   function renderView() {
     if (!data) return;
     for (const v of VIEWS) $(`v-${v}`).hidden = v !== view;
-    if ($('job').open) drawSheet();
+    // A run sheet (runSheet) has no job to redraw.
+    if ($('job').open && sheetJob != null) drawSheet();
     if (view !== 'now') $('title').classList.remove('hot');
     if (LIVE.includes(view)) {
       $('title').textContent = TITLES[view];
@@ -1041,7 +1042,7 @@
           b.title = progTip(p);
           b.setAttribute('aria-label', progTip(p).replace(/\n/g, '. '));
           // A job of now opens its sheet; one that ran says what it was (a tap has no hover).
-          b.addEventListener('click', () => (p.job ? jobSheet(p.job.id) : toast(progTip(p).replace(/\n/g, '. '))));
+          b.addEventListener('click', () => (p.job ? jobSheet(p.job.id) : runSheet(c.res, p)));
           track.append(b);
         }
       });
@@ -1049,7 +1050,7 @@
         const more = el('button', 'g-more', `+${rest.length}`);
         more.type = 'button';
         more.title = rest.map(p => progTip(p).split('\n')[0]).join('\n');
-        more.addEventListener('click', () => toast(`${rest.length} more on ${resName(c.res)}: ${rest.map(p => progTip(p).split('\n')[0]).join('; ')}`));
+        more.addEventListener('click', () => runSheet(c.res, null, rest));
         name.append(more);
       }
       const nowLine = el('i', 's-now');
@@ -1105,6 +1106,23 @@
     }
     return lanes;
   }
+  // A past run's details, every run of a merged bar, or what a +N hides, for a
+  // tap where there's no hover: one row per run with its time, length and exit.
+  function runSheet(res, p, list = null) {
+    const d = $('job');
+    const facts = el('dl', 'facts');
+    const fact = (k, v) => facts.append(el('dt', null, k), el('dd', null, v));
+    for (const q of list || [p]) {
+      if (q.job) { fact(`${q.job.who} #${q.job.id}`, progTip(q).split('\n').slice(1).join(', ')); continue; }
+      for (const x of q.runs) fact(list ? `${q.who} #${x.id}` : `#${x.id}`, `${clock(x.start)} to ${clock(x.to)}, ${span(x.to - x.start)}${x.code != null ? `, exit ${x.code}` : ''}`);
+    }
+    const title = el('h2', 'sheet-title', list ? `${list.length} more on ${resName(res)}` : p.runs.length > 1 ? `${p.who}: ${p.runs.length} runs on ${resName(res)}` : `${p.who} on ${resName(res)}`);
+    title.id = 'job-title';
+    sheetJob = null;
+    d.replaceChildren(title, facts, sheetClose());
+    if (!d.open) d.showModal();
+  }
+
   // A bar's labels, longest first: the agent's name, then what's still worth
   // reading when it won't fit. A merged bar: how many runs (and failures). One
   // run: the session's short suffix, how agents tell each other apart ("0b").
