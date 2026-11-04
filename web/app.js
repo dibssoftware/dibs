@@ -975,9 +975,13 @@
   // What ran in the last two hours (the Mac app's guide's window) left of the red line at now, what's on through it,
   // what waits after it. One channel per resource; every file lease shares one.
   const GUIDE_BACK = 2 * 36e5;
+  // A phone shows the last hour and a little after now: the same two hours would leave each bar a quarter of the pixels.
+  const PHONE = matchMedia('(max-width: 600px)');
+  const PHONE_BACK = 36e5, PHONE_AHEAD = 20 * 6e4;
   function scheduleView() {
     const box = $('v-schedule');
-    const now = data.now, lo = now - GUIDE_BACK;
+    const phone = PHONE.matches;
+    const now = data.now, lo = now - (phone ? PHONE_BACK : GUIDE_BACK);
     const chans = new Map();
     const chan = r => { const k = r.startsWith('files:') ? 'files' : r; if (!chans.has(k)) chans.set(k, { res: k, progs: [] }); return chans.get(k); };
     // Past runs: each end event with the start it closes.
@@ -995,12 +999,13 @@
       } else chan(r).progs.push({ kind: j.state === 'paused' ? 'paused' : 'run', who: j.who, from: Math.max(lo, j.started || now), to: j.endsAt || now + 5 * 6e4, open: !j.endsAt, job: j });
     }
     const list = [...chans.values()].sort((a, b) => resName(a.res).localeCompare(resName(b.res)));
-    $('summary').textContent = list.length ? `What ran in the last two hours, what's on now, and what's waiting. ${press()} a job to change it.` : '';
-    if (!list.length) return box.replaceChildren(quiet('Nothing ran in the last two hours and nothing is waiting.', 'Runs show up here as agents take their turns.'));
-    const hi = Math.max(now + 45 * 6e4, ...list.flatMap(c => c.progs.map(p => p.to)).filter(t => t < now + 6 * 36e5)) + 5 * 6e4;
+    const span = phone ? 'hour' : 'two hours';
+    $('summary').textContent = list.length ? `What ran in the last ${span}, what's on now, and what's waiting. ${press()} a job to change it.` : '';
+    if (!list.length) return box.replaceChildren(quiet(`Nothing ran in the last ${span} and nothing is waiting.`, 'Runs show up here as agents take their turns.'));
+    const hi = phone ? now + PHONE_AHEAD : Math.max(now + 45 * 6e4, ...list.flatMap(c => c.progs.map(p => p.to)).filter(t => t < now + 6 * 36e5)) + 5 * 6e4;
     // The past gets no more of the width than what's on and coming: a quiet evening
-    // shouldn't push now to the right edge.
-    const from = Math.max(lo, Math.min(now - 30 * 6e4, ...list.flatMap(c => c.progs.map(p => p.from))), now - (hi - now));
+    // shouldn't push now to the right edge. A phone always shows its whole hour.
+    const from = phone ? lo : Math.max(lo, Math.min(now - 30 * 6e4, ...list.flatMap(c => c.progs.map(p => p.from))), now - (hi - now));
     const at = t => ((Math.min(hi, Math.max(from, t)) - from) / (hi - from)) * 100;
     const step = [15, 30, 60, 120].map(m => m * 6e4).find(st => (hi - from) / st <= 7) || 18e4 * 40;
     const guide = el('div', 'guide card');
