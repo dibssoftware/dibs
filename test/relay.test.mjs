@@ -280,7 +280,10 @@ test('an old handshake replayed against a fresh one fails: the Mac signs new eph
   const w1 = wire({ meddle: (dir, b) => { if (handshakeMsg(b)?.t === 'hello3') old = b; return [b]; } });
   await B.open(w1.chan, rec);
   const w2 = wire({ meddle: (dir, b) => (handshakeMsg(b)?.t === 'hello3' ? [old] : [b]) });
-  await assert.rejects(B.open(w2.chan, rec));
+  // The page's half is done once hello3 is sent; the Mac's refusal ends the session before it's confirmed.
+  const s = await B.open(w2.chan, rec);
+  await assert.rejects(s.confirmed);
+  await assert.rejects(s.request('GET', '/api/board'));
   assert.match(w2.kicked.join(), /device signature failed/);
 });
 
