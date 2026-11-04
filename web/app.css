@@ -865,3 +865,23 @@ button.prog { cursor: pointer; }
 .hours.approve { padding: 12px 16px 14px; box-shadow: inset 0 1px 0 var(--hairline); }
 .hours.approve .prose { flex: 1 1 100%; margin: 0; }
 .hours.approve input { font-size: 22px; letter-spacing: 0.08em; width: 9ch; font-variant-numeric: tabular-nums; }
+/* The account page's sign-in (web/account.html): one step per screen, nothing that jumps. */
+#account .ways { display: flex; flex-direction: column; gap: 14px; }
+#account .way-passkey { order: 2; background: var(--sunken); color: var(--ink); box-shadow: inset 0 0 0 1px var(--sunken-edge); }
+#account .way-email { order: 1; }
+#account.passkey-first .way-passkey { order: 1; background: var(--red); color: #fff; box-shadow: none; }
+#account.passkey-first .way-email { order: 2; }
+#account.passkey-first .way-email button { background: var(--sunken); color: var(--ink); box-shadow: inset 0 0 0 1px var(--sunken-edge); }
+#account input[type=email] { font-family: inherit; font-size: 17px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+#account #code-input { font-size: 30px; letter-spacing: 0.3em; text-align: center; }
+#account .status { min-height: 1.4em; margin: 10px 0 2px; font-size: 14px; color: var(--ink-2); }
+#account .status.error { color: var(--red-ink); }
+#account .row-links { display: flex; justify-content: space-between; gap: 12px; margin: 14px 0 6px; }
+#account .row-links .link, #account [data-view] > .link { width: auto; margin: 0; background: none; color: var(--ink-3); padding: 6px 0; font-size: 13.5px; font-weight: 560; }
+#account .row-links .link:disabled { opacity: 0.6; filter: none; }
+#account [data-view] > .link { display: block; margin: 12px auto 0; }
+#account .quiet { background: var(--sunken); color: var(--ink); box-shadow: inset 0 0 0 1px var(--sunken-edge); }
+#account .offer-sure { margin-top: 14px; padding-top: 14px; box-shadow: inset 0 1px 0 var(--hairline); }
+#account .offer-sure p { margin-bottom: 8px; }
+#account .passkey-only { margin-top: 18px; }
+#account .passkey-only p { font-size: 13.5px; margin-bottom: 8px; }

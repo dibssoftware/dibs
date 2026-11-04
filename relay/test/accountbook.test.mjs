@@ -23,7 +23,7 @@ const rand = () => crypto.randomBytes(32).toString('base64url');
 const sha = x => crypto.createHash('sha256').update(x).digest('base64url');
 // An account whose browser holds the account key: its first keyring write set the proof.
 async function owned(b, email = 'me@example.com', ip = 'ip') {
-  const s = await b.redeemLink(await b.requestLink(email, ip), ip);
+  const s = await b.redeemLink((await b.requestLink(email, ip)).token, ip);
   const proof = rand();
   await b.putKeyring(s.session, { keyring: 'c2VhbGVk', version: 0, proof });
   return { ...s, proof };
@@ -31,7 +31,7 @@ async function owned(b, email = 'me@example.com', ip = 'ip') {
 
 test('an email address is stored only as a keyed hash, and a link signs in once', async () => {
   const { s, b } = book();
-  const token = await b.requestLink('  Person@Example.COM ', 'ip1');
+  const { token } = await b.requestLink('  Person@Example.COM ', 'ip1');
   const r = await b.redeemLink(token, 'ip1');
   assert.equal(r.created, true);
   const all = JSON.stringify([...s.m]);
@@ -39,17 +39,17 @@ test('an email address is stored only as a keyed hash, and a link signs in once'
   assert.doesNotMatch(all, new RegExp(token), 'no link token either, only its hash');
   await assert.rejects(b.redeemLink(token, 'ip1'), /already used or has expired/);
   // The same address, any case, finds the same account.
-  const again = await b.redeemLink(await b.requestLink('person@example.com', 'ip1'), 'ip1');
+  const again = await b.redeemLink((await b.requestLink('person@example.com', 'ip1')).token, 'ip1');
   assert.equal(again.aid, r.aid);
   assert.equal(again.created, false);
 });
 
-test('a link expires after 15 minutes and a session after 30 days', async () => {
+test('a link expires after 10 minutes and a session after 30 days', async () => {
   const { b } = book();
   const t = Date.now();
-  const token = await b.requestLink('a@b.co', 'ip', t);
+  const { token } = await b.requestLink('a@b.co', 'ip', t);
   await assert.rejects(b.redeemLink(token, 'ip', t + LINK_LIFE + 1), /expired/);
-  const r = await b.redeemLink(await b.requestLink('a@b.co', 'ip', t), 'ip', t);
+  const r = await b.redeemLink((await b.requestLink('a@b.co', 'ip', t)).token, 'ip', t);
   await b.account(r.session, t + SESSION_LIFE - 1);
   await assert.rejects(b.account(r.session, t + SESSION_LIFE + 1), /Sign in again/);
 });
@@ -58,7 +58,7 @@ test('three strangers asking for links to an address don\'t lock its owner out o
   const T = Date.UTC(2026, 10, 2, 22, 10);
   const { b } = book();
   for (const ip of ['7.7.7.1', '7.7.7.2', '7.7.7.3']) await b.requestLink('victim@example.com', ip, T);
-  assert.equal(typeof await b.requestLink('victim@example.com', '9.9.9.9', T), 'string', 'the owner, from their own address, still gets a link');
+  assert.equal(typeof (await b.requestLink('victim@example.com', '9.9.9.9', T)).token, 'string', 'the owner, from their own address, still gets a link');
   // From one IP an address gets three an hour; from anywhere, twenty.
   for (let i = 0; i < 2; i++) await b.requestLink('victim@example.com', '9.9.9.9', T);
   await assert.rejects(b.requestLink('victim@example.com', '9.9.9.9', T), /already went to that address/);
@@ -83,7 +83,7 @@ test('link counts are kept in storage: a fresh object on the same storage still 
   const mk = () => new AccountBook(s, { secret: 'test-secret', rpId: 'app.dibs.cc', origin: 'https://app.dibs.cc' });
   for (let i = 0; i < 3; i++) await mk().requestLink('evict@example.com', '5.5.5.5', T);
   await assert.rejects(mk().requestLink('evict@example.com', '5.5.5.5', T + 1000), /already went to that address/);
-  assert.equal(typeof await mk().requestLink('evict@example.com', '5.5.5.5', T + 36e5), 'string');
+  assert.equal(typeof (await mk().requestLink('evict@example.com', '5.5.5.5', T + 36e5)).token, 'string');
   assert.doesNotMatch(JSON.stringify([...s.m.keys()]), /evict|5\.5\.5\.5/, 'neither the address nor the IP in a key');
   // The alarm sweeps the old hours' counts.
   while (await mk().sweep(T + 2 * 36e5));
@@ -91,14 +91,67 @@ test('link counts are kept in storage: a fresh object on the same storage still 
   assert.deepEqual([...new Set(left.map(k => k.split(':')[1]))], [String(Math.floor(T / 36e5) + 1)], 'only the newest hour is left');
 });
 
+test('the code is typed against its request: once, five wrong tries at most, and it spends the link with it', async () => {
+  const { s, b } = book();
+  const t = Date.now();
+  const r = await b.requestLink('code@example.com', 'ip', t);
+  assert.match(r.code, /^\d{6}$/);
+  assert.match(r.rid, /^[A-Za-z0-9_-]{22}$/);
+  assert.ok(!JSON.stringify([...s.m]).includes(r.code), 'the code is stored only as an HMAC');
+  const wrong = String((Number(r.code) + 1) % 1e6).padStart(6, '0');
+  for (let left = 4; left >= 1; left--) {
+    const e = await b.redeemCode(r.rid, wrong, `ip${left}`, t).then(() => null, x => x);
+    assert.equal(e.left, left);
+    assert.match(e.message, new RegExp(`${left} tr(y|ies) left`));
+  }
+  const fifth = await b.redeemCode(r.rid, wrong, 'ip0', t).then(() => null, x => x);
+  assert.ok(fifth.expired, 'the fifth wrong code ends it');
+  await assert.rejects(b.redeemCode(r.rid, r.code, 'ipz', t), /expired or was already used/, 'even the right code, after that');
+  await assert.rejects(b.redeemLink(r.token, 'ipz', t), /already used or has expired/, 'and its link went with it');
+
+  const ok = await b.requestLink('code@example.com', 'ipb', t);
+  const signed = await b.redeemCode(ok.rid, `${ok.code.slice(0, 3)} ${ok.code.slice(3)}`, 'ipq', t);
+  assert.equal(signed.created, true);
+  assert.equal(signed.passkeys, 0);
+  await assert.rejects(b.redeemCode(ok.rid, ok.code, 'ipq', t), /already used/, 'once');
+  await assert.rejects(b.redeemLink(ok.token, 'ipq', t), /already used/, 'the code spent the link');
+  const late = await b.requestLink('code@example.com', 'ipc', t);
+  await assert.rejects(b.redeemCode(late.rid, late.code, 'ipl', t + LINK_LIFE + 1), /expired/, '10 minutes');
+  const viaLink = await b.requestLink('code@example.com', 'ipd', t);
+  await b.redeemLink(viaLink.token, 'ipm', t);
+  await assert.rejects(b.redeemCode(viaLink.rid, viaLink.code, 'ipm', t), /already used/, 'the link spent the code');
+  await assert.rejects(b.redeemCode('not-an-id', '123456', 'ipm', t), /expired/);
+});
+
+test('an account that requires a passkey: email signs in only to ask a Mac, and turning it on needs a passkey and the key', async () => {
+  const { b } = book();
+  const o = await owned(b, 'only@example.com');
+  await assert.rejects(b.setPasskeyOnly(o.session, o.proof, true), /Add a passkey first/);
+  const a = await authenticator();
+  const reg = await b.passkeyBegin(o.session, o.proof);
+  await b.passkeyFinish(o.session, o.proof, reg.challenge, await a.create({ challenge: reg.challenge }), 'k');
+  const thief = (await b.redeemLink((await b.requestLink('only@example.com', 'ip2')).token, 'ip2'));
+  await assert.rejects(b.setPasskeyOnly(thief.session, rand(), true), /holds the account key/);
+  assert.deepEqual(await b.setPasskeyOnly(o.session, o.proof, true), { passkeyOnly: true });
+  const r = await b.requestLink('only@example.com', 'ip3');
+  const rec = await b.redeemCode(r.rid, r.code, 'ip3');
+  assert.equal(rec.recovery, true);
+  await assert.rejects(b.keyring(rec.session), /holds the account key/, 'a recovery session reads nothing without the key');
+  assert.ok((await b.askApproval(rec.session, rand(), 'Safari')).id, 'it can ask a Mac');
+  assert.equal((await b.keyring(rec.session, Date.now(), o.proof)).passkeyOnly, true, 'with the key (from a Mac) it reads');
+  await b.setPasskeyOnly(o.session, o.proof, false);
+  const back = await b.redeemLink((await b.requestLink('only@example.com', 'ip4')).token, 'ip4');
+  assert.equal(back.recovery, undefined);
+});
+
 test('the answer to a link request is the same whether or not the address has an account', async () => {
   const { b } = book();
   const known = await b.requestLink('known@x.io', 'i1');
-  await b.redeemLink(known, 'i1');
+  await b.redeemLink(known.token, 'i1');
   const a = await b.requestLink('known@x.io', 'i2');
   const u = await b.requestLink('unknown@x.io', 'i3');
-  assert.equal(typeof a, typeof u);
-  assert.equal(a.length, u.length);
+  assert.deepEqual(Object.keys(a), Object.keys(u));
+  for (const k of Object.keys(a)) assert.equal(a[k].length, u[k].length, k);
   await assert.rejects(b.requestLink('not an email', 'i4'), /not an email/);
 });
 
@@ -110,7 +163,7 @@ test('sign-in tries are limited per IP', async () => {
 
 test('the keyring is the browser\'s sealed blob: stored as given, versioned so two browsers can\'t overwrite each other', async () => {
   const { s, b } = book();
-  const { session } = await b.redeemLink(await b.requestLink('k@r.ng', 'i'), 'i');
+  const { session } = await b.redeemLink((await b.requestLink('k@r.ng', 'i')).token, 'i');
   assert.deepEqual((await b.keyring(session)).keyring, null);
   const proof = rand();
   await assert.rejects(b.putKeyring(session, { keyring: 'c2VhbGVk', version: 0 }), /proof/, 'the first write sets the proof, so it must carry one');
@@ -129,7 +182,7 @@ test('a session from an email link alone can\'t touch the keyring, the Macs, the
   const owner = await owned(b);
   const macSecret = rand();
   await b.addMember(owner.session, owner.proof, sha(`dibs-member-v1\0${macSecret}`), 'M'.repeat(22));
-  const thief = await b.redeemLink(await b.requestLink('me@example.com', '6.6.6.6'), '6.6.6.6');
+  const thief = await b.redeemLink((await b.requestLink('me@example.com', '6.6.6.6')).token, '6.6.6.6');
   assert.equal(thief.aid, owner.aid, 'the link signs in, as it should');
   const wrong = rand();
   for (const proof of [undefined, wrong]) {
@@ -149,10 +202,10 @@ test('a session from an email link alone can\'t touch the keyring, the Macs, the
 // relayreview's emailonly2.mjs: an account with a keyring from before proofs existed.
 test('an account that had a keyring before proofs takes no first proof, from anyone', async () => {
   const { s, b } = book();
-  const early = await b.redeemLink(await b.requestLink('early@example.com', 'ip'), 'ip');
+  const early = await b.redeemLink((await b.requestLink('early@example.com', 'ip')).token, 'ip');
   const a = s.m.get(`a:${early.aid}`);
   s.m.set(`a:${early.aid}`, { ...a, keyring: 'b2xk', version: 3 });
-  const thief = await b.redeemLink(await b.requestLink('early@example.com', '6.6.6.7'), '6.6.6.7');
+  const thief = await b.redeemLink((await b.requestLink('early@example.com', '6.6.6.7')).token, '6.6.6.7');
   await assert.rejects(b.putKeyring(thief.session, { keyring: 'ZXZpbA', version: 3, proof: rand() }), /made before dibs accounts could check/);
   assert.equal(s.m.get(`a:${early.aid}`).auth, undefined);
   assert.equal(s.m.get(`a:${early.aid}`).keyring, 'b2xk');
@@ -162,15 +215,15 @@ test('an account that had a keyring before proofs takes no first proof, from any
 test('one session keeps at most two approval requests open, so it can\'t crowd out the person\'s browsers', async () => {
   const { b } = book();
   await owned(b, 'cap@example.com');
-  const thief = await b.redeemLink(await b.requestLink('cap@example.com', '6.6.6.6'), '6.6.6.6');
+  const thief = await b.redeemLink((await b.requestLink('cap@example.com', '6.6.6.6')).token, '6.6.6.6');
   for (let i = 0; i < 2; i++) await b.askApproval(thief.session, rand(), 'x');
   await assert.rejects(b.askApproval(thief.session, rand(), 'x'), /already has a request waiting/);
-  const real = await b.redeemLink(await b.requestLink('cap@example.com', 'ip9'), 'ip9');
+  const real = await b.redeemLink((await b.requestLink('cap@example.com', 'ip9')).token, 'ip9');
   assert.ok((await b.askApproval(real.session, rand(), 'Safari')).id, 'the person\'s new browser still gets in line');
   // Sessions enough to fill the account: the person is told what that means.
-  const more = await b.redeemLink(await b.requestLink('cap@example.com', '6.6.6.7'), '6.6.6.7');
+  const more = await b.redeemLink((await b.requestLink('cap@example.com', '6.6.6.7')).token, '6.6.6.7');
   for (let i = 0; i < 2; i++) await b.askApproval(more.session, rand(), 'x');
-  const late = await b.redeemLink(await b.requestLink('cap@example.com', 'ip10'), 'ip10');
+  const late = await b.redeemLink((await b.requestLink('cap@example.com', 'ip10')).token, 'ip10');
   await assert.rejects(b.askApproval(late.session, rand(), 'Safari'), /someone else may have your email.*Sign out everywhere else/);
 });
 
@@ -201,7 +254,7 @@ test('a session of an account that\'s gone is refused, and removed', async () =>
 test('ending every session signs out every browser but the one that asked', async () => {
   const { b } = book();
   const o = await owned(b);
-  const other = await b.redeemLink(await b.requestLink('me@example.com', 'ip2'), 'ip2');
+  const other = await b.redeemLink((await b.requestLink('me@example.com', 'ip2')).token, 'ip2');
   const t = Date.now() + 5;
   const fresh = await b.endSessions(o.session, o.proof, t);
   await assert.rejects(b.account(other.session, t + 1), /every session of this account was ended/);
@@ -228,10 +281,10 @@ test('a browser without the account key goes through the four steps with a membe
   await assert.rejects(b.poll(session, ask.id), /expired/, 'collected once');
 });
 
-test('the sweep removes expired links, sessions, used challenges and approvals, and keeps accounts', async () => {
+test('the sweep removes expired links, codes, sessions, used challenges and approvals, and keeps accounts', async () => {
   const { s, b } = book();
   const t = Date.now();
-  const { session } = await b.redeemLink(await b.requestLink('s@w.ep', 'i', t), 'i', t);
+  const { session } = await b.redeemLink((await b.requestLink('s@w.ep', 'i', t)).token, 'i', t);
   await b.requestLink('s@w.ep', 'i', t);
   await b.askApproval(session, 'B'.repeat(43), 'x', t);
   s.m.set('u:old', { exp: t });
@@ -246,7 +299,7 @@ test('requests never sweep, and the sweep goes a batch at a time', async () => {
   for (let i = 0; i < SWEEP_BATCH * 2 + 5; i++) s.m.set(`l:${String(i).padStart(5, '0')}`, { exp: t - 1 });
   s.lists = 0;
   await b.signInBegin(t);
-  await b.redeemLink(await b.requestLink('q@u.ie', 'i', t), 'i', t);
+  await b.redeemLink((await b.requestLink('q@u.ie', 'i', t)).token, 'i', t);
   assert.equal(s.lists, 0, 'signing in lists nothing');
   assert.equal(await b.sweep(t), true, 'a full batch: more to go');
   assert.equal([...s.m.keys()].filter(k => k.startsWith('l:')).length, SWEEP_BATCH + 5, 'the redeemed link went when it was used');
@@ -271,6 +324,21 @@ test('asking for a passkey sign-in stores nothing, and a challenge works once, f
   await assert.rejects(b.signInFinish(forged, id, await a.get({ challenge: forged }), 'i'), /expired/, 'a challenge the relay didn\'t make');
   // One made for adding a passkey doesn't sign in.
   await assert.rejects(b.signInFinish(reg.challenge, id, await a.get({ challenge: reg.challenge }), 'i'), /expired/);
+});
+
+test('a passkey seen used from a copy is turned off, so the copy can\'t retry its way past the count', async () => {
+  const { b } = book();
+  const o = await owned(b, 'clone@example.com');
+  const a = await authenticator();
+  const reg = await b.passkeyBegin(o.session, o.proof);
+  const { id } = await b.passkeyFinish(o.session, o.proof, reg.challenge, await a.create({ challenge: reg.challenge }), 'k');
+  const go = await b.signInBegin();
+  await b.signInFinish(go.challenge, id, await a.get({ challenge: go.challenge, bump: 5 }), 'i');
+  const stale = await b.signInBegin();
+  await assert.rejects(b.signInFinish(stale.challenge, id, await a.get({ challenge: stale.challenge, bump: -3 }), 'i'), /copied/);
+  const retry = await b.signInBegin();
+  await assert.rejects(b.signInFinish(retry.challenge, id, await a.get({ challenge: retry.challenge, bump: 20 }), 'i'), /turned off/, 'a higher count later doesn\'t get it back');
+  assert.ok((await b.keyring(o.session)).passkeys.find(p => p.id === id).copied, 'the account page can say so');
 });
 
 test('the wrapped account key goes only to a sign-in that verified the person', async () => {

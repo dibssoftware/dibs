@@ -42,6 +42,8 @@ test('the page and remote MCP each have their own origin, and the Worker leaves 
   // Sign-in links only past Turnstile in production; the local env has no site key, so e2e asks directly.
   assert.match(conf.vars.TURNSTILE_SITEKEY, /^0x4/);
   assert.equal(conf.env.local.vars.TURNSTILE_SITEKEY, undefined);
+  // The e2e's looser sign-in limits never reach production.
+  assert.equal(conf.vars.ACCOUNT_LIMITS, undefined);
 });
 
 // cf deploy reads cloudflare.config.ts, not wrangler.jsonc (wrangler dev and the e2e read that),

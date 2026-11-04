@@ -19,7 +19,7 @@
 //                 the relay's own notes ({t:'mac', up}) are text.
 import { DurableObject } from 'cloudflare:workers';
 import { CodeBook, MAX_CODES } from './codebook.js';
-import { accountRoute } from './accounts.js';
+import { accountRoute, fromOf } from './accounts.js';
 import { human } from './turnstile.js';
 export { Accounts } from './accounts.js';
 
@@ -172,7 +172,7 @@ async function emailPage(req, env, url) {
   if (!(await human(env, b.token, ip))) return mcpJson(403, 'The check that you\'re a person didn\'t pass. Reload the page and try again.');
   const page = `https://${env.PAGE_HOST}`;
   const fwd = new Request(`${page}/account/link`, { method: 'POST', headers: { Origin: page, 'Content-Type': 'application/json', 'CF-Connecting-IP': ip }, body: JSON.stringify({ email: b.email }) });
-  return withHeaders(await accountRoute(fwd, env, new URL(fwd.url), { human: true, origin: page }), mcpHeaders());
+  return withHeaders(await accountRoute(fwd, env, new URL(fwd.url), { human: true, origin: page, from: fromOf(req) }), mcpHeaders());
 }
 
 // https://mcp.dibs.cc/mcp with no machine id: discovery and registration answered here with

@@ -132,7 +132,7 @@ function mcpReq(method, p, { headers = {}, body = null } = {}) {
 
 async function main() {
   assert.equal(spawnSync(process.execPath, ['build.mjs'], { cwd: HERE }).status, 0);
-  const wrangler = start(path.join(HERE, 'node_modules', '.bin', 'wrangler'), ['dev', '--env', 'local', '--ip', '127.0.0.1', '--port', String(PORT), '--inspector-port', '0', '--var', `ACCOUNT_SECRET:${crypto.randomBytes(32).toString('base64url')}`],
+  const wrangler = start(path.join(HERE, 'node_modules', '.bin', 'wrangler'), ['dev', '--env', 'local', '--ip', '127.0.0.1', '--port', String(PORT), '--inspector-port', '0', '--var', `ACCOUNT_SECRET:${crypto.randomBytes(32).toString('base64url')}`, '--var', 'ACCOUNT_LIMITS:{"LINKS_PER_EMAIL_IP":20}'],
     { cwd: HERE, env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1', NO_COLOR: '1' } });
   await until(async () => { try { return (await fetch(`${ORIGIN}/account`)).ok; } catch { return false; } }, 90e3, `wrangler dev on ${PORT}\n${wrangler.log}`);
   step('relay Worker up, the account page served');
@@ -143,6 +143,13 @@ async function main() {
 
   // The link wrangler would have mailed: it writes the text to a file and logs where.
   const mailCount = () => (wrangler.log.match(/email-text\/[^\s]+\.txt/g) || []).length;
+  // After an email sign-in with no passkey on the account, the page nudges for one; these runs
+  // skip it (two clicks), as e2e-signin.mjs checks.
+  async function landed(page) {
+    await page.waitForSelector('[data-view="signed-in"]:not([hidden]), [data-view="passkey-offer"]:not([hidden])', { timeout: 30e3 });
+    if (await page.isVisible('[data-view="passkey-offer"]')) { await page.click('#offer-skip'); await page.click('#offer-skip-sure'); }
+    await page.waitForSelector('[data-view="signed-in"]:not([hidden])', { timeout: 30e3 });
+  }
   async function linkFor(page, email) {
     const before = mailCount();
     await page.fill('#email', email);
@@ -161,7 +168,7 @@ async function main() {
   await a.waitForSelector('[data-view="signed-out"]:not([hidden])');
   const link = await linkFor(a, 'Person@Example.com');
   await a.goto(link);
-  await a.waitForSelector('[data-view="signed-in"]:not([hidden])');
+  await landed(a);
   assert.equal(await a.evaluate(() => location.hash), '');
   step('a new account by email link: the link works once, the fragment is cleared, the account page opens');
 
@@ -215,7 +222,7 @@ async function main() {
   await asker.waitForSelector('[data-view="signed-out"]:not([hidden])');
   const link3 = await linkFor(asker, 'person@example.com');
   await b.goto(link3);
-  await b.waitForSelector('[data-view="signed-in"]:not([hidden])', { timeout: 30e3 });
+  await landed(b);
   step('signing in again by email to the same account keeps the account key');
 
   // A passkey with PRF, made in the first browser: a fresh browser signs in with it and opens everything.
@@ -231,13 +238,22 @@ async function main() {
   assert.equal(credentials.length, 1);
   assert.ok(prfOk, 'this Chromium\'s virtual authenticator gives PRF output');
   // Signed out, this browser keeps nothing of the account; the passkey brings it all back, key included.
+  const sessionNow = () => a.evaluate(() => new Promise(resolve => { const q = indexedDB.open('dibs-account', 1); q.onsuccess = () => { const g = q.result.transaction('me').objectStore('me').get('me'); g.onsuccess = () => resolve(g.result?.session || null); }; }));
+  const before = await sessionNow();
   await a.click('#signout');
-  await a.waitForSelector('[data-view="signed-out"]:not([hidden])');
-  await a.click('#passkey-signin');
+  // The signed-out page offers this site's passkeys in the email field's autofill; Chromium's
+  // virtual authenticator answers that at once, as a person picking it would. Either way in,
+  // with a new session: the old one must be gone first.
+  await until(async () => (await sessionNow()) !== before, 15e3, 'signing out');
+  await a.waitForSelector('[data-view="signed-out"]:not([hidden]), [data-view="signed-in"]:not([hidden])', { timeout: 30e3 });
+  if (await a.isVisible('[data-view="signed-out"]')) {
+    assert.ok(await a.evaluate(() => document.getElementById('account').classList.contains('passkey-first')), 'a browser that used a passkey leads with it');
+    await a.click('#passkey-signin').catch(() => {});
+  }
   await a.waitForSelector('[data-view="signed-in"]:not([hidden])', { timeout: 30e3 });
   await a.waitForSelector('#machines a');
   await a.goto(`${ORIGIN}/?m=${mid}`);
-  await a.waitForSelector('#app:not([hidden])', { timeout: 30e3 });
+  await a.waitForSelector('#app:not([hidden])', { timeout: 30e3 }).catch(async e => { throw new Error(`${e.message}\npage: ${(await a.evaluate(() => document.body.innerText)).slice(0, 600)}`); });
   step('a passkey with PRF: signed out and back in with it, the browser opens the account key itself and the Mac\'s board, no approval');
   // A copy of the passkey taken before that sign-in carries an older sign count: the relay takes
   // it for a cloned authenticator and refuses it.
@@ -247,13 +263,38 @@ async function main() {
   const authC = await cdpC.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, hasPrf: true } });
   await cdpC.send('WebAuthn.addCredential', { authenticatorId: authC.authenticatorId, credential: credentials[0] });
   await c.goto(`${ORIGIN}/account`);
-  await c.click('#passkey-signin');
+  // The email field's passkey autofill may offer the copy first; the virtual authenticator
+  // answers it at once. Refused either way.
+  const views = () => c.evaluate(() => [...document.querySelectorAll('[data-view]')].filter(e => !e.hidden).map(e => e.dataset.view).join(',') + ' | ' + document.getElementById('status').textContent);
+  await until(async () => /copied/.test(await c.textContent('#status')) || await c.isVisible('[data-view="signed-out"]'), 30e3, `the signed-out page (${await views()})`);
+  if (!/copied/.test(await c.textContent('#status'))) await c.click('#passkey-signin', { timeout: 10e3 }).catch(async e => { throw new Error(`${e.message}\nviews: ${await views()}`); });
   await until(async () => /copied/.test(await c.textContent('#status')), 30e3, 'the copied passkey to be refused');
   assert.ok(await c.isVisible('[data-view="signed-out"]'));
   step('a copy of the passkey with an older sign count is refused as a possible clone');
 
-  // Removing the passkey and ending every other session, from the browser that holds the key.
+  // Passkeys only: an email code then gets a browser no further than asking a Mac.
   a.on('dialog', d => d.accept());
+  await a.goto(`${ORIGIN}/account`);
+  await a.waitForSelector('#passkey-only-row:not([hidden])');
+  await a.click('#passkey-only');
+  await until(async () => (await a.textContent('#status')).includes('now needs a passkey'), 15e3, 'passkeys only to be on');
+  const r = await (await browser.newContext()).newPage();
+  await r.goto(`${ORIGIN}/account`);
+  const sent = mailCount();
+  await r.fill('#email', 'person@example.com');
+  await r.click('#email-form button[type=submit]');
+  await r.waitForSelector('[data-view="code"]:not([hidden])');
+  await until(() => mailCount() > sent, 15e3, 'the code email');
+  const mailed = fs.readFileSync(wrangler.log.match(/[^\s]*email-text\/[^\s]+\.txt/g).at(-1), 'utf8').match(/\b(\d{3}) (\d{3})\b/).slice(1).join('');
+  await r.fill('#code-input', mailed);
+  await r.waitForSelector('[data-view="need-key"]:not([hidden])', { timeout: 15e3 });
+  assert.match(await r.textContent('#need-key-lede'), /This account signs in with a passkey/);
+  await a.click('#passkey-only');
+  await until(async () => (await a.textContent('#status')).includes('Email codes sign in to this account again'), 15e3, 'passkeys only to be off');
+  await closeSoon(r);
+  step('passkeys only: an email code signs in to nothing but asking a Mac, and it turns off again');
+
+  // Removing the passkey and ending every other session, from the browser that holds the key.
   await a.goto(`${ORIGIN}/account`);
   await a.waitForSelector('#passkeys button');
   await a.click('#passkeys button');

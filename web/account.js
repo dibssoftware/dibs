@@ -112,11 +112,13 @@
   if (!root.document || !root.document.getElementById('account')) { root.dibsAccount = { _internals: internals }; return; }
   const $ = id => root.document.getElementById(id);
   const el = (tag, text, cls) => { const e = root.document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
-  const api = async (method, path, body, session) => {
-    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json', ...(session && { Authorization: `Bearer ${session}` }) }, body: body ? JSON.stringify(body) : undefined });
+  const api = async (method, path, body, session, extra = {}) => {
+    const headers = { 'Content-Type': 'application/json', ...(session && { Authorization: `Bearer ${session}` }) };
+    for (const [k, v] of Object.entries(extra)) if (v) headers[k] = v;
+    const r = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
     let j = null;
     try { j = await r.json(); } catch {}
-    if (!r.ok) throw fail(r.status, j?.error || `the relay answered ${r.status}`);
+    if (!r.ok) throw Object.assign(fail(r.status, j?.error || `the relay answered ${r.status}`), { left: j?.left, expired: !!j?.expired });
     return j;
   };
 
@@ -129,26 +131,41 @@
     r.onerror = () => reject(r.error);
   });
   const idb = (mode, fn) => db.then(d => new Promise((resolve, reject) => { const t = d.transaction('me', mode), q = fn(t.objectStore('me')); t.oncomplete = () => resolve(q.result); t.onerror = () => reject(t.error); }));
-  const me = { get: () => idb('readonly', s => s.get('me')), put: v => idb('readwrite', s => s.put(v, 'me')), clear: () => idb('readwrite', s => s.delete('me')) };
+  const store = key => ({ get: () => idb('readonly', s => s.get(key)), put: v => idb('readwrite', s => s.put(v, key)), clear: () => idb('readwrite', s => s.delete(key)) });
+  const me = store('me');
+  // A code on its way: { rid, to, exp }, so a reload (or another tab) still shows where to type it.
+  const pending = store('pending');
+  // This browser signed in with or added a passkey before: the passkey goes first next time.
+  const hint = store('hint');
   const macs = T.idbStore();
 
   const say = (text, cls = '') => { const p = $('status'); p.textContent = text; p.className = `status ${cls}`; };
   const show = id => { for (const s of root.document.querySelectorAll('[data-view]')) s.hidden = s.dataset.view !== id; };
 
-  // Fragments first, and out of the address bar at once: #signin=<token> from the email,
-  // #join=<machine>.<secret>.<fingerprint> from dibs connect --account.
-  // A link opened in a tab already on this page changes only the fragment: start over with it.
-  root.addEventListener('hashchange', () => { if (/^#(signin|join)=/.test(root.location.hash)) root.location.reload(); });
-  const frag = root.location.hash;
-  if (frag) root.history.replaceState(null, '', root.location.pathname);
-  const signinToken = /^#signin=([A-Za-z0-9_-]{43})$/.exec(frag)?.[1] || null;
-  const join = /^#join=/.test(frag) ? T.parseLink(`#p=${frag.slice(6)}`) : null;
+  // Fragments, taken out of the address bar at once: #signin=<token> from the email, #code=<id>
+  // from the person check on mcp.dibs.cc (the code to type is in the email), and
+  // #join=<machine>.<secret>.<fingerprint> from dibs connect --account. Read on load and on every
+  // change after: a link pasted into a tab already on this page changes only the fragment, and a
+  // page brought back from the back-forward cache runs no script again.
+  function takeFragment() {
+    const frag = root.location.hash;
+    if (!frag) return null;
+    root.history.replaceState(null, '', root.location.pathname);
+    const signin = /^#signin=([A-Za-z0-9_-]{43})$/.exec(frag)?.[1];
+    if (signin) return { signin };
+    const code = /^#code=([A-Za-z0-9_-]{22})&to=([^&]*)&exp=(\d+)$/.exec(frag);
+    if (code) { let to = ''; try { to = decodeURIComponent(code[2]); } catch {} return { code: { rid: code[1], to, exp: Number(code[3]) } }; }
+    if (/^#join=/.test(frag)) return { join: T.parseLink(`#p=${frag.slice(6)}`) };
+    return null;
+  }
 
   async function loadRing(m) {
-    const k = await api('GET', '/account/keyring', null, m.session);
-    return { ring: k.keyring ? await openRing(unb64u(m.ak), k.keyring) : null, version: k.version, passkeys: k.passkeys };
+    // The proof rides along for a recovery session (an account that requires a passkey, signed in
+    // by email), which reads the keyring only once a Mac gave it the key.
+    const k = await api('GET', '/account/keyring', null, m.session, { 'X-Dibs-Proof': await proofOf(m) });
+    return { ring: k.keyring ? await openRing(unb64u(m.ak), k.keyring) : null, version: k.version, passkeys: k.passkeys, passkeyOnly: k.passkeyOnly };
   }
-  const proofOf = m => authProof(unb64u(m.ak));
+  const proofOf = m => (m.ak ? authProof(unb64u(m.ak)) : null);
   async function saveRing(m, ring, version, wrapped) {
     return api('POST', '/account/keyring', { keyring: await sealRing(unb64u(m.ak), ring), version, proof: await proofOf(m), ...(wrapped && { wrapped }) }, m.session);
   }
@@ -160,8 +177,15 @@
 
   async function render() {
     const m = await me.get();
-    if (!m?.session) return show('signed-out');
+    if (!m?.session) {
+      const p = await pending.get();
+      if (p && p.exp > Date.now()) return showCode(p);
+      return signedOut();
+    }
     if (!m.ak) {
+      $('need-key-lede').textContent = m.recovery
+        ? 'This account signs in with a passkey. Without yours, one of your Macs can let this browser in: ask here, then run the command this page shows on that Mac.'
+        : 'You\'re signed in, but this browser doesn\'t have your account\'s key yet. One of your Macs can give it: ask here, then run the command this page shows on that Mac.';
       show('need-key');
       // A request this browser made before a reload: carry on with it.
       if (m.asking && Date.now() - m.asking.t0 < APPROVAL_WAIT) askMac(m);
@@ -183,6 +207,13 @@
       li.append(a, el('span', ` fingerprint ${x.fp.slice(0, 12)}...`, 'sub'));
       return li;
     }) : [el('li', 'No Macs yet. On a Mac, run dibs connect --account and open its link here.', 'sub')]));
+    const only = $('passkey-only');
+    $('passkey-only-row').hidden = !r.passkeys.length;
+    only.dataset.on = String(!!r.passkeyOnly);
+    only.textContent = r.passkeyOnly ? 'Let email codes sign in again' : 'Require a passkey';
+    $('passkey-only-text').textContent = r.passkeyOnly
+      ? 'This account signs in with a passkey only. Lost them all? Sign in by email, then approve that browser from one of your Macs (dibs connect --approve).'
+      : 'Email codes can sign in to this account. Require a passkey and email alone gets nowhere: a lost passkey is replaced by approving the browser from one of your Macs.';
     $('passkeys').replaceChildren(...r.passkeys.map(p => {
       const li = el('li', `${p.label}${p.prf ? ' (opens everything)' : ' (signs in; a Mac approves the key)'} `);
       const rm = el('button', 'Remove', 'link');
@@ -210,39 +241,181 @@
     }
     if (how === 'keep') ak = ak || old.ak;
     if (how !== 'keep') for (const r of await macs.all()) if (r.account) await macs.remove(r.mid);
-    await me.put({ session: res.session, aid: res.aid, ak: ak || (res.created ? b64u(random(32)) : null) });
+    await me.put({ session: res.session, aid: res.aid, ak: ak || (res.created ? b64u(random(32)) : null), ...(res.recovery && { recovery: true }) });
   }
 
-  // Sign-in links come from a page on mcp.dibs.cc that runs Turnstile, which never runs here
-  // (relay/src/index.js emailPage); a relay without it (the local e2e) takes the address here.
+  // Email: a 6-digit code, typed here. The person check (Turnstile) runs on mcp.dibs.cc, never
+  // here (relay/src/index.js emailPage): the page goes there with the address and comes back with
+  // the request's id. A relay without it (the local e2e) takes the address here.
   const emailPage = api('GET', '/account/config').then(c => c.emailPage, () => null);
+  // How soon another code may be asked for from the code screen: the email takes a few seconds,
+  // and every code counts toward the address's hourly limit.
+  const RESEND_AFTER = 30e3;
+  async function askCode(to) {
+    const page = await emailPage;
+    if (page) return root.location.assign(`${page}#e=${encodeURIComponent(to)}`);
+    say('Sending your code…');
+    const r = await api('POST', '/account/link', { email: to });
+    const p = { rid: r.rid, to, exp: r.expires, sent: Date.now() };
+    await pending.put(p);
+    showCode(p);
+  }
   $('email-form').addEventListener('submit', async e => {
     e.preventDefault();
-    const page = await emailPage;
-    if (page) return root.location.assign(`${page}#e=${encodeURIComponent($('email').value)}`);
-    try { await api('POST', '/account/link', { email: $('email').value }); say(`If that address can sign in, a link is on its way to it. It works once, for 15 minutes.`); }
-    catch (x) { say(x.message, 'error'); }
+    const b = $('email-form').querySelector('button');
+    b.disabled = true;
+    try { await askCode($('email').value.trim()); } catch (x) { say(x.message, 'error'); }
+    finally { b.disabled = false; }
   });
+
+  let resendTimer = 0;
+  function showCode(p) {
+    abortConditional();
+    show('code');
+    say('');
+    $('code-to').textContent = p.to ? `We sent a 6-digit code to ${p.to}. It works once, for 10 minutes.` : 'We sent a 6-digit code to your email. It works once, for 10 minutes.';
+    codeState('');
+    const input = $('code-input');
+    input.value = '';
+    input.disabled = false;
+    $('code-submit').disabled = false;
+    input.focus();
+    clearInterval(resendTimer);
+    const sent = p.sent || Date.now();
+    const tick = () => {
+      const left = Math.ceil((sent + RESEND_AFTER - Date.now()) / 1000);
+      const b = $('code-resend');
+      b.disabled = left > 0;
+      b.textContent = left > 0 ? `Resend in 0:${String(left).padStart(2, '0')}` : 'Resend the code';
+      if (left <= 0) clearInterval(resendTimer);
+    };
+    tick();
+    resendTimer = setInterval(tick, 1000);
+  }
+  const codeState = (text, cls = '') => { const e = $('code-state'); e.textContent = text; e.className = `status ${cls}`; };
+  let redeeming = false;
+  async function redeem() {
+    const input = $('code-input');
+    const code = input.value.replace(/\D/g, '');
+    if (code.length !== 6 || redeeming) return;
+    const p = await pending.get();
+    if (!p) return signedOut();
+    redeeming = true;
+    $('code-submit').disabled = true;
+    codeState('Checking…');
+    try {
+      const res = await api('POST', '/account/code', { rid: p.rid, code });
+      await pending.clear();
+      clearInterval(resendTimer);
+      await afterEmail(res);
+    } catch (x) {
+      if (x.expired) {
+        await pending.clear();
+        codeState(`${x.message}`, 'error');
+        input.disabled = true;
+        $('code-resend').disabled = false;
+        $('code-resend').textContent = 'Send a new code';
+      } else {
+        codeState(x.message, 'error');
+        input.value = '';
+        input.focus();
+      }
+    } finally {
+      redeeming = false;
+      if (!input.disabled) $('code-submit').disabled = false;
+    }
+  }
+  $('code-form').addEventListener('submit', e => { e.preventDefault(); redeem(); });
+  // Six digits typed or pasted: no button to find on a phone.
+  $('code-input').addEventListener('input', () => { if ($('code-input').value.replace(/\D/g, '').length === 6) redeem(); });
+  $('code-resend').addEventListener('click', async () => {
+    const p = await pending.get();
+    const to = p?.to || $('email').value.trim();
+    if (!to) return signedOut();
+    $('code-resend').disabled = true;
+    try { await askCode(to); } catch (x) { codeState(x.message, 'error'); $('code-resend').disabled = false; }
+  });
+  $('code-back').addEventListener('click', async () => { await pending.clear(); clearInterval(resendTimer); signedOut(); });
+
+  // Signed in by email (code or link): a first sign-in, or an account with no passkey yet, is
+  // offered one at once, and skipping takes a second click that says what it costs.
+  async function afterEmail(res) {
+    await signedIn(res);
+    const supported = !!root.PublicKeyCredential;
+    if (!res.passkeys && supported && (await me.get())?.ak) return offerPasskey();
+    render();
+  }
+  function offerPasskey() {
+    $('offer-sure').hidden = true;
+    $('offer-skip').hidden = false;
+    show('passkey-offer');
+    say('');
+    $('offer-add').focus();
+  }
+  $('offer-add').addEventListener('click', async () => { if (await addPasskey()) render(); });
+  $('offer-skip').addEventListener('click', () => { $('offer-skip').hidden = true; $('offer-sure').hidden = false; $('offer-skip-sure').focus(); });
+  $('offer-skip-sure').addEventListener('click', () => render());
 
   // Passkeys: navigator.credentials with the PRF extension, so the same passkey opens the account key.
   const rpId = root.location.hostname;
   const bytes = b => new Uint8Array(b);
   const prfOf = cred => { const r = cred.getClientExtensionResults?.().prf?.results?.first; return r ? bytes(r) : null; };
-  $('passkey-signin').addEventListener('click', async () => {
+  // One passkey sign-in at a time: autofill's and the button's can both be on their way.
+  let signingIn = false;
+  async function passkeySignIn(cred, challenge) {
+    if (signingIn) return;
+    signingIn = true;
+    try { await finishPasskey(cred, challenge); } finally { signingIn = false; }
+  }
+  async function finishPasskey(cred, challenge) {
+    const r = cred.response;
+    const res = await api('POST', '/account/signin/finish', { challenge, id: b64u(cred.rawId), response: { clientDataJSON: b64u(r.clientDataJSON), authenticatorData: b64u(r.authenticatorData), signature: b64u(r.signature) } });
+    const prf = prfOf(cred);
+    // A passkey that can't open the wrapped key (a copy that kept no PRF secret) still signs
+    // in: the account key then comes from a Mac, as after an email code.
+    const ak = res.wrapped && prf ? await unwrapAk(prf, res.wrapped).then(b64u, () => null) : null;
+    await signedIn(res, ak);
+    await hint.put({ passkey: true });
+    render();
+  }
+  const getOptions = challenge => ({ challenge: unb64u(challenge), rpId, userVerification: 'required', extensions: { prf: { eval: { first: PRF_SALT } } } });
+  // Autofill: the browser offers this site's passkeys in the email field's suggestions, while the
+  // page waits for an email. Only one passkey request may be open, so the button cancels it first.
+  let conditional = null;
+  const abortConditional = () => { conditional?.abort(); conditional = null; };
+  async function offerAutofill() {
+    if (conditional || !(await root.PublicKeyCredential?.isConditionalMediationAvailable?.().catch(() => false))) return;
+    const ctl = new AbortController();
+    conditional = ctl;
     try {
       const { challenge } = await api('POST', '/account/signin/begin', {});
-      const cred = await root.navigator.credentials.get({ publicKey: { challenge: unb64u(challenge), rpId, userVerification: 'required', extensions: { prf: { eval: { first: PRF_SALT } } } } });
-      const r = cred.response;
-      const res = await api('POST', '/account/signin/finish', { challenge, id: b64u(cred.rawId), response: { clientDataJSON: b64u(r.clientDataJSON), authenticatorData: b64u(r.authenticatorData), signature: b64u(r.signature) } });
-      const prf = prfOf(cred);
-      // A passkey that can't open the wrapped key (a copy that kept no PRF secret) still signs
-      // in: the account key then comes from a Mac, as after an email link.
-      const ak = res.wrapped && prf ? await unwrapAk(prf, res.wrapped).then(b64u, () => null) : null;
-      await signedIn(res, ak);
-      render();
-    } catch (x) { say(x.message || 'That passkey didn\'t work.', 'error'); }
+      const cred = await root.navigator.credentials.get({ mediation: 'conditional', signal: ctl.signal, publicKey: getOptions(challenge) });
+      if (cred) await passkeySignIn(cred, challenge);
+    } catch (x) { if (x.name !== 'AbortError' && !ctl.signal.aborted) say(x.message || 'That passkey didn\'t work.', 'error'); }
+    finally { if (conditional === ctl) conditional = null; }
+  }
+  $('passkey-signin').addEventListener('click', async () => {
+    if (signingIn) return;
+    abortConditional();
+    try {
+      const { challenge } = await api('POST', '/account/signin/begin', {});
+      const cred = await root.navigator.credentials.get({ publicKey: getOptions(challenge) });
+      await passkeySignIn(cred, challenge);
+    } catch (x) { say(x.name === 'NotAllowedError' ? 'No passkey was used.' : x.message || 'That passkey didn\'t work.', 'error'); offerAutofill(); }
   });
-  $('passkey-add').addEventListener('click', async () => {
+
+  // Signed out: a browser that used a passkey here before leads with it; one that never did leads
+  // with email, the passkey a quieter second way in.
+  async function signedOut() {
+    const h = await hint.get().catch(() => null);
+    $('account').classList.toggle('passkey-first', !!h?.passkey);
+    show('signed-out');
+    if (!h?.passkey) $('email').focus();
+    offerAutofill();
+  }
+
+  // Returns whether one was added.
+  async function addPasskey() {
     const m = await me.get();
     try {
       const proof = await proofOf(m);
@@ -264,10 +437,25 @@
       if (prf) {
         const cur = await loadRing(m);
         await saveRing(m, cur.ring || await newRing(), cur.version, { [id]: await wrapAk(prf, unb64u(m.ak)) });
-        say('Passkey added. Signing in with it anywhere opens your Macs at once.');
-      } else say('Passkey added. This browser can\'t keep the account key in it, so a new browser that signs in with it still needs a Mac to approve it.');
-      render();
-    } catch (x) { say(x.message || 'No passkey was added.', 'error'); }
+      }
+      await hint.put({ passkey: true });
+      render().then(() => say(prf ? 'Passkey added. Signing in with it anywhere opens your Macs at once.'
+        : 'Passkey added. This browser can\'t keep the account key in it, so a new browser that signs in with it still needs a Mac to approve it.'));
+      return true;
+    } catch (x) { say(x.name === 'NotAllowedError' ? 'No passkey was added.' : x.message || 'No passkey was added.', 'error'); return false; }
+  }
+  $('passkey-add').addEventListener('click', () => addPasskey());
+  // Passkeys only: email alone then signs in to nothing but asking a Mac (the way back in for
+  // someone who lost every passkey).
+  $('passkey-only').addEventListener('click', async () => {
+    const m = await me.get();
+    const on = $('passkey-only').dataset.on !== 'true';
+    if (on && !root.confirm('Require a passkey to sign in? Email alone will no longer get into this account. If you lose your passkeys, sign in by email and approve the browser from one of your Macs with dibs connect --approve.')) return;
+    try {
+      await api('POST', '/account/passkey-only', { on, proof: await proofOf(m) }, m.session);
+      await render();
+      say(on ? 'Done: this account now needs a passkey to sign in.' : 'Email codes sign in to this account again.');
+    } catch (x) { say(x.message, 'error'); }
   });
   $('signout-all').addEventListener('click', async () => {
     const m = await me.get();
@@ -291,7 +479,7 @@
   // CryptoKey itself, which can't be read out), so a reload carries on with it instead of
   // leaving it to hold one of the account's places for ten minutes.
   const keep = async (m, a) => { const next = { ...m, asking: a }; await me.put(next); return next; };
-  const showCode = keys => {
+  const showSas = keys => {
     $('code').textContent = keys.sas.replace(/(\d{3})(\d{3})/, '$1 $2');
     show('approve');
     say(`On one of your Macs, run: dibs connect --approve ${keys.sas}`);
@@ -309,7 +497,7 @@
       }
       say('Waiting for one of your Macs to see this request...');
       let keys = a.mac ? await approvalKeys(a.eph, m.aid, a.id, a.B, unb64u(a.mac)) : null;
-      if (keys) showCode(keys);
+      if (keys) showSas(keys);
       if (keys && a.sealed) return confirmKey(m, keys, a.id, a.sealed);
       while (Date.now() - a.t0 < APPROVAL_WAIT) {
         await new Promise(r => setTimeout(r, POLL));
@@ -320,7 +508,7 @@
           await api('POST', '/account/approval/reveal', { id: a.id, pub: b64u(a.B), nonce: b64u(a.n) }, m.session).catch(e => { if (e.code !== 409) throw e; });
           m = await keep(m, a = { ...a, mac: p.mac, revealed: true });
           keys = await approvalKeys(a.eph, m.aid, a.id, a.B, unb64u(p.mac));
-          showCode(keys);
+          showSas(keys);
         }
         if (p.sealed && keys) {
           m = await keep(m, a = { ...a, sealed: p.sealed });
@@ -399,13 +587,21 @@
     render();
   }
 
-  (async () => {
-    if (signinToken) {
-      try { await signedIn(await api('POST', '/account/link/redeem', { token: signinToken })); }
-      catch (x) { say(x.message, 'error'); }
+  async function arrive() {
+    const f = takeFragment();
+    if (f?.signin) {
+      try { await pending.clear(); return await afterEmail(await api('POST', '/account/link/redeem', { token: f.signin })); }
+      catch (x) { await render(); return say(x.message, 'error'); }
+    }
+    if (f?.code) {
+      await pending.put({ ...f.code, sent: Date.now() });
+      return showCode(f.code);
     }
     await render();
-    if (join) joinMac(join);
-  })();
+    if (f?.join) joinMac(f.join);
+  }
+  root.addEventListener('hashchange', arrive);
+  root.addEventListener('pageshow', e => { if (e.persisted) arrive(); });
+  arrive();
   root.dibsAccount = { _internals: internals };
 })(globalThis);

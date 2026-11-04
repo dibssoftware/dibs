@@ -15,18 +15,45 @@
   <div class="ticket-wrap"><div class="signin-card ticket">
     <section data-view="signed-out" hidden>
       <h1>Sign in to dibs</h1>
-      <p>Your account remembers your Macs, so any browser you sign in with opens all of them. What you see stays encrypted between this browser and your Macs.</p>
-      <button type="button" id="passkey-signin">Sign in with a passkey</button>
-      <form id="email-form" autocomplete="on">
-        <label for="email">Or get a sign-in link by email</label>
-        <input id="email" name="email" type="email" autocomplete="email" required>
-        <button type="submit">Email me a link</button>
+      <p>Your account remembers your Macs, so any browser you sign in with opens all of them, encrypted end to end.</p>
+      <div class="ways">
+        <button type="button" id="passkey-signin" class="way-passkey">Sign in with passkey</button>
+        <form id="email-form" class="way-email" autocomplete="on">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username webauthn" inputmode="email" spellcheck="false" required>
+          <button type="submit">Email me a code</button>
+        </form>
+      </div>
+      <p class="sub">The relay keeps only a keyed hash of your address, and uses it only to send the code.</p>
+    </section>
+    <section data-view="code" hidden>
+      <h1>Check your email</h1>
+      <p id="code-to">We sent a 6-digit code.</p>
+      <form id="code-form" autocomplete="off">
+        <label for="code-input">Code</label>
+        <input id="code-input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" spellcheck="false" placeholder="123 456" aria-describedby="code-state" required>
+        <p id="code-state" class="status" role="status" aria-live="polite"></p>
+        <button type="submit" id="code-submit">Sign in</button>
       </form>
-      <p class="sub">The relay keeps only a keyed hash of your address, and uses the address only to send the link.</p>
+      <div class="row-links">
+        <button type="button" id="code-resend" class="link" disabled>Resend</button>
+        <button type="button" id="code-back" class="link">Use a different email</button>
+      </div>
+      <p class="sub">The email also has a link, for signing in on another device.</p>
+    </section>
+    <section data-view="passkey-offer" hidden>
+      <h1>Add a passkey</h1>
+      <p>Next time, sign in with Touch ID, Face ID or your password manager, no email needed. A passkey that holds your account key opens your Macs at once in any new browser.</p>
+      <button type="button" id="offer-add">Add a passkey</button>
+      <button type="button" id="offer-skip" class="link">Not now</button>
+      <div id="offer-sure" class="offer-sure" hidden>
+        <p>Skip it? Without a passkey, every new browser needs an email code and one of your Macs to let it in.</p>
+        <button type="button" id="offer-skip-sure" class="quiet">Skip anyway</button>
+      </div>
     </section>
     <section data-view="need-key" hidden>
       <h1>One more step</h1>
-      <p>You're signed in, but this browser doesn't have your account's key yet. One of your Macs can give it: ask here, then run the command this page shows on that Mac.</p>
+      <p id="need-key-lede">You're signed in, but this browser doesn't have your account's key yet. One of your Macs can give it: ask here, then run the command this page shows on that Mac.</p>
       <button type="button" id="ask-key">Ask my Mac</button>
       <p class="sub">Signing in with a passkey that holds the key skips this.</p>
     </section>
@@ -52,6 +79,10 @@
       <h2>Passkeys</h2>
       <ul id="passkeys"></ul>
       <button type="button" id="passkey-add">Add a passkey</button>
+      <div id="passkey-only-row" class="passkey-only" hidden>
+        <p id="passkey-only-text"></p>
+        <button type="button" id="passkey-only" class="quiet"></button>
+      </div>
       <button type="button" id="signout" class="link">Sign out of this browser</button>
       <button type="button" id="signout-all" class="link">Sign out everywhere else</button>
     </section>

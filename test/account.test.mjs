@@ -40,7 +40,7 @@ const memberHash = secret => crypto.createHash('sha256').update(`dibs-member-v1\
 async function joined() {
   const relayStore = store();
   const book = new AccountBook(relayStore, { secret: 'relay-secret', rpId: 'app.dibs.cc', origin: 'https://app.dibs.cc' });
-  const s = await book.redeemLink(await book.requestLink('owner@example.com', 'ip'), 'ip');
+  const s = await book.redeemLink((await book.requestLink('owner@example.com', 'ip')).token, 'ip');
   const ak = crypto.randomBytes(32);
   const ring = await A.newRing();
   const link = linkOf(relay.newPairing({ account: true }).link);

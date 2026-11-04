@@ -6,7 +6,8 @@
 //   e:<email hash>   { aid }                         the account an email signs in to
 //   a:<aid>          { eh, auth, creds, wrapped, members, keyring, version, since, created }
 //   k:<cred id>      { aid }                         which account a passkey belongs to
-//   l:<sha(token)>   { eh, exp }                     a sign-in link, 15 minutes, one use
+//   l:<sha(token)>   { eh, exp, q }                  a sign-in link, 10 minutes, one use (q: its code's key)
+//   q:<sha(rid)>     { eh, exp, code, tries, l }      the code mailed with it, by the asking page's request id
 //   s:<sha(token)>   { aid, exp, created, how }      a session, 30 days
 //   u:<challenge>    { exp }                         a WebAuthn challenge already used, 5 minutes
 //   r:<hour>:<what>  { n, exp }                      sign-in links sent that hour, per IP, address, both, or all
@@ -21,7 +22,11 @@
 // SHA-256 the first keyring write stored as auth. A browser without the key can only ask a Mac.
 import { b64u, unb64u, register, verify } from './webauthn.js';
 
-export const LINK_LIFE = 15 * 60e3;
+// A sign-in code and the link mailed with it: one use between them, for 10 minutes.
+export const LINK_LIFE = 10 * 60e3;
+// Wrong codes one request takes before it's gone: 5 tries at a 6-digit code is a 1 in 200,000
+// chance, and every request takes Turnstile and the link limits above.
+export const CODE_TRIES = 5;
 export const SESSION_LIFE = 30 * 24 * 36e5;
 export const CHALLENGE_LIFE = 5 * 60e3;
 export const APPROVAL_LIFE = 10 * 60e3;
@@ -85,8 +90,9 @@ export class AccountBook {
     return true;
   }
 
-  // A sign-in link for an address: the token to put in it, or a refusal. The answer is the same
-  // whether or not the address has an account, so this can't be used to find out.
+  // A sign-in for an address: a 6-digit code to type on the page that asked (rid names that
+  // request there), and a link with its own token for any other device. Either one, once,
+  // spends both. The answer is the same whether or not the address has an account.
   async requestLink(email, ip, t = Date.now()) {
     if (!EMAIL.test(normEmail(email))) throw err(400, 'that is not an email address');
     const eh = await this.emailHash(email);
@@ -104,9 +110,45 @@ export class AccountBook {
     const full = caps.findIndex(([, max], i) => (now[i]?.n || 0) >= max);
     if (full >= 0) throw err(429, caps[full][2]);
     for (const [i, [key]] of caps.entries()) await this.s.put(key, { n: (now[i]?.n || 0) + 1, exp: (hour + 2) * HOUR });
-    const token = rand(32);
-    await this.s.put(`l:${await sha(token)}`, { eh, exp: t + LINK_LIFE });
-    return token;
+    const token = rand(32), rid = rand(16);
+    // Uniform over 000000-999999: a 32-bit draw, redrawn above the last whole million.
+    let n;
+    do n = crypto.getRandomValues(new Uint32Array(1))[0]; while (n >= 4294000000);
+    const code = String(n % 1e6).padStart(6, '0');
+    const l = `l:${await sha(token)}`, q = `q:${await sha(rid)}`;
+    await this.s.put(l, { eh, exp: t + LINK_LIFE, q });
+    await this.s.put(q, { eh, exp: t + LINK_LIFE, code: await this.codeMac(rid, code), tries: 0, l });
+    return { token, code, rid };
+  }
+  // A code as stored: HMAC under ACCOUNT_SECRET with its request id, so the storage alone gives
+  // no code away and comparing two of them leaks nothing about either.
+  async codeMac(rid, code) {
+    const key = await crypto.subtle.importKey('raw', enc.encode(`dibs-code-v1\0${this.secret}`), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return b64u(await crypto.subtle.sign('HMAC', key, enc.encode(`${rid}\0${code}`)));
+  }
+
+  // The code typed on the page that asked, against its request: once, CODE_TRIES wrong at most.
+  async redeemCode(rid, code, ip, t = Date.now()) {
+    if (!this.allow(`si:${ip}`, TEN_MIN, this.lim.SIGNINS_PER_IP, t)) throw err(429, 'Too many sign-in tries from here. Wait ten minutes.');
+    const key = typeof rid === 'string' && /^[A-Za-z0-9_-]{22}$/.test(rid) ? `q:${await sha(rid)}` : null;
+    const q = key && await this.s.get(key);
+    if (!q || q.exp <= t) throw Object.assign(err(401, 'That code has expired or was already used. Ask for a new one.'), { expired: true });
+    const typed = typeof code === 'string' ? code.replace(/\D/g, '') : '';
+    const a = enc.encode(await this.codeMac(rid, typed)), b = enc.encode(q.code);
+    let diff = a.length ^ b.length;
+    for (let i = 0; i < Math.min(a.length, b.length); i++) diff |= a[i] ^ b[i];
+    if (diff !== 0) {
+      q.tries++;
+      if (q.tries >= CODE_TRIES) {
+        await this.s.delete([key, q.l]);
+        throw Object.assign(err(401, `That's ${CODE_TRIES} wrong codes, so this one is gone. Ask for a new one.`), { expired: true });
+      }
+      await this.s.put(key, q);
+      const left = CODE_TRIES - q.tries;
+      throw Object.assign(err(401, `That code isn't right. ${left} ${left === 1 ? 'try' : 'tries'} left.`), { left });
+    }
+    await this.s.delete([key, q.l]);
+    return this.signInEmail(q.eh, t);
   }
 
   // The link's token, once: a session for its account (made on first sign-in).
@@ -115,21 +157,40 @@ export class AccountBook {
     const key = `l:${await sha(String(token))}`;
     const l = await this.s.get(key);
     if (!l || l.exp <= t) throw err(401, 'That sign-in link was already used or has expired. Ask for a new one.');
-    await this.s.delete(key);
-    let e = await this.s.get(`e:${l.eh}`), created = false;
+    await this.s.delete(l.q ? [key, l.q] : key);
+    return this.signInEmail(l.eh, t);
+  }
+
+  // An address proved by its code or its link: a session for its account, made on first sign-in.
+  // An account that requires a passkey gets a recovery session: it can ask a Mac for the account
+  // key and nothing else until it proves it has the key (owner()).
+  async signInEmail(eh, t) {
+    let e = await this.s.get(`e:${eh}`), created = false;
     if (!e) {
       e = { aid: rand(16) };
-      await this.s.put(`e:${l.eh}`, e);
-      await this.s.put(`a:${e.aid}`, { eh: l.eh, creds: [], wrapped: {}, members: [], keyring: null, version: 0, created: t });
+      await this.s.put(`e:${eh}`, e);
+      await this.s.put(`a:${e.aid}`, { eh, creds: [], wrapped: {}, members: [], keyring: null, version: 0, created: t });
       created = true;
     }
-    return { ...(await this.session(e.aid, 'email', t)), created };
+    const a = await this.s.get(`a:${e.aid}`);
+    const limited = !!a?.passkeyOnly;
+    return { ...(await this.session(e.aid, limited ? 'recovery' : 'email', t)), created, ...(limited && { recovery: true }), passkeys: a?.creds?.length || 0 };
   }
 
   async session(aid, how, t) {
     const token = rand(32);
     await this.s.put(`s:${await sha(token)}`, { aid, exp: t + SESSION_LIFE, created: t, how });
     return { session: token, aid, expires: t + SESSION_LIFE };
+  }
+
+  // Passkeys only: email alone signs in to nothing but asking a Mac (recovery). Needs a passkey on
+  // the account, and the account key's proof to turn on or off.
+  async setPasskeyOnly(session, proof, on, t = Date.now()) {
+    const { aid, a } = await this.owner(session, proof, t);
+    if (on && !a.creds.length) throw err(409, 'Add a passkey first: with none, nothing could sign in to this account.');
+    a.passkeyOnly = !!on;
+    await this.s.put(`a:${aid}`, a);
+    return { passkeyOnly: a.passkeyOnly };
   }
 
   async account(session, t = Date.now()) {
@@ -139,7 +200,7 @@ export class AccountBook {
     // A session outlives nothing it signed in to: when the account is gone, so is the session.
     if (!a) { await this.s.delete(`s:${await sha(session)}`); throw err(401, 'That account is gone.'); }
     if (s.created <= (a.since || 0)) throw err(401, 'Sign in again: every session of this account was ended.');
-    return { aid: s.aid, a };
+    return { aid: s.aid, a, how: s.how };
   }
   // The account, for a write: the session and the proof that this browser holds the account key.
   async owner(session, proof, t) {
@@ -223,8 +284,14 @@ export class AccountBook {
       const a = k && await this.s.get(`a:${k.aid}`);
       const cred = a?.creds.find(x => x.id === credId);
       if (!cred) throw err(401, 'That passkey isn\'t on a dibs account.');
+      if (cred.copied) throw err(401, 'That passkey looks copied (a copy of it was used), so it\'s turned off. Remove it and add a new one, from a browser that opens your Macs.');
       let r;
-      try { r = await verify(response, cred, { ...this.rp, challenge }); } catch (e) { throw err(401, `That passkey didn't check out: ${e.message}.`); }
+      try { r = await verify(response, cred, { ...this.rp, challenge }); } catch (e) {
+        // A sign count going backwards means two authenticators hold this key. The copy can retry
+        // until its count passes the real one's, so the first sighting turns the passkey off for good.
+        if (/copied/.test(e.message)) { cred.copied = t; await this.s.put(`a:${k.aid}`, a); }
+        throw err(401, `That passkey didn't check out: ${e.message}.`);
+      }
       await this.usedChallenge(challenge, c.at);
       cred.signCount = r.signCount;
       cred.used = t;
@@ -237,9 +304,10 @@ export class AccountBook {
   // The sealed keyring, and the account key wrapped under each passkey's PRF output. version is
   // for the browser: a put that names a stale version is refused, so two browsers don't overwrite
   // each other's machines.
-  async keyring(session, t = Date.now()) {
-    const { a } = await this.account(session, t);
-    return { keyring: a.keyring, version: a.version, passkeys: a.creds.map(c => ({ id: c.id, label: c.label, created: c.created, prf: !!a.wrapped[c.id] })) };
+  async keyring(session, t = Date.now(), proof = null) {
+    const { a, how } = await this.account(session, t);
+    if (how === 'recovery') await this.owner(session, proof, t);
+    return { keyring: a.keyring, version: a.version, passkeyOnly: !!a.passkeyOnly, passkeys: a.creds.map(c => ({ id: c.id, label: c.label, created: c.created, prf: !!a.wrapped[c.id], ...(c.copied && { copied: c.copied }) })) };
   }
   // The first write sets the proof every later one must carry: the browser that made the account
   // writes its keyring at once, before the account is any use to anyone. Only an account that has
@@ -348,7 +416,7 @@ export class AccountBook {
   // where the last batch stopped. Only the alarm calls this. True while a prefix has more to go.
   async sweep(t = Date.now(), batch = SWEEP_BATCH) {
     let more = false;
-    for (const prefix of ['l:', 's:', 'u:', 'p:', 'r:', 'c:']) {
+    for (const prefix of ['l:', 'q:', 's:', 'u:', 'p:', 'r:', 'c:']) {
       const after = this.cursor[prefix];
       const page = await this.s.list({ prefix, limit: batch, ...(after && { startAfter: after }) });
       const gone = [...page].filter(([, v]) => !v?.exp || v.exp <= t).map(([k]) => k);
