@@ -885,3 +885,4 @@ button.prog { cursor: pointer; }
 #account .offer-sure p { margin-bottom: 8px; }
 #account .passkey-only { margin-top: 18px; }
 #account .passkey-only p { font-size: 13.5px; margin-bottom: 8px; }
+#account .ways + .sub { margin-top: 16px; }

@@ -387,12 +387,15 @@
     if (conditional || !(await root.PublicKeyCredential?.isConditionalMediationAvailable?.().catch(() => false))) return;
     const ctl = new AbortController();
     conditional = ctl;
+    let cred = null, challenge = null;
     try {
-      const { challenge } = await api('POST', '/account/signin/begin', {});
-      const cred = await root.navigator.credentials.get({ mediation: 'conditional', signal: ctl.signal, publicKey: getOptions(challenge) });
-      if (cred) await passkeySignIn(cred, challenge);
-    } catch (x) { if (x.name !== 'AbortError' && !ctl.signal.aborted) say(x.message || 'That passkey didn\'t work.', 'error'); }
-    finally { if (conditional === ctl) conditional = null; }
+      ({ challenge } = await api('POST', '/account/signin/begin', {}));
+      cred = await root.navigator.credentials.get({ mediation: 'conditional', signal: ctl.signal, publicKey: getOptions(challenge) });
+    } catch {
+      // Autofill is a quiet extra: a browser that can't do it, or a request it dropped, says nothing.
+    } finally { if (conditional === ctl) conditional = null; }
+    if (!cred) return;
+    try { await passkeySignIn(cred, challenge); } catch (x) { say(x.message || 'That passkey didn\'t work.', 'error'); }
   }
   $('passkey-signin').addEventListener('click', async () => {
     if (signingIn) return;
