@@ -137,9 +137,22 @@ export function bg(t, home, args, opts = {}) {
   p.out = ''; p.err = '';
   p.stdout.on('data', d => (p.out += d));
   p.stderr.on('data', d => (p.err += d));
-  p.done = new Promise(r => p.on('exit', (code, sig) => r(code ?? sig)));
+  p.done = exited(p);
   scope(t).procs.push(p);
   return p;
+}
+
+// The exit code once the process has exited and what it printed has been read. Node can emit
+// 'exit' before the last of its output reaches 'data': on Linux CI a listener that printed its
+// message and exited 0 read as having printed nothing (2026-11-04). A child that leaves the
+// pipes open behind it (a background grandchild) doesn't hold this up past DRAIN_FOR.
+const DRAIN_FOR = 2000;
+function exited(p) {
+  const closed = s => new Promise(r => (s.readableEnded || s.destroyed ? r() : s.once('close', r)));
+  return new Promise(r => p.once('exit', (code, sig) => {
+    const late = new Promise(ok => setTimeout(ok, DRAIN_FOR));
+    Promise.race([Promise.all([closed(p.stdout), closed(p.stderr)]), late]).then(() => r(code ?? sig));
+  }));
 }
 
 // Any other process a test starts, so it's stopped with the rest.
