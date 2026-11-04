@@ -80,7 +80,7 @@ export class Accounts extends DurableObject {
     if (body) { try { b = JSON.parse(body); } catch { throw Object.assign(new Error('not JSON'), { status: 400 }); } }
     const book = this.book;
     // The person check's frame, when this relay has Turnstile (index.js humanPage).
-    const humanFrame = this.env.TURNSTILE_SITEKEY && this.env.MCP_HOST ? `${new URL(origin).protocol}//${this.env.MCP_HOST}/human` : null;
+    const humanFrame = this.env.TURNSTILE_SITEKEY && this.env.HUMAN_HOST ? `${new URL(origin).protocol}//${this.env.HUMAN_HOST}/` : null;
     if (method === 'GET' && path === '/account/config') return { human: humanFrame };
     if (method === 'POST' && path === '/account/link') {
       if (this.env.TURNSTILE_SITEKEY && !human) throw Object.assign(new Error('The check that you\'re a person didn\'t pass. Try again.'), { status: 403 });

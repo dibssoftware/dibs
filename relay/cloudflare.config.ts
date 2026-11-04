@@ -71,6 +71,7 @@ export default defineConfig((ctx) => {
 					domains: [
 						"app.dibs.cc",
 						"mcp.dibs.cc",
+						"human.dibs.cc",
 					],
 					triggers: [
 						triggers.fetch({
@@ -86,7 +87,9 @@ export default defineConfig((ctx) => {
 						PAGE_HOST: bindings.text("app.dibs.cc"),
 						MCP_HOST: bindings.text("mcp.dibs.cc"),
 						MAIL_FROM: bindings.text("no-reply@mail.dibs.cc"),
-						// The Turnstile widget on mcp.dibs.cc/email; its secret is TURNSTILE_SECRET.
+						// The person check's own origin: Cloudflare Turnstile's script runs there and nowhere else.
+						HUMAN_HOST: bindings.text("human.dibs.cc"),
+						// The Turnstile widget on human.dibs.cc; its secret is TURNSTILE_SECRET.
 						TURNSTILE_SITEKEY: bindings.text("0x4AAAAAAFxfl4Oft0B4fWmc"),
 						MACHINE: bindings.durableObject({
 							worker: "dibs-relay",

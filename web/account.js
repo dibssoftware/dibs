@@ -143,7 +143,7 @@
   const show = id => { for (const s of root.document.querySelectorAll('[data-view]')) s.hidden = s.dataset.view !== id; };
 
   // Fragments, taken out of the address bar at once: #signin=<token> from the email, #code=<id>
-  // from the person check on mcp.dibs.cc (the code to type is in the email), and
+  // from the person check on human.dibs.cc (the code to type is in the email), and
   // #join=<machine>.<secret>.<fingerprint> from dibs connect --account. Read on load and on every
   // change after: a link pasted into a tab already on this page changes only the fragment, and a
   // page brought back from the back-forward cache runs no script again.
@@ -247,7 +247,7 @@
   }
 
   // Email: a 6-digit code, typed here. The person check (Cloudflare Turnstile) runs in a frame
-  // from mcp.dibs.cc, out of sight (relay/src/index.js humanPage), never in this page beside the
+  // from human.dibs.cc, out of sight (relay/src/index.js humanPage), never in this page beside the
   // account key; it starts as soon as the email step shows and hands its token over by
   // postMessage. Only the person's click sends it with the address. A relay without Turnstile
   // (the local e2e) takes the address alone.

@@ -43,6 +43,8 @@ let browser = null;
 // mcp.localhost stands in for mcp.dibs.cc: Chromium sends *.localhost to this machine, and
 // the Node requests below name it in their Host header.
 const MCP_HOST = `mcp.localhost:${PORT}`;
+// human.localhost the same way for human.dibs.cc, the person check's own origin.
+const HUMAN_HOST = `human.localhost:${PORT}`;
 const ENV = { ...process.env, DIBS_HOME: HOME, DIBS_NO_SESSION: '1', DIBS_AGENT: 'e2e', DIBS_RELAY_PAGE: `${ORIGIN}/`, DIBS_MCP_ORIGIN: `http://${MCP_HOST}`,
   DIBS_FAKE_MACHINE: JSON.stringify({ diskFree: 1e12, swapUsed: 0, memFree: 90, load: 0, memTotal: 16 * 1024 ** 3 }) };
 for (const k of ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_ENTRYPOINT', 'DIBS_LEASE']) delete ENV[k];
@@ -135,7 +137,7 @@ function mcpReq(method, p, { headers = {}, body = null } = {}) {
 
 async function main() {
   assert.equal(spawnSync(process.execPath, ['build.mjs'], { cwd: HERE }).status, 0);
-  const wrangler = start(path.join(HERE, 'node_modules', '.bin', 'wrangler'), ['dev', '--env', 'local', '--ip', '127.0.0.1', '--port', String(PORT), '--inspector-port', '0', '--var', `MCP_HOST:${MCP_HOST}`, '--var', 'MCP_PER_MIN:40', '--var', 'MCP_ANON_PER_MIN:40', '--var', 'LOOKUPS_PER_IP:5', '--var', 'LOOKUPS_GLOBAL:20', '--var', `REG_SECRET:${crypto.randomBytes(32).toString('base64url')}`],
+  const wrangler = start(path.join(HERE, 'node_modules', '.bin', 'wrangler'), ['dev', '--env', 'local', '--ip', '127.0.0.1', '--port', String(PORT), '--inspector-port', '0', '--var', `MCP_HOST:${MCP_HOST}`, '--var', `HUMAN_HOST:${HUMAN_HOST}`, '--var', 'MCP_PER_MIN:40', '--var', 'MCP_ANON_PER_MIN:40', '--var', 'LOOKUPS_PER_IP:5', '--var', 'LOOKUPS_GLOBAL:20', '--var', `REG_SECRET:${crypto.randomBytes(32).toString('base64url')}`],
     { cwd: HERE, env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1', NO_COLOR: '1' } });
   await until(async () => { try { return (await fetch(`${ORIGIN}/`)).ok; } catch { return false; } }, 90e3, `wrangler dev on ${PORT}\n${wrangler.log}`);
   step('relay Worker up under wrangler dev');
@@ -428,22 +430,27 @@ async function main() {
   assert.match(breg.json.client_id, /^b\./);
   step('bare host: discovery and registration answered by the relay, with nothing stored');
 
-  // The person check lives here, framed out of sight by the account page, never on the account
-  // page's origin: Turnstile's script is allowed on it and nowhere else. The old email page here
-  // sends people to the account page, where the email step is now.
-  const hp = await mcpReq('GET', '/human');
+  // The person check has an origin of its own, framed out of sight by the account page: Turnstile's
+  // script is allowed there and nowhere else, not on the account page's origin nor on this one. The
+  // old email page here sends people to the account page, where the email step is now.
+  const human = (method, p) => mcpReq(method, p, { headers: { Host: HUMAN_HOST } });
+  const hp = await human('GET', '/');
   assert.equal(hp.status, 200);
   assert.match(hp.text, /challenges\.cloudflare\.com\/turnstile/);
   assert.match(hp.headers['content-security-policy'], /script-src 'self' https:\/\/challenges\.cloudflare\.com;/);
-  assert.match(hp.headers['content-security-policy'], /frame-ancestors https:\/\//, 'only the account page may frame it');
+  assert.match(hp.headers['content-security-policy'], /frame-ancestors https?:\/\/[^ ;*]*(;|$)/, 'only the account page may frame it');
   assert.equal(hp.headers['x-frame-options'], undefined);
-  assert.equal((await mcpReq('GET', '/human/config')).json.sitekey, null);
+  assert.match((await human('GET', '/web/human.js')).text, /dibsHuman/);
+  assert.equal((await human('GET', '/config')).json.sitekey, null);
+  for (const p of ['/mcp', '/account', '/web/app.js', '/human']) assert.equal((await human('GET', p)).status, 404, `${p} isn't served on the person check's origin`);
+  assert.equal((await human('POST', '/')).status, 405);
+  for (const p of ['/human', '/human/config', '/web/human.js']) assert.equal((await mcpReq('GET', p)).status, 404, `${p} is gone from the MCP host`);
   assert.equal((await mcpReq('GET', '/email')).status, 301);
   assert.equal((await mcpReq('POST', '/email/link', { body: { email: 'a@b.cc', token: 'x' }, headers: { Origin: BARE } })).status, 404, 'nothing sends a code from here any more');
   const onPage = await new Promise((resolve, reject) => http.get(`${ORIGIN}/human`, r => { r.resume(); resolve(r.statusCode); }).on('error', reject));
   assert.equal(onPage, 404, 'the account page\'s origin never serves it');
   assert.doesNotMatch(fs.readFileSync(path.join(HERE, 'public', 'account.html'), 'utf8'), /challenges\.cloudflare\.com/);
-  step('the person check is on the MCP host with Turnstile allowed there only, framed only by the account page; the old email page redirects');
+  step('the person check is on its own host with Turnstile allowed there only, framed only by the account page, and gone from the MCP host; the old email page redirects');
 
   const bverifier = crypto.randomBytes(40).toString('base64url');
   const bchallenge = crypto.createHash('sha256').update(bverifier).digest('base64url');

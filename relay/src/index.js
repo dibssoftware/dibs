@@ -126,7 +126,7 @@ const MCP_KINDS = 'oauth-protected-resource|oauth-authorization-server|openid-co
 const MCP_ROUTES = new Set(['GET:/mcp', 'POST:/mcp', 'POST:/oauth/register', 'GET:/oauth/client', 'POST:/oauth/authorize', 'POST:/oauth/token',
   ...MCP_KINDS.split('|').map(k => `GET:/.well-known/${k}`)]);
 // The sign-in page and what it loads, served from this Worker's own copy (relay/build.mjs).
-const MCP_PAGE_FILES = new Set(['/web/app.css', '/web/dither.js', '/web/authorize.js', '/web/human.js', '/web/logo.png', '/web/SchibstedGrotesk.woff2']);
+const MCP_PAGE_FILES = new Set(['/web/app.css', '/web/dither.js', '/web/authorize.js', '/web/logo.png', '/web/SchibstedGrotesk.woff2']);
 const MCP_IN = ['content-type', 'authorization', 'origin', 'accept', 'mcp-protocol-version'];
 const MCP_BODY_MAX = 64 * 1024;
 // How long the Mac gets to answer (its own CLI calls give up at 15 s).
@@ -151,11 +151,11 @@ const mcpHeaders = extra => ({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Po
   ...extra });
 const mcpJson = (status, error) => new Response(JSON.stringify({ error }), { status, headers: mcpHeaders({ 'Content-Type': 'application/json' }) });
 
-// The person check, on this host and never on app.dibs.cc: Cloudflare Turnstile's script runs
-// here, in a frame the account page embeds out of sight, so it never runs beside the account
-// key in app.dibs.cc's storage. The frame hands its token to the account page by postMessage,
-// and the account page sends it with the address (accounts.js accountRoute checks it).
-// Only app.dibs.cc may frame it. Nothing is stored on this origin.
+// The person check, on an origin of its own (human.dibs.cc): Cloudflare Turnstile's script runs
+// there and nowhere else, not beside the account key on app.dibs.cc nor beside the MCP sign-in on
+// mcp.dibs.cc, whose origin the Mac trusts. The account page frames it out of sight; it hands
+// its token to the account page by postMessage, and the account page sends it with the address
+// (accounts.js accountRoute checks it). Only the account page may frame it. Nothing is stored there.
 const TURNSTILE = 'https://challenges.cloudflare.com';
 // The account page's origin, in this request's scheme (https, or http under wrangler dev).
 const pageOrigin = (env, url) => `${url.protocol}//${env.PAGE_HOST}`;
@@ -166,9 +166,9 @@ function humanHeaders(env, url) {
 }
 async function humanPage(req, env, url) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return mcpJson(405, 'GET only');
-  // The email step used to be a page here; it's on the account page now.
-  if (url.pathname === '/email') return new Response(null, { status: 301, headers: { Location: `${pageOrigin(env, url)}/account`, 'Cache-Control': 'max-age=3600', 'Referrer-Policy': 'no-referrer' } });
-  if (url.pathname === '/human/config') return json(200, { sitekey: env.TURNSTILE_SITEKEY || null, page: env.PAGE_HOST ? pageOrigin(env, url) : null });
+  if (url.pathname === '/config') return json(200, { sitekey: env.TURNSTILE_SITEKEY || null, page: env.PAGE_HOST ? pageOrigin(env, url) : null });
+  if (url.pathname === '/web/human.js') return withHeaders(await env.ASSETS.fetch(req), humanHeaders(env, url));
+  if (url.pathname !== '/') return mcpJson(404, 'not here');
   return withHeaders(await env.ASSETS.fetch(new Request(new URL('/human', url), req)), humanHeaders(env, url));
 }
 
@@ -299,7 +299,8 @@ async function bare(req, env, url) {
 
 async function mcp(req, env, url) {
   if (req.method === 'GET' && MCP_PAGE_FILES.has(url.pathname)) return withHeaders(await env.ASSETS.fetch(req), mcpHeaders());
-  if (/^\/(human(\/config)?|email)$/.test(url.pathname)) return humanPage(req, env, url);
+  // The email step used to be a page here; it's on the account page now.
+  if (url.pathname === '/email') return new Response(null, { status: 301, headers: { Location: `${pageOrigin(env, url)}/account`, 'Cache-Control': 'max-age=3600', 'Referrer-Policy': 'no-referrer' } });
   if (BARE.has(url.pathname)) return bare(req, env, url);
   // Clients find the metadata at /.well-known/<kind>/<mid>... (RFC 8414 and RFC 9728 path
   // insertion) or under /<mid>/.well-known/<kind>; both reach the same answer.
@@ -336,13 +337,14 @@ export default {
     const url = new URL(req.url);
     const host = url.host;
     if (env.MCP_HOST && host === env.MCP_HOST) return mcp(req, env, url);
+    if (env.HUMAN_HOST && host === env.HUMAN_HOST) return humanPage(req, env, url);
     // dibs.cc/app forwards here. A 3xx keeps the #fragment, so the pairing secret survives the hop
     // without ever being sent: browsers don't put fragments in requests.
     if (env.PAGE_HOST && host !== env.PAGE_HOST && (url.pathname === '/app' || url.pathname.startsWith('/app/'))) {
       return new Response(null, { status: 301, headers: { Location: `https://${env.PAGE_HOST}/`, 'Cache-Control': 'max-age=3600', 'Referrer-Policy': 'no-referrer' } });
     }
     if (env.PAGE_HOST && host !== env.PAGE_HOST) return plain(404, 'not here', host);
-    // The person check belongs to mcp.dibs.cc only (humanPage): never Turnstile's script here.
+    // The person check belongs to its own host only (humanPage): never Turnstile's script here.
     if (/^\/(email|human)(\.html)?$/.test(url.pathname)) return plain(404, 'not here', host);
 
     const ws = /^\/ws\/(m|b)\/([^/]+)$/.exec(url.pathname);
@@ -374,9 +376,9 @@ export default {
     // fragments): never kept by a cache.
     if (url.pathname === '/account') {
       headers.set('Cache-Control', 'no-store');
-      // The account page frames the person check on the MCP host, and only that.
-      if (env.MCP_HOST && env.TURNSTILE_SITEKEY) {
-        for (const [k, v] of Object.entries(pageHeaders(host, `${url.protocol}//${env.MCP_HOST}`))) headers.set(k, v);
+      // The account page frames the person check on its own host, and only that.
+      if (env.HUMAN_HOST && env.TURNSTILE_SITEKEY) {
+        for (const [k, v] of Object.entries(pageHeaders(host, `${url.protocol}//${env.HUMAN_HOST}`))) headers.set(k, v);
         headers.delete('Cross-Origin-Embedder-Policy');
         headers.set('Cache-Control', 'no-store');
       }

@@ -39,9 +39,9 @@ hashes['/'] = page('index.html', true);
 hashes['/<machine>/authorize'] = page('authorize.html', false);
 // The account page talks to the relay as the main page does (transport.js), so it says so too.
 hashes['/account'] = page('account.html', true);
-// The person check the account page frames from mcp.dibs.cc/human: it also loads Turnstile from
+// The person check the account page frames from human.dibs.cc: it also loads Turnstile from
 // challenges.cloudflare.com, which can't carry a hash (Cloudflare changes it).
-hashes['/human (mcp.dibs.cc)'] = page('human.html', false);
+hashes['/ (human.dibs.cc)'] = page('human.html', false);
 const list = Object.entries(hashes).map(([p, h]) => `${h}  ${p}`).join('\n') + '\n';
 fs.writeFileSync(path.join(OUT, 'hashes.txt'), list);
 process.stdout.write(list);

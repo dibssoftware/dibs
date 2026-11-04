@@ -8,6 +8,9 @@
     { "pattern": "app.dibs.cc", "custom_domain": true },
     // Remote MCP: https://mcp.dibs.cc/<machine>/mcp and its sign-in, nothing else (src/index.js mcp()).
     { "pattern": "mcp.dibs.cc", "custom_domain": true },
+    // The person check before a sign-in code (src/index.js humanPage): Turnstile's script, on an
+    // origin of its own, framed by the account page and holding nothing.
+    { "pattern": "human.dibs.cc", "custom_domain": true },
     // Routes win over the waitlist's custom domain for these paths only, which redirect here.
     // Exactly /app and /app/..., so /apple-touch-icon.png and the like stay the waitlist's.
     { "pattern": "dibs.cc/app", "zone_name": "dibs.cc" },
@@ -15,13 +18,13 @@
   ],
   "workers_dev": false,
   "preview_urls": false,
-  "vars": { "PAGE_HOST": "app.dibs.cc", "MCP_HOST": "mcp.dibs.cc", "MAIL_FROM": "no-reply@mail.dibs.cc", "TURNSTILE_SITEKEY": "0x4AAAAAAFxfl4Oft0B4fWmc" },
+  "vars": { "PAGE_HOST": "app.dibs.cc", "MCP_HOST": "mcp.dibs.cc", "HUMAN_HOST": "human.dibs.cc", "MAIL_FROM": "no-reply@mail.dibs.cc", "TURNSTILE_SITEKEY": "0x4AAAAAAFxfl4Oft0B4fWmc" },
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   "durable_objects": { "bindings": [{ "name": "MACHINE", "class_name": "Machine" }, { "name": "INDEX", "class_name": "CodeIndex" }, { "name": "ACCOUNTS", "class_name": "Accounts" }] },
   // CodeIndex holds sign-in code hashes and machine ids for ten minutes at most (src/index.js).
   // Accounts holds email hashes, passkey public keys and sealed keyrings (src/accountbook.js).
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Machine"] }, { "tag": "v2", "new_sqlite_classes": ["CodeIndex"] }, { "tag": "v3", "new_sqlite_classes": ["Accounts"] }],
-  // TURNSTILE_SITEKEY: the widget on mcp.dibs.cc/email; its secret is TURNSTILE_SECRET (README.md).
+  // TURNSTILE_SITEKEY: the widget on human.dibs.cc; its secret is TURNSTILE_SECRET (README.md).
   // Sign-in links, from the dibs.cc zone's Email Sending at mail.dibs.cc.
   "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["no-reply@mail.dibs.cc"] }],
   // Keyed per connecting address in memory only.

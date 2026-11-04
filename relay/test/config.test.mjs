@@ -26,7 +26,10 @@ test('dibs.cc/app and dibs.cc/app/... go to the relay; nothing else on dibs.cc d
 test('the page and remote MCP each have their own origin, and the Worker leaves workers.dev, previews and logs off', () => {
   assert.ok(conf.routes.some(r => r.pattern === 'app.dibs.cc' && r.custom_domain === true));
   assert.ok(conf.routes.some(r => r.pattern === 'mcp.dibs.cc' && r.custom_domain === true));
-  assert.deepEqual(conf.routes.filter(r => r.custom_domain).map(r => r.pattern).sort(), ['app.dibs.cc', 'mcp.dibs.cc']);
+  assert.deepEqual(conf.routes.filter(r => r.custom_domain).map(r => r.pattern).sort(), ['app.dibs.cc', 'human.dibs.cc', 'mcp.dibs.cc']);
+  // The person check's origin is its own: Turnstile's script never shares one with the account
+  // key (app) or the MCP sign-in (mcp).
+  assert.equal(conf.vars.HUMAN_HOST, 'human.dibs.cc');
   assert.equal(conf.vars.MCP_HOST, 'mcp.dibs.cc');
   assert.ok(conf.ratelimits.some(r => r.name === 'RLM' && r.simple.limit === 120));
   // The code index: its own class, added in its own migration, nothing else stored.
