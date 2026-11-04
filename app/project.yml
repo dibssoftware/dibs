@@ -32,7 +32,7 @@ targets:
         # their own settings and never touch the installed app's.
         DIBS_BUNDLE_SUFFIX: ""
         PRODUCT_BUNDLE_IDENTIFIER: cc.dibs.mac$(DIBS_BUNDLE_SUFFIX)
-        MARKETING_VERSION: "0.0.178"
+        MARKETING_VERSION: "0.0.179"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: dibs

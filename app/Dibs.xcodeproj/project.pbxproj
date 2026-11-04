@@ -16,7 +16,6 @@
 		110C5576240967FE4E1A51FC /* pace-070.json in Resources */ = {isa = PBXBuildFile; fileRef = A21E11B29CDE699786BF02E8 /* pace-070.json */; };
 		11B2A832B8D19F3214913187 /* Wording.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B67CC4B1FE7FE8A39A6C3F /* Wording.swift */; };
 		1393196E236B0634E12AFEF2 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D3313B840B7E33F4B70824 /* Pairing.swift */; };
-		191DB7A4EFC0C204E49C50F2 /* SchibstedGrotesk.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = DD2BD77FE931D2BF7EC5A370 /* SchibstedGrotesk.woff2 */; };
 		1AC33EEA7B62DA50D577AB00 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80E1D10799F42F14DB5641A /* History.swift */; };
 		1C04596820291FF474E52139 /* Later.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E33398B55084744C3E2371 /* Later.swift */; };
 		1DCCEAE49A8A9654C4555570 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E49C9C89AAB0E3910F87F48 /* MenuBarView.swift */; };
@@ -24,6 +23,7 @@
 		1F7500926952584CEDEF5932 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80E1D10799F42F14DB5641A /* History.swift */; };
 		208D9FC0AD42F4996CD8FF9B /* AgentNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3813FF9B67DF16C92B89D40F /* AgentNames.swift */; };
 		20B544FCA22FEF22A8B7354F /* AccountsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1858EC33FE934C3F49A4A012 /* AccountsTests.swift */; };
+		2286140FF27F27135FC4C447 /* logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 6A65913562A6321F311A98E6 /* logo.png */; };
 		25AEEAEFCA3DC028D1F87D18 /* Stats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20BC27F9063C0220C87A72F /* Stats.swift */; };
 		2933C15D3903F352015B3370 /* LineHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F499A32C6303F4F011B444 /* LineHelp.swift */; };
 		296F9AA5E816C204C28917A6 /* threads-080-cli.json in Resources */ = {isa = PBXBuildFile; fileRef = AFCABDBFDF01BE99A3D869E5 /* threads-080-cli.json */; };
@@ -63,7 +63,6 @@
 		9074082F449248C7E252351F /* Threads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D4A7122098CBAB77766C64 /* Threads.swift */; };
 		93E45CDC7D241122ECD8BB59 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2060BC2D12046C5A73220F /* HistoryView.swift */; };
 		941ED7827711A1CA6AEF464E /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905A4A040D64C38906405E5A /* RootView.swift */; };
-		9C606071EEC5428C7EC581E0 /* logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 13A3A490AC4DB3044E3B96D1 /* logo.png */; };
 		9FB6CC68703D7835BC04EA81 /* guard-070.json in Resources */ = {isa = PBXBuildFile; fileRef = EE65DD9559C5BC5E4DA8B726 /* guard-070.json */; };
 		A10296ED00447921D2928826 /* OverrideByTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E047DAD16248B96DFC389247 /* OverrideByTests.swift */; };
 		A31F9FAC8B93C4D7A90C2549 /* Reader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C93C7A6BCF33190070443CF /* Reader.swift */; };
@@ -99,6 +98,7 @@
 		D9FFEDE3B270B4720A3B5FBE /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9634C6057A5630B4EE5C706 /* Store.swift */; };
 		DAF0530981E6F09BBA9A34D3 /* JobsTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EE88A5B094D587E03B3D65 /* JobsTimeline.swift */; };
 		DD5EF384903F8F563065F397 /* ReviewFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36F163E02D1BE7063A74FCAC /* ReviewFixTests.swift */; };
+		DE1B61BDC3D58DB11E35B37D /* SchibstedGrotesk.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = D68BB46D96339CAF41EB181F /* SchibstedGrotesk.woff2 */; };
 		DF1229BEB0546A3698A90629 /* AccountsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B604211F65BA2FDB0F74B /* AccountsCard.swift */; };
 		E0393059687CF577F95EDA1D /* Rows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B778046534699AC8DD6904 /* Rows.swift */; };
 		E12D143D4E9DE758C62EF23E /* board-unreachable.json in Resources */ = {isa = PBXBuildFile; fileRef = 6EFF224880B392322B38035A /* board-unreachable.json */; };
@@ -128,7 +128,6 @@
 		1163818D74C5E0192CBACAEE /* Needs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Needs.swift; sourceTree = "<group>"; };
 		12989D9765CD4EBE43A8A5C6 /* threads-talk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "threads-talk.json"; sourceTree = "<group>"; };
 		13796799D8CB87EFB19C2BAD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
-		13A3A490AC4DB3044E3B96D1 /* logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = logo.png; sourceTree = "<group>"; };
 		13B778046534699AC8DD6904 /* Rows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rows.swift; sourceTree = "<group>"; };
 		1449827BC315EA7F2F5E8B15 /* QueueTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueTabs.swift; sourceTree = "<group>"; };
 		1858EC33FE934C3F49A4A012 /* AccountsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsTests.swift; sourceTree = "<group>"; };
@@ -157,6 +156,7 @@
 		533B2991B8D0F29E0CEE9B48 /* Alerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Alerts.swift; sourceTree = "<group>"; };
 		5A3F02AA9EA5CE4032D30721 /* StatsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsScreen.swift; sourceTree = "<group>"; };
 		64F7CCDCD288983F574413B6 /* Progress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Progress.swift; sourceTree = "<group>"; };
+		6A65913562A6321F311A98E6 /* logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = logo.png; sourceTree = "<group>"; };
 		6B5B1CBF2F6FD2911B6DBC9A /* threads-080.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "threads-080.json"; sourceTree = "<group>"; };
 		6B6C82838E48ED689C33B2E5 /* ServerAlertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAlertTests.swift; sourceTree = "<group>"; };
 		6EFF224880B392322B38035A /* board-unreachable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-unreachable.json"; sourceTree = "<group>"; };
@@ -196,10 +196,10 @@
 		D3AB4EDD5DC8CFE520ADC6ED /* MachinesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesScreen.swift; sourceTree = "<group>"; };
 		D5BC2F3A9B9F76006F8DE56A /* ServerAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAlerts.swift; sourceTree = "<group>"; };
 		D62159DC02B7165E1756EC6D /* guard-080.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "guard-080.json"; sourceTree = "<group>"; };
+		D68BB46D96339CAF41EB181F /* SchibstedGrotesk.woff2 */ = {isa = PBXFileReference; path = SchibstedGrotesk.woff2; sourceTree = "<group>"; };
 		D9634C6057A5630B4EE5C706 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		D99F0EFA52583A9E277AC1FA /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		DA635EF2B4746DBD474F0968 /* board-070.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-070.json"; sourceTree = "<group>"; };
-		DD2BD77FE931D2BF7EC5A370 /* SchibstedGrotesk.woff2 */ = {isa = PBXFileReference; path = SchibstedGrotesk.woff2; sourceTree = "<group>"; };
 		DEA2CDFBA2248633F203C8E4 /* board-080-fallback.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-080-fallback.json"; sourceTree = "<group>"; };
 		DEB6038C47BCF99D92E21C66 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E047DAD16248B96DFC389247 /* OverrideByTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverrideByTests.swift; sourceTree = "<group>"; };
@@ -219,15 +219,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
-		05D5FB8E4AEDA1459EFD417C /* web */ = {
-			isa = PBXGroup;
-			children = (
-				13A3A490AC4DB3044E3B96D1 /* logo.png */,
-				DD2BD77FE931D2BF7EC5A370 /* SchibstedGrotesk.woff2 */,
-			);
-			path = web;
-			sourceTree = "<group>";
-		};
 		0A8F2A429870B28736BFF98A /* DibsTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -246,15 +237,6 @@
 			path = DibsTests;
 			sourceTree = "<group>";
 		};
-		2A248DAC81EFF8F0C807F09C /* dibs-listen */ = {
-			isa = PBXGroup;
-			children = (
-				05D5FB8E4AEDA1459EFD417C /* web */,
-			);
-			name = "dibs-listen";
-			path = ..;
-			sourceTree = "<group>";
-		};
 		3FB8C013AFCA879735C4D80E /* Dibs */ = {
 			isa = PBXGroup;
 			children = (
@@ -266,6 +248,15 @@
 				83AA1CF1FE69958EAA7A13EC /* Views */,
 			);
 			path = Dibs;
+			sourceTree = "<group>";
+		};
+		4B036F5E2FAF5F959DF2059F /* dibs-rel179 */ = {
+			isa = PBXGroup;
+			children = (
+				7570071777798B963515549D /* web */,
+			);
+			name = "dibs-rel179";
+			path = ..;
 			sourceTree = "<group>";
 		};
 		5B80D0101E7A4E03537F488E /* Store */ = {
@@ -307,6 +298,15 @@
 				12989D9765CD4EBE43A8A5C6 /* threads-talk.json */,
 			);
 			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		7570071777798B963515549D /* web */ = {
+			isa = PBXGroup;
+			children = (
+				6A65913562A6321F311A98E6 /* logo.png */,
+				D68BB46D96339CAF41EB181F /* SchibstedGrotesk.woff2 */,
+			);
+			path = web;
 			sourceTree = "<group>";
 		};
 		7A69B492C595928CF495C051 /* Products */ = {
@@ -393,7 +393,7 @@
 			isa = PBXGroup;
 			children = (
 				3FB8C013AFCA879735C4D80E /* Dibs */,
-				2A248DAC81EFF8F0C807F09C /* dibs-listen */,
+				4B036F5E2FAF5F959DF2059F /* dibs-rel179 */,
 				0A8F2A429870B28736BFF98A /* DibsTests */,
 				7A69B492C595928CF495C051 /* Products */,
 			);
@@ -515,8 +515,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				54523BB261B24BA37E967A7F /* AppIcon.icon in Resources */,
-				191DB7A4EFC0C204E49C50F2 /* SchibstedGrotesk.woff2 in Resources */,
-				9C606071EEC5428C7EC581E0 /* logo.png in Resources */,
+				DE1B61BDC3D58DB11E35B37D /* SchibstedGrotesk.woff2 in Resources */,
+				2286140FF27F27135FC4C447 /* logo.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -640,7 +640,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.0.178;
+				MARKETING_VERSION = 0.0.179;
 				PRODUCT_BUNDLE_IDENTIFIER = "cc.dibs.mac$(DIBS_BUNDLE_SUFFIX)";
 				PRODUCT_NAME = dibs;
 				SDKROOT = macosx;
@@ -746,7 +746,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.0.178;
+				MARKETING_VERSION = 0.0.179;
 				PRODUCT_BUNDLE_IDENTIFIER = "cc.dibs.mac$(DIBS_BUNDLE_SUFFIX)";
 				PRODUCT_NAME = dibs;
 				SDKROOT = macosx;

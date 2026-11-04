@@ -99,7 +99,7 @@ It answers only on 127.0.0.1 unless you pass `--bind <address>` (your Tailscale 
 
 `app/` builds a Mac app (macOS 26) over the same commands: the live board with boost, pause, stop and cap buttons, agents' questions to answer, the week's history, and the pace, in a window and the menu bar. It runs the `dibs` on your PATH and reads nothing else. A signed, notarized download is at https://dibs.cc/mac. To build it yourself you need Xcode 26 and xcodegen (`brew install xcodegen`): [app/README.md](../app/README.md) has the steps.
 
-Priority is `-p urgent|high|normal|low|idle`. `urgent` and `high` need `-m` and everyone sees them. `low` and `idle` run at background priority, and may be paused while urgent work borrows their slot. `--est 5m` tells dibs how long a new job takes, so short jobs can move up. `--by 23:30` moves you up as a deadline gets close.
+Priority is `-p urgent|high|normal|low|idle`. `urgent` and `high` need `-m` and everyone sees them. `low` and `idle` run at background priority, and may be paused while urgent work borrows their slot. `--est 5m` tells dibs how long a new job takes, so short jobs can move up. A command that runs in under 15 seconds goes in the quick lane: wrap it with `--quick` (or `--est 10s`) and it starts at once, past the line and full slots, at most 2 at a time (on the simulator, or a deploy of the same repo, at the front of the line instead); dibs learns it after that, and takes the pass away from a run that goes over. `--by 23:30` moves you up as a deadline gets close.
 
 Agents show up by their Claude Code session name. Anywhere else, dibs names them after the folder they run in; set `DIBS_AGENT=name` to pick your own.
 
