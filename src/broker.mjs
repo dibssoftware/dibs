@@ -17,6 +17,7 @@ import { processes } from './platform.mjs';
 import { withState, history, kick, quiet, KEEP_PLACE } from './state.mjs';
 import { decide, step, waiter, full, markIdle, saidText, abandon, POLL } from './acquire.mjs';
 import { byRank } from './schedule.mjs';
+import { inversions, lift } from './override.mjs';
 import { noticeScan } from './notices.mjs';
 import { event } from './events.mjs';
 import { now, noSpace, sleepSync, signalExit, notifyLine, LEAN } from './util.mjs';
@@ -186,17 +187,19 @@ function keepFor(q, shell) {
 // up on the broker (why is keep: the place stays for its in-process retry).
 // id 0: interrupted before it knew its id; its place is the one under its pid.
 export function leaveLine(id, shell, why) {
-  withState(s => {
+  // A low job lifted for this waiter alone goes back down as it leaves (src/override.mjs inversions).
+  lift(withState(s => {
     // Its place by id when it knows it, else by its pid. A place kept with nobody on it (for its own
     // retry in Node, or taken for gone) is its too: interrupted, it gives that up as well.
     const q = s.queue.find(x => (id ? x.id === id && (x.pid === shell || (why !== 'keep' && !x.pid)) : x.pid === shell)
       || (why !== 'keep' && x.keptFor === shell));
-    if (!q) return;
-    if (why === 'keep') return keepFor(q, shell);
+    if (!q) return [];
+    if (why === 'keep') { keepFor(q, shell); return []; }
     s.queue = s.queue.filter(x => x !== q);
     if (q.wake?.notify) notified(q, signalExit(why));
     if (q.wake) event({ kind: 'left', id: q.id, res: q.res, who: q.who, prio: q.prio || 'normal', type: q.kind, ms: now() - q.enq, why });
-  });
+    return inversions(s, loadConfig());
+  }));
 }
 
 // --notify's line for a thin wait that ended before its command started (src/commands.mjs notifyOnExit).

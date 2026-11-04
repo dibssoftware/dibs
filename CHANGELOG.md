@@ -3,6 +3,7 @@
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
 ## Unreleased
+- A low or idle job holding a slot that a normal (or higher) job waits for is lifted off background priority until nobody waits on it, so it isn't starved behind a busy machine while others queue for it. The waiter is told; nothing to do.
 - Low disk is a wait now, never a refusal at the start. A `dibs run`, `dibs hold` or `dibs later` job short of disk keeps its place and starts the moment there's room, so stop writing `until df ...` loops before a ship. Exit 74 now means the run needs more than the whole disk, or (outside Claude Code) the wait limit ran out while disk held it.
 - Jobs that write next to nothing start below the 5 GB floor, keeping 1 GB free: any command whose own runs ate under 100 MB, and, before it has runs, anything on test, deploy or a lock of your own. An honest small `--disk` (say `--disk 200M` on a test suite) is taken at its word there. The simulator, builds, browsers and heavy keep the floor until their runs show they write little. A run that eats more takes the exemption away until its runs come back down.
 - A job the person is waiting on (`-p high`, `-p urgent`, or `--by`) no longer waits for the room dibs keeps for swap, and may start down to 3 GB free instead of the 5 GB floor, as long as its own need is free. Use those only when a person really waits.

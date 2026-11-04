@@ -11,7 +11,7 @@ import { isFiles, short, shellRes, projectKey } from './files.mjs';
 import { jobSize } from './simpool.mjs';
 import { sized, grewLine, grewPlain, treeOf } from './measure.mjs';
 import { isQuota, quotaProblem, quotaBlock, takeQuota } from './quota.mjs';
-import { capWaiter } from './override.mjs';
+import { capWaiter, inversions, lift } from './override.mjs';
 import { verdict, forecast, expected, remaining, byRank, holdingOf, PRIORITY_SHIFT, PRIORITIES, NEEDS_REASON, used, overBy, STALL, neverFits, explicitAsk, capToMachine, quickPass } from './schedule.mjs';
 import { event } from './events.mjs';
 import { startLine } from './overlap.mjs';
@@ -240,11 +240,13 @@ const left = (w, why) => { if (w.blocked) note(w, 'left', { ms: now() - w.me.enq
 // state read drops it once this process is gone.
 function leave(w, keep) {
   try {
-    withState(s => {
+    // A low job lifted for this waiter alone goes back down as it leaves (src/override.mjs inversions).
+    lift(withState(s => {
       const q = s.queue.find(x => x.id === w.me.id);
       if (keep && q) Object.assign(q, { pid: null, keepUntil: now() + KEEP_PLACE });
       else s.queue = s.queue.filter(x => x.id !== w.me.id);
-    });
+      return inversions(s, w.cfg);
+    }));
   } catch (e) { if (!noSpace(e)) throw e; }
 }
 
@@ -320,6 +322,12 @@ function heldFor(cur, rule, looked) {
   cur.heldAt = t;
 }
 export function decide(s, w) {
+  const r = judge(s, w);
+  const moves = inversions(s, w.cfg);
+  if (moves.length) r.lift = moves;
+  return r;
+}
+function judge(s, w) {
   const { me, cfg, hist, info } = w;
   const cur = s.queue.find(x => x.id === me.id);
   // No place, no turn: one taken out of line (stopped, or left unlooked-at, src/state.mjs reap)
@@ -402,6 +410,10 @@ export function decide(s, w) {
 // through w.out (exit 74, 75, or the owner's stop).
 export function step(r, w) {
   const { me, cfg, out } = w;
+  if (r.lift) {
+    lift(r.lift);
+    for (const m of r.lift) if (!m.bg && m.for === me.id) out.say(`lifted #${m.id} (${m.who}'s low-priority job on ${m.res.join(',')}) off background priority, so you aren't stuck behind it while the machine is busy. It goes back down once nobody waits on it.`);
+  }
   if (r.stopped) {
     left(w, 'owner stop');
     return out.die(`stopped by ${r.by || 'the owner (the person at this machine)'} on purpose (dibs stop)${r.reason ? `: "${r.reason}"` : ''}. This was taken out of line and your command did not run.`

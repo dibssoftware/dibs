@@ -20,7 +20,7 @@ import { tag, makeAlive, identity, isMine } from './proc.mjs';
 import { descendants, processes, pidsIn, stopTree, lower, raise, OS } from './platform.mjs';
 import { withState, history } from './state.mjs';
 import { ownerPause, pauseLabel } from './preempt.mjs';
-import { PRIORITIES, BACKGROUND, NEEDS_REASON, priority, byRank } from './schedule.mjs';
+import { PRIORITIES, BACKGROUND, NEEDS_REASON, priority, byRank, roomFor } from './schedule.mjs';
 import { actor } from './owner.mjs';
 import { event } from './events.mjs';
 import { die, now, say, sleepSync, unpolled } from './util.mjs';
@@ -201,6 +201,35 @@ export function boost(args) {
     out(line);
   }
   recordAll('boost', r.filter(c => !c.same).map(({ id, res, who, prio, from }) => ({ id, res, who, prio, from })), who, reason);
+}
+
+// Priority inversion: a low or idle run is at background QoS, which macOS starves while
+// normal work fills every core (a 0.08 s loop took 13.6 s at load 35, 2026-11-03). One
+// holding a full slot that a normal-or-higher waiter wants makes that waiter wait on the
+// starving, so it's lifted to normal QoS while such a waiter is in line, and dropped back
+// once none is. Under the state lock: marks the leases and returns the moves, made after it.
+export function inversions(s, cfg) {
+  const moves = [];
+  for (const l of s.leases) {
+    if (l.kind !== 'run' || !l.pgid || !(l.background ?? BACKGROUND.has(l.prio))) continue;
+    const stuck = s.queue.find(q => q.pid && !BACKGROUND.has(q.prio || 'normal') && q.res.some(r => l.res.includes(r) && roomFor(s, q, r, cfg).open <= 0));
+    if (stuck && !l.lifted) { l.lifted = stuck.id; moves.push({ id: l.id, res: l.res, who: l.who, pgid: l.pgid, pgstart: l.pgstart, groups: l.groups, bg: false, for: stuck.id }); }
+    else if (!stuck && l.lifted) { moves.push({ id: l.id, res: l.res, who: l.who, pgid: l.pgid, pgstart: l.pgstart, groups: l.groups, bg: true, for: l.lifted }); delete l.lifted; }
+  }
+  return moves;
+}
+// Make the moves inversions() decided, after the lock, with boost's catch-up rounds.
+export function lift(moves) {
+  for (const m of moves) {
+    const groups = [...groupsOf(m)];
+    const move = pid => (m.bg ? lower(pid) : raise(pid));
+    for (let i = 0; i <= CATCH_UP; i++) {
+      if (i) sleepSync(CATCH_GAP);
+      for (const pid of pidsIn(groups)) move(pid);
+    }
+    event({ kind: 'override', act: m.bg ? 'unlift' : 'lift', id: m.id, res: m.res, who: m.who, for: m.for,
+            why: m.bg ? `dropped #${m.id} back to background priority: nobody is stuck behind it now` : `lifted #${m.id} so #${m.for} isn't stuck behind it` });
+  }
 }
 
 // Why the owner can't pause this lease, or null. Resources marked pausable:
