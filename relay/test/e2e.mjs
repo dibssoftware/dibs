@@ -299,17 +299,12 @@ async function main() {
   for (const word of ['/api/board', '"agents"', '"machine"', 'Chrome on Mac', await tokenOf(page)]) assert.ok(!seen.includes(word), `the relay carried ${word} in the clear`);
   step(`${frames.length} WebSocket frames carried no path, board field or device name in the clear`);
 
-  // The board this browser got is kept for its next visit, with no command lines in it.
-  await page.evaluate(() => dispatchEvent(new Event('pagehide')));
-  const keptBoard = await page.evaluate(() => localStorage.getItem('dibs-board:'));
-  const kb = JSON.parse(keptBoard);
-  assert.ok(Array.isArray(kb.v.agents) && kb.at > Date.now() - 60e3, 'the board\'s shape is kept, with when');
-  assert.deepEqual([kb.v.posts, kb.v.alerts], [[], []], 'no posts or alerts are kept');
-  assert.doesNotMatch(keptBoard, /"(cmd|text|purpose|reason)":"[^"]/, 'no words anyone wrote are kept');
+  // Nothing from the board stays in the browser: it's end to end.
+  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('dibs-board'))), []);
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 30e3 });
-  await until(() => page.evaluate(() => dibsTransport.state.state === 'ready' && !document.querySelector('#app.stale')), 30e3, 'a live board after reload');
-  step('a reload draws the kept board\'s shape at once (no posts, purposes or commands), then opens a fresh session from the stored keys, no link needed');
+  await until(() => page.evaluate(() => dibsTransport.state.state === 'ready' && !document.querySelector('#eyebrow.busy')), 30e3, 'the board after reload');
+  step('nothing from the board is kept in the browser; a reload opens a fresh session from the stored keys, no link needed');
 
   // A tab holding this browser's real token is let in; once the Mac goes, it's closed after the
   // grace even while it keeps sending.
@@ -346,8 +341,7 @@ async function main() {
   await page.reload();
   await until(() => page.evaluate(() => dibsTransport.state.state === 'unpaired'), 30e3, 'the revoked page to be refused');
   assert.equal(await page.isVisible('#signin'), true);
-  assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('dibs-board:')).length), 0, 'the kept board goes with the pairing');
-  step('after dibs pair --revoke all the page is refused, shows how to pair again, and the kept board is gone');
+  step('after dibs pair --revoke all the page is refused and shows how to pair again');
 
   // Remote MCP through mcp.dibs.cc (mcp.localhost here): off by default, then the whole sign-in.
   const B = `http://${MCP_HOST}/${mid}`;
