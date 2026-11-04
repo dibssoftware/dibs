@@ -397,7 +397,10 @@ export function memUsed(s, of = memOf) {
 // The leases taking the most memory, biggest first, for a memory wait to name.
 // asked: what it asked for (--mem or its resource's default); use: what its
 // last measurement found, or null before the first.
-export const memHolders = (s, n = 3) => s.leases.filter(l => memOf(l) > 0 && !coverOf(s, l)).sort((a, b) => memOf(b) - memOf(a)).slice(0, n)
+// Ranked by what each one was measured using, where there's a measurement: on 2026-11-03 an
+// 11 GB booking using 0.1 GB took the blame for a pressure wait it wasn't causing.
+const blame = l => l.use?.mem ?? memOf(l);
+export const memHolders = (s, n = 3) => s.leases.filter(l => memOf(l) > 0 && !coverOf(s, l)).sort((a, b) => blame(b) - blame(a)).slice(0, n)
   .map(l => ({ id: l.id, who: l.agent || l.who, label: l.label, purpose: l.purpose || '', mem: memOf(l), asked: l.asked ?? l.mem ?? 0, use: l.use?.mem ?? null, idleSince: l.idleSince || null }));
 
 // Memory the OS says is free right now, in bytes, or null.
@@ -493,7 +496,9 @@ function overBudget(s, q, cfg, strict = false, noSwap = false, t = now()) {
   // growing, the job plus a reserve free): it starts. Booking keeps a job's peak
   // for minutes after it falls; on 2026-10-20 twenty jobs waited "blocked by
   // memory" with 8.6 GB free and 1 of 10 cores busy.
-  const fitsUse = () => memUsed(s, usedNow) + swap + q.mem <= budget && realRoom(q, cfg, m);
+  // A light job can't make the paging worse, so only critical pressure takes the room away from it (as for the swap gate).
+  const room = () => ((q.mem || 0) <= LIGHT_MEM && !(m.vmPressure >= 2)) || realRoom(q, cfg, m);
+  const fitsUse = () => memUsed(s, usedNow) + swap + q.mem <= budget && room();
   if (mem + q.mem > budget && !fitsUse())
     return { rule: 'memory', used: mem, of: budget, need: q.mem, ...(swap && { swap }),
              why: `memory budget: ${gb(mem)} of ${gb(budget)} handed out or in use${swap ? ` (${gb(swap)} of it swap that grew in the last 5 min)` : ''}, you need ${gb(q.mem)}` };
@@ -501,7 +506,7 @@ function overBudget(s, q, cfg, strict = false, noSwap = false, t = now()) {
   // what they asked for. One of them may still grow into its ask, so the room
   // must be real: memory pressure normal, swap still, and the job plus a
   // reserve free on the machine.
-  if (memUsed(s, plannedOf) + swap + q.mem > budget && !realRoom(q, cfg, m))
+  if (memUsed(s, plannedOf) + swap + q.mem > budget && !room())
     return { rule: 'memory', used: mem, of: budget, need: q.mem, pressure: true, free: realFree(m), reserve: ROOM_RESERVE, high: m.vmPressure >= 1, growing: swapGrowing(m),
              why: `memory: running jobs ask for more than they use, but the machine doesn't have the room to show for it (${realFree(m) == null ? 'free memory unknown' : `${gb(realFree(m))} free`}${m.vmPressure >= 1 ? ', memory pressure high' : ''}${swapGrowing(m) ? ', swap growing' : ''}), you need ${gb(q.mem)} plus ${gb(ROOM_RESERVE)} to spare` };
   // Within the budget, the machine must still have it: what's really available
@@ -730,6 +735,14 @@ const INSTANT = 15e3;
 // (2 GB for a test run) doesn't book it past the budget. Critical pressure and
 // the disk floor still do. On 2026-10-23 a 70 ms node --test of one file waited
 // minutes on "memory pressure high" behind a 4 GB Docker build.
+// Light by its own runs: the last ten measured at LIGHT_MEM or less, at least LIGHT_RUNS of them,
+// whatever it asked for. On 2026-11-03 a deploy that asked for 6 GB and used under 0.5 GB waited on
+// memory pressure that an 11 GB Xcode booking using 0.1 GB was blamed for.
+const LIGHT_RUNS = 3;
+export function measuredLight(me, hist) {
+  const runs = runsOf(hist, me.key).slice(-10).filter(h => h.mem != null);
+  return runs.length >= LIGHT_RUNS && runs.every(h => h.mem <= LIGHT_MEM);
+}
 export function featherweight(me, hist) {
   const d = typical(hist, me.key) ?? (me.declared ? null : me.est);
   if (d == null || d >= INSTANT) return false;
@@ -867,7 +880,7 @@ function decide(s, me, cfg, hist, t) {
   const quick = !!(me.quickPass ?? quickPass(me, hist, cfg)) && s.leases.filter(l => l.quick).length < QUICK_MAX;
   // A quick job dibs hasn't seen use much memory is booked small, as a featherweight is.
   const lightQuick = quick && !me.declared && runsOf(hist, me.key).slice(-10).every(h => h.mem == null || h.mem <= LIGHT_MEM);
-  if ((me.mem || 0) > LIGHT_MEM && (featherweight(me, hist) || lightQuick)) me = { ...me, mem: LIGHT_MEM, feather: true };
+  if ((me.mem || 0) > LIGHT_MEM && (featherweight(me, hist) || lightQuick || measuredLight(me, hist))) me = { ...me, mem: LIGHT_MEM, feather: true };
   const myRank = rank(me, hist, t);
   // When it would be done, at its slow runs: passing a waiter is a promise not to delay it.
   const myEnd = t + Math.max(expected(me, hist), slow(hist, me.key) || 0);
@@ -989,6 +1002,10 @@ function decide(s, me, cfg, hist, t) {
   // Held only by swap growth, the budget is a machine gate like swap itself: the stall breaker may pass it.
   const swapOnly = budget?.swap && !overBudget(s, me, cfg, side.length > 0, true);
   if (swapOnly && breaksStall(s, me, cfg, hist, t, m)) { budget = null; breaker = true; }
+  // A quick job booked as a featherweight is done before the budget it would pass means
+  // anything; the machine's own pressure still holds it at critical. On 2026-11-03 a
+  // test whose last run took 14.9 s at 95 MB waited 29 minutes on the budget, then ran in 0.8 s (#18336).
+  if (budget && quick && me.feather) budget = null;
   if (budget) return { ok: false, ...budget, ...(swapOnly && { machine: true }) };
   if (me.mem >= BIG_JOB && m.memFree < cfg.minFreeMem && s.leases.some(working) && !breaker)
     return { ok: false, rule: 'ram', why: `machine memory: ${m.memFree}% free, big jobs need ${cfg.minFreeMem}%` };
