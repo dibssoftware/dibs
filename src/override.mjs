@@ -23,7 +23,7 @@ import { ownerPause, pauseLabel } from './preempt.mjs';
 import { PRIORITIES, BACKGROUND, NEEDS_REASON, priority, byRank } from './schedule.mjs';
 import { actor } from './owner.mjs';
 import { event } from './events.mjs';
-import { die, now } from './util.mjs';
+import { die, now, say } from './util.mjs';
 import { takeAgent, callKey } from './files.mjs';
 import { quoted } from './style.mjs';
 
@@ -142,9 +142,16 @@ function requeue(l, from) {
 export function boost(args) {
   const who = actor();
   const me = caller('boost');
-  const { words: [target, p], reason, owner } = argsOf('boost', args);
-  if (!target || !p) die(`Use: ${USAGE.boost}. ${IDS}`);
-  const prio = prioArg('boost', p);
+  const parsed = argsOf('boost', args);
+  let { words: [target, p] } = parsed;
+  const { reason, owner } = parsed;
+  // The priority before the id (dibs boost high 17727) reads the same.
+  if (target && p && !/^\d+$/.test(target) && PRIORITIES.includes(target) && /^\d+$/.test(p)) [target, p] = [p, target];
+  if (!target) die(`boost which job? Use: ${USAGE.boost}. ${IDS}`);
+  // A boost with a reason and no priority means move it up (2026-11-03: dibs boost 17727 --owner x -m "..." was a usage error).
+  if (!p && reason) say(`no priority given, so #${target} goes to high`);
+  else if (!p) die(`boost ${target} to what? Name a priority: dibs boost ${target} high -m "why" (or ${PRIORITIES.join(', ')}). Nothing changed.`);
+  const prio = prioArg('boost', p || 'high');
   // Everyone sees an agent's high or urgent, and why, as they do on dibs run -p.
   if (who.agent && NEEDS_REASON.has(prio) && !reason) die(`${prio} needs a reason everyone can see: dibs boost ${target} ${prio} -m "why". Nothing changed.`);
   const hist = history();

@@ -361,3 +361,23 @@ test('two agents of one session are told apart by their label: one crew member i
   assert.equal(asAgent(h, 'crew', ['stop', id], { DIBS_AS: 'fix-a' }).code, 0, 'its own');
   await job.done;
 });
+
+// alex-3b, 2026-11-03: `dibs boost 17727 --owner X -m "..."` was a usage error, the priority being positional.
+test('dibs boost takes its words in any order, a reason with no priority means high, and none at all says what is missing', async t => {
+  const h = home(t);
+  blocker(t, h);
+  await until(() => held(h, 'first'));
+  bg(t, h, ['run', 't', '-p', 'low', '--', 'true'], { agent: 'slow' });
+  await until(() => waiter(h, 'slow'));
+  const id = String(waiter(h, 'slow').id);
+
+  const bare = owner(h, ['boost', id]);
+  assert.equal(bare.code, 2);
+  assert.match(bare.err, /boost \d+ to what\? Name a priority: dibs boost \d+ high -m "why"/);
+  const r = owner(h, ['boost', '-m', 'the person is waiting on it', id]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /no priority given, so #\d+ goes to high/);
+  assert.equal(waiter(h, 'slow').prio, 'high');
+  assert.equal(owner(h, ['boost', 'normal', id]).code, 0, 'the priority first reads the same');
+  assert.equal(waiter(h, 'slow').prio, 'normal');
+});
