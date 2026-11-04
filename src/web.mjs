@@ -490,7 +490,7 @@ function historyOf(since, b, t = now()) {
 // local-only: telling an agent something or answering its question arrives as "Message
 // from the person", which agents act on, shell commands included; the hook edits
 // ~/.claude/settings.json; the hours decide when the person gets asked.
-const REMOTE_READ = new Set(['/api/board', '/api/questions', '/api/threads', '/api/later', '/api/history', '/api/stats', '/api/settings', '/api/machines']);
+const REMOTE_READ = new Set(['/api/board', '/api/posts', '/api/questions', '/api/threads', '/api/later', '/api/history', '/api/stats', '/api/settings', '/api/machines']);
 // Only for a device paired with --allow-actions.
 const REMOTE_ACT = [/^\/api\/jobs\/[^/]+\/(boost|pause|resume|stop)$/, /^\/api\/cap$/, /^\/api\/pace$/, /^\/api\/later\/[^/]+\/cancel$/];
 // null when a remote device may make this call, else 'look' (it needs --allow-actions) or 'local' (never remotely).
@@ -529,8 +529,13 @@ export async function api({ method = 'GET', path: where = '/', body = null, sess
         const b = await board();
         const t = now();
         const posts = readPosts({ since: t - DAY, limit: POSTS_SHOWN }).map(shown);
+        // ?posts=0: the day's posts (most of the board's bytes) stay apart, at GET /api/posts, for
+        // the one view that lists them; the agents still carry each one's tasks and last post.
+        // The page's first paint through the relay waits on a third of the bytes.
+        if (q.get('posts') === '0') return ok({ ...b, agents: people(b, posts), posts: [], postsApart: true, now: t });
         return ok({ ...b, agents: people(b, posts), posts, now: t });
       }
+      if (route === '/api/posts') return ok(readPosts({ since: now() - DAY, limit: POSTS_SHOWN }).map(shown));
       if (route === '/api/questions') return ok(scrub(fresh('questions', () => questionsJson(loadConfig()))));
       if (route === '/api/threads') {
         const j = fresh('threads', () => threadsJson());

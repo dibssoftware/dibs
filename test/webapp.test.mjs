@@ -292,6 +292,19 @@ test('the page reads what the CLI reads, in its own process: the board, question
   assert.equal(s.hook.installed, cli(['guard', 'status', '--json']).installed);
 });
 
+test('the board can leave the posts apart for the Progress view: ?posts=0 carries none, /api/posts has them, and the agents are the same', async t => {
+  const w = await server(t);
+  sync(w.home, ['progress', 'apart from the board', '--task', 'split'], { agent: 'a1' });
+  await until(async () => (await w.get('/api/board')).json.posts.length === 1);
+  const whole = (await w.get('/api/board')).json, apart = (await w.get('/api/board?posts=0')).json;
+  assert.deepEqual([apart.posts, apart.postsApart, whole.postsApart], [[], true, undefined]);
+  assert.deepEqual(apart.agents, whole.agents, 'each agent still has its tasks and last post');
+  assert.deepEqual((await w.get('/api/posts')).json, whole.posts);
+  assert.equal((await w.get('/api/posts', {})).status, 401, 'signed in only');
+  const { remoteAccess } = await import('../src/web.mjs');
+  assert.equal(remoteAccess('GET', '/api/posts', false), null, 'a look-only paired browser may read them');
+});
+
 // 2026-11-02: once, /api/threads answered 502, which reads as a proxy failing and names nothing to do.
 test('a read the page can\'t do answers 500 with what went wrong, a busy lock 503 with a time to retry, and the next read after the fix works', async t => {
   const w = await server(t);

@@ -86,6 +86,7 @@
   function needs(v) {
     if (v === 'now' || v === 'schedule') return [[TODAY, REPORT_MS]];
     if (v === 'questions') return [['/api/questions', FRESH_MS]];
+    if (v === 'progress') return data?.postsApart ? [['/api/posts', FRESH_MS]] : [];
     if (v === 'messages') return [['/api/threads', FRESH_MS]];
     if (v === 'later') return [['/api/later', FRESH_MS]];
     if (v === 'machines') return [['/api/machines', FRESH_MS], ...(T.remote ? [] : [['/api/machines/pairs', FRESH_MS]])];
@@ -107,6 +108,7 @@
   const prefetch = v => { if (VIEWS.includes(v) && signedIn()) needs(v).forEach(([path, age]) => pull(path, age).catch(() => {})); };
   const side = {
     get questions() { return kept('/api/questions'); },
+    get posts() { return data?.postsApart ? kept('/api/posts') : data?.posts; },
     get threads() { return kept('/api/threads'); },
     get later() { return kept('/api/later'); },
     get machines() { return kept('/api/machines'); },
@@ -216,7 +218,9 @@
     clearTimeout(timer);
     try {
       if (!signedIn()) return signin(true);
-      data = await get('/api/board');
+      // The posts come apart from the board (src/web.mjs), for the Progress view alone; a Mac from
+      // before that ignores ?posts=0 and sends them in the board, as it always did.
+      data = await get('/api/board?posts=0');
       signin(false);
       render();
       refresh();
@@ -854,7 +858,7 @@
         const when = taskWhen(k, now);
         if (when) top.append(el('span', `trow-when${taskLate(k, now) ? ' late' : ''}`, when));
         row.append(top, el('p', `trow-text${k.state === 'done' || k.state === 'expired' ? ' done' : ''}`, k.text));
-        const earlier = data.posts.filter(p => p.who === a.who && (p.task || null) === (k.task || null) && (k.task || p.project === k.project)).sort((x, y) => y.at - x.at).slice(1);
+        const earlier = (side.posts || []).filter(p => p.who === a.who && (p.task || null) === (k.task || null) && (k.task || p.project === k.project)).sort((x, y) => y.at - x.at).slice(1);
         if (earlier.length) {
           const key = `${a.who}\0${k.task || k.project}`;
           const d = el('details', 'earlier');
@@ -869,7 +873,8 @@
       block.append(head, card);
       out.push(block);
     }
-    const posts = data.posts.filter(p => !chosen || p.who === chosen).reverse();
+    const posts = (side.posts || []).filter(p => !chosen || p.who === chosen).reverse();
+    if (!side.posts) out.push(loading('Loading the latest posts'));
     if (posts.length) {
       const feedBox = el('ol', 'feed');
       out.push(section('Latest posts', `${plural(posts.length, 'post')} in the last day`, feedBox));
