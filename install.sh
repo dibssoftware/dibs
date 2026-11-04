@@ -169,7 +169,7 @@ say "  dibs guard install"
 say "or as a Claude Code plugin, in a session:"
 say "  /plugin marketplace add dibssoftware/dibs"
 say "  /plugin install dibs@dibs"
-say "Then tell your agents about dibs (see the README's \"Tell your agents\" section)."
+say "To paste the rules your agents read into another instructions file: https://github.com/dibssoftware/dibs/blob/main/docs/reference.md"
 }
 
 main "$@"

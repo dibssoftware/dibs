@@ -3,15 +3,45 @@
   "version": "0.0.178",
   "description": "Coding agents on one machine take turns on the simulator, Xcode builds, test suites, browser runs and deploys",
   "type": "module",
-  "bin": { "dibs": "bin/dibs.mjs" },
-  "files": ["bin/", "src/", "docs/", "skills/", "CHANGELOG.md", "README.md", "LICENSE"],
-  "engines": { "node": ">=22.23.4" },
-  "os": ["darwin", "linux", "win32"],
+  "bin": {
+    "dibs": "bin/dibs.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/",
+    "!docs/images/",
+    "skills/",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
   "author": "dibs maintainers <licensing@dibs.cc>",
   "homepage": "https://dibs.cc",
-  "repository": { "type": "git", "url": "git+https://github.com/dibssoftware/dibs.git" },
-  "bugs": { "url": "https://github.com/dibssoftware/dibs/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dibssoftware/dibs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dibssoftware/dibs/issues"
+  },
   "license": "AGPL-3.0-only",
-  "keywords": ["simulator", "xcode", "queue", "parallel-agents", "claude-code"],
-  "publishConfig": { "access": "public" }
+  "keywords": [
+    "simulator",
+    "xcode",
+    "queue",
+    "parallel-agents",
+    "claude-code"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

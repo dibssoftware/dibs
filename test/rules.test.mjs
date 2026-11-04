@@ -1,5 +1,5 @@
 // The rules every agent gets first come from one place, src/primer.mjs: the
-// session primer, the top of the dibs skill and README's "Tell your agents" carry
+// session primer, the top of the dibs skill and docs/reference.md's "Tell your agents" carry
 // the same words. If this fails, run: node -e "import('./src/primer.mjs').then(m => m.writeRules())"
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +11,7 @@ import { dibsMd } from '../src/notes.mjs';
 
 const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
 
-test('the skill and the README carry the primer\'s rules word for word', () => {
+test('the skill and docs/reference.md carry the primer\'s rules word for word', () => {
   for (const [f, make] of Object.entries(DOCS)) assert.ok(fs.readFileSync(path.join(ROOT, f), 'utf8').includes(marked(make())), `${f} is out of date with src/primer.mjs`);
 });
 

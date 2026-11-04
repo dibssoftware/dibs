@@ -45,6 +45,10 @@ DIST="${DIBS_DIST:-app/dist}"
 [ -z "$(git status --porcelain)" ] || fail "the checkout has uncommitted changes, so the tarball wouldn't match the tag. Commit or stash first."
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "$TAG^{commit}" 2>/dev/null)" ] || fail "HEAD isn't the tag $TAG. Tag the release (git tag $TAG) or check it out first."
 grep -q "^DEFAULT_VERSION=\"$TAG\"$" install.sh || fail "install.sh's DEFAULT_VERSION isn't $TAG"
+# Everything public is written as the project, never as a person's own address.
+prev=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+others=$(git log --format='%an <%ae>%n%cn <%ce>' ${prev:+"$prev.."}"$TAG" | sort -u | grep -vx 'dibs maintainers <licensing@dibs.cc>' || true)
+[ -z "$others" ] || fail "commits since ${prev:-the start} are by someone other than dibs maintainers <licensing@dibs.cc>: $others"
 command -v cf >/dev/null 2>&1 || fail "needs the cf CLI, logged in to the account that owns $BUCKET"
 
 out=$(mktemp -d)

@@ -161,7 +161,7 @@ test('when, who and why answer without joining the line', async t => {
 test('ask records a request, answers from the docs it can, and points at a maintainer only where there is one', t => {
   const h = tmp(t);
   const stranger = sync(h, 'a', ['ask', 'what', 'does', 'exit', '74', 'mean']).out;
-  assert.match(stranger, /^From the docs:\n[\s\S]*(README\.md|skills\/dibs\/SKILL\.md) \(Exit codes\):\n {4}\| 74 \| not enough free disk/, 'the table row that answers it, not the table\'s start');
+  assert.match(stranger, /^From the docs:\n[\s\S]*(docs\/reference\.md|skills\/dibs\/SKILL\.md) \(Exit codes\):\n {4}\| 74 \| not enough free disk/, 'the table row that answers it, not the table\'s start');
   assert.match(stranger, /If that doesn't answer it, or it's a bug, open an issue: https:\/\/github\.com\/dibssoftware\/dibs\/issues$/m);
   assert.doesNotMatch(stranger, /SendMessage|maintainer/, 'nobody maintains dibs on this machine');
   assert.match(sync(h, 'a', ['ask', 'please', 'add', 'gpu']).out, /^Nothing in the docs matched\. If it's a bug or something dibs should do, open an issue: https:/);

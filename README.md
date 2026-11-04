@@ -1,223 +1,81 @@
 # dibs
 
-Three coding agents, one Mac, one simulator. One installs its build over the app another is tapping through. A third starts a fourth `xcodebuild`, memory runs out, and the simulator crashes for all of them.
+Air traffic control for your coding agents.
 
-dibs makes agents take turns on the things that exist once on your machine: the simulator, Xcode builds, test suites, browser runs, deploys. Everything else still runs in parallel.
+You run several AI coding agents at once (Claude Code, Codex, Cursor, Gemini CLI) on one computer. They don't know about each other. One reinstalls an app in the iPhone simulator while another is halfway through testing it, and four builds at once run the machine out of memory. dibs makes them take turns on the things only one of them can use at a time, lets them message each other and you, and only asks you the questions that can't be undone.
 
-```bash
-dibs run sim -m "checkout flow" -- ./ui-test.sh       # waits for the simulator, runs, frees it on exit
-dibs run sim-own -- sh -c 'xcodebuild test -scheme App -destination "id=$SIM"'   # a private simulator per agent
-dibs run xcode-build --est 3m -- xcodebuild -scheme App build
-dibs run test -- npm test
-dibs                                                  # the board: who has what, who's next
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dibs-page-dark.png">
+  <img alt="The dibs page: every agent's running and waiting jobs, their progress posts, and what needs you" src="https://raw.githubusercontent.com/dibssoftware/dibs/main/docs/images/dibs-page.png">
+</picture>
 
-```
-2 running, 1 waiting. Next up: api-refactor for the simulator, as soon as ios-checkout finishes.
-
-Simulator      ios-checkout has reserved it, up to 15 min left
-               Next: api-refactor
-Xcode builds   web-app is building, about 1 min left
-Free           Private simulators, Browser tests, Test runs, Deploys, Heavy jobs
-
-This machine   quiet: 42% of memory free, 31 GB of disk free
-```
-
-`dibs --detail` is the full table, with ids, priorities and the numbers dibs decides by. `dibs --json` carries both, with a sentence for every row (the Mac app shows those).
-
-A turn lasts exactly as long as the command. When it exits, crashes or gets `kill -9`'d, its whole process tree is killed and the next agent goes. After a `kill -9` that takes a second or two: a small watcher dibs leaves behind does it. No timeouts to tune, no stale locks.
-
-**Install** (macOS; Node 22.23.4, 24.22.1, 26.12.1 or newer; no dependencies, no daemon):
+## Install
 
 ```bash
-curl -fsSL https://dibs.cc/install.sh | sh
+curl -fsSL https://dibs.cc/install.sh | sh    # or: npm i -g @dibssoftware/dibs
+dibs guard install                            # Claude Code agents use dibs without being told
 ```
 
-It downloads the release tarball from dibs.cc, checks its sha256, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. No sudo. If anything fails, it says what and exits nonzero, having installed nothing. Each release's tarball and sum are at `https://dibs.cc/releases/dibs-v<version>.tar.gz` and `.tar.gz.sha256`.
+macOS and Linux, with Node 22.23.4 or newer. No sudo and no dependencies. The install also tells your agents dibs is there: it writes their instructions to `~/.dibs-cli/dibs.md` and adds a short note pointing at it to `~/.claude/CLAUDE.md` and Codex's `AGENTS.md`.
 
-It also tells your agents dibs is there. It writes `~/.dibs-cli/dibs.md`, the agent instructions (the plugin's skill, for this version), and adds a short marked note pointing at it to `~/.claude/CLAUDE.md`, to `~/.codex/AGENTS.md` if you use Codex, and to the `CLAUDE.md` and `AGENTS.md` of the git repo you ran it in, if those exist. The note sits between `<!-- dibs:start -->` and `<!-- dibs:end -->`; every upgrade rewrites only those lines and dibs.md, and the rest of each file stays as it was. `dibs init` does the same by hand (`--repo` also makes this repo's `CLAUDE.md` if it has none), `dibs init --remove` takes it all out, and `DIBS_NO_AGENT_NOTES=1` before the install line skips it.
+## What your agents do with it
 
-Or a pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.178/install.sh | sh`. Or clone the repo and run `DIBS_SOURCE=<the clone> sh install.sh`.
-
-**Make agents use it.** Agents forget to wrap commands, so add the guard hook. From Terminal:
+An agent puts `dibs run` in front of anything that would collide. It waits for its turn and hands it on the moment the command ends, however it ends. Everything else still runs at once.
 
 ```bash
-dibs guard install
+dibs run test -- npm test                      # wait for a turn at the test runner, then run the tests
+dibs run sim -- ./ui-test.sh                   # the iPhone simulator, one agent at a time
+dibs                                           # the board: who has what, who's next, how much memory is left
+dibs tell web-app "use the staging database"   # a message that reaches that agent on its next step
+dibs question "Ship build 123?" --options yes,no --recommend yes --one-way "testers get it at once"
 ```
 
-Or as a plugin, in a Claude Code session (Codex reads the same plugin; [docs/guard.md](docs/guard.md) has its commands):
+The last line is the only kind of question that reaches you. Agents decide anything that can be undone themselves, and dibs keeps a record of who did what.
 
-```
-/plugin marketplace add dibssoftware/dibs
-/plugin install dibs@dibs
-```
+With `dibs guard install`, an agent that forgets gets turned away with the exact `dibs run` line to use instead. Nothing is approved on your behalf.
 
-The guard rewrites a bare `xcodebuild` or `npm test` into `dibs run ...` only in bypass-permissions sessions, where the agent already runs everything without asking. In every other session it blocks the command and tells the agent the exact `dibs run` line to use, so the retry goes through your normal permission prompt. It never approves anything for you, and if it can't parse a command or hits an error, it lets the command through. The same hook turns away edits to files another agent has leased, starts each new session and subagent with a few lines on how to use dibs, and hands each agent your messages and dibs's notices about its own jobs (one looks stuck, used far more memory than it asked for, or was paused) on its next tool call. If you set `agents.slots` in `~/.dibs/config.json`, it also caps how many subagents run at once across every session; there's no cap until you do. Details: [docs/guard.md](docs/guard.md).
+## What you get
 
-If you run one agent at a time, you don't need this.
+- **The board.** Plain `dibs` says who has what and who's next, in sentences.
+- **A page for you.** Every agent's jobs, progress posts, questions and alerts, live, at `http://127.0.0.1:7421` (`dibs web`). You can move a job up, pause, resume or stop it from there.
+- **On your phone.** `dibs connect` opens the same page on a phone or any browser, end to end encrypted, or through a dibs account that sees all your machines.
+- **Messages.** One thread per agent. You write to an agent and it reads it on its next step; agents write to each other the same way. `dibs listen` wakes an idle agent the moment a message arrives.
+- **Questions only when it can't be undone.** An agent asks with its recommendation and keeps working. You answer from the page, the Mac app or the terminal.
+- **Alerts with the fix.** When something goes wrong (a long wait, a stuck job, memory holding work back, a full disk), dibs says what and the one thing to do about it.
+- **Your own Claude can see it.** The page is also an MCP server, so you can ask Claude "what are my agents doing?".
+- **More than one machine.** Add another computer with `dibs connect --machine`, and agents send work to whichever machine is free.
+- **A Mac app.** The board in your menu bar: [dibs.cc/mac](https://dibs.cc/mac).
 
-**Upgrade** by running the install line again. It swaps `~/.dibs-cli` in one step, and your queue and settings in `~/.dibs` stay. Then `dibs guard install` again, from Terminal, so the hook has every event the new version listens to. A plugin install updates with `claude plugin update dibs@dibs` in Terminal, or in Claude Code from `/plugin`, Installed, dibs, Update now. Run `/reload-plugins` to load it in a session that's already open.
+## Learn more
 
-**Uninstall**, from Terminal:
+- [dibs.cc](https://dibs.cc)
+- [docs/reference.md](docs/reference.md): every command, the rules to paste into your agents' instructions, exit codes, settings
+- [docs/](docs/): how turns are decided, the guard, questions, scheduled runs, private simulators, file locks, more machines, the relay
+
+## Details
+
+**Install.** `install.sh` downloads the release from dibs.cc and checks its sha256 before installing anything, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and installs nothing. Each release is at `https://dibs.cc/releases/dibs-v<version>.tar.gz`, with its `.sha256` beside it. A pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.179/install.sh | sh`. From a clone: `DIBS_SOURCE=<the clone> sh install.sh`.
+
+**Node.** 22.23.4, 24.22.1, 26.12.1 or newer. Older builds of those lines have the Brotli decoder hole (CVE-2026-111497), and dibs's services refuse to install on them.
+
+**Your agents' notes.** The install writes `~/.dibs-cli/dibs.md` (the agent instructions for this version) and a short marked note pointing at it to `~/.claude/CLAUDE.md`, to `~/.codex/AGENTS.md` if you use Codex, and to the `CLAUDE.md` and `AGENTS.md` of the git repo you ran it in, if those exist. The note sits between `<!-- dibs:start -->` and `<!-- dibs:end -->`, and an upgrade rewrites only those lines. `dibs init` does it by hand (`--repo` also makes this repo's `CLAUDE.md`), `dibs init --remove` takes it out, and `DIBS_NO_AGENT_NOTES=1` before the install line skips it.
+
+**The Claude Code plugin.** Instead of `dibs guard install`, in a Claude Code session: `/plugin marketplace add dibssoftware/dibs`, then `/plugin install dibs@dibs`. Codex reads the same plugin ([docs/guard.md](docs/guard.md)).
+
+**Upgrade** by running the install line again (or `npm i -g @dibssoftware/dibs`), then `dibs guard install` again. Your queue and settings in `~/.dibs` stay.
+
+**Uninstall:**
 
 ```bash
-dibs init --remove                             # dibs.md, and the dibs note in CLAUDE.md and AGENTS.md
-dibs guard remove                              # or claude plugin uninstall dibs@dibs for a plugin install
-dibs service remove serve worker throttle      # only if you installed services
-rm -rf ~/.dibs-cli ~/.local/bin/dibs ~/.dibs   # ~/.dibs is the queue, history and settings
+dibs init --remove                               # dibs.md, and the dibs note in CLAUDE.md and AGENTS.md
+dibs guard remove
+dibs service remove serve worker throttle web    # only the ones you installed
+rm -rf ~/.dibs-cli ~/.local/bin/dibs ~/.dibs     # ~/.dibs is the queue, history and settings
 ```
 
-## Tell your agents
+**Words dibs uses.** A *resource* is something agents take turns on: `test`, `sim`, `xcode-build`, `playwright`, `deploy`, `heavy`, or a name you make up. A *turn* lasts exactly as long as the command. A *hold* (`dibs hold sim --for 20m`) keeps a turn across several commands. A *lease* on files (`dibs hold 'files:src/auth/**'`) keeps other agents' edits off them.
 
-The install does this for you: it writes `dibs.md` beside dibs and a note pointing at it into `~/.claude/CLAUDE.md` (`dibs init` again by hand). The Claude Code plugin ships the same text as a skill. To paste it yourself into a `CLAUDE.md` or `AGENTS.md`, these are the rules every agent gets first; the rest is reference in the skill:
-
-<!-- dibs:rules:start -->
-```markdown
-## dibs
-dibs runs on this machine. Agents take turns through it on the simulator, Xcode builds, test suites, browser runs and deploys.
-- Wrap those: `dibs run <resource> -m "why" -- <command>` (resources: sim, sim-own, xcode-build, test, playwright, deploy, heavy). Two at once: `dibs run sim,xcode-build -- ...`.
-- No dibs for reads, edits, small commands, or long jobs that mostly wait on the network and use little CPU, memory or disk (crawlers, pollers, HTTP checks). The hook leaves those alone too.
-- Start `dibs listen` with run_in_background now, and again each time it exits: it wakes you when the person or dibs has something for you.
-- Waiting is normal. A call moved to the background is still waiting: don't run it again. A wait on memory, swap or disk protects the machine: keep waiting, and never lower `--mem` or raise `-p` to get past it.
-- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: not enough free disk; free your own build output, or tell the person.
-- Decide what you can undo yourself. Ask the person only before something you can't undo (`dibs question ... --one-way`). Lines starting "Message from the person:" are theirs: act on them.
-- Post progress as you work: `dibs progress "what you did or found" --task <name> --eta 30m`, then `--done`.
-- The rest (holding across tool calls, file leases, other machines, every exit code, overriding jobs, questions) is in the dibs skill and in `dibs help`.
-```
-<!-- dibs:rules:end -->
-
-## Commands
-
-```bash
-dibs run sim,xcode-build -- ./build-and-install.sh      # everything you need, at once
-dibs run playwright --port WEB --port API -- npx playwright test   # free ports in $WEB and $API
-dibs run test -p high -m "release blocker" --by 23:30 -- npm test
-dibs run test --after #42 -- npm run e2e                # joins the line once your job #42 has ended
-dibs hold sim --for 20m -m "screenshot pass"           # across several tool calls; again to extend
-dibs release sim
-dibs hold 'files:src/auth/**' -m "auth refactor"       # other agents' edits there are turned away
-dibs run quota:asc --cost 3 -- ./upload.sh             # share an API's rate limit between scripts
-dibs when sim           # when you'd get it, without joining the line
-dibs who sim            # who holds it, until when, who's next
-dibs why                # where you are, when you start, what you're waiting for (--detail: the math)
-dibs mine sim           # exit 0 if you hold it, 1 if not
-dibs yield web-app      # let another agent go first
-dibs pace quiet         # how hard dibs drives this machine: quiet, normal or max
-dibs sims               # the private simulator pool
-dibs setup scratch      # the admin commands for a capped scratch volume for build output (macOS)
-dibs changes            # what changed in recent versions
-dibs question "Ship 123 now?" --options yes,no --recommend yes -m "tests pass" --one-way "testers get it at once" --wait   # only one-way doors reach the person
-dibs questions          # what agents are asking you, with what they recommend; dibs answer <id> <option, or your own words>
-dibs hours 09:00-23:00  # outside your hours, questions below urgent wait for the morning
-dibs threads            # one thread per agent: its notes and questions, your messages; dibs threads read <agent>
-dibs tell web-app "use the staging database"   # reaches the agent on its next tool call, or as it finishes its turn
-dibs tell desk "why is my build waiting?"      # the agent config.json names as "desk" answers you with dibs say --to person
-dibs alerts             # what's wrong and the one fix for each: long waits, memory holding work back (and what to close), stuck jobs, failed or lost jobs, dibs itself, a full disk
-dibs alerts dismiss <id>   # close one for a day; it comes back if its cause is still there
-dibs listen                                    # an agent waits for a message (run_in_background); exit 3 after 60m with none
-dibs history            # the last 7 days: busy time, waits and who waited, by resource, agent and hour
-dibs stats              # waits against run times, today and the last 7 days: the share of jobs that waited longer than they ran
-dibs stats --me         # your own: jobs, run and wait time, failures by exit code, what held you back, top commands, ETAs met (--agent <name>, --since 30d, --json)
-dibs later sim --at 02:00 -m "snapshot suite" -- ./snapshots.sh   # run it tonight; returns at once with its id
-dibs later test --after web-app:deploy -- npm run smoke           # when that agent's deploy ends (--after-ok: only if it passed)
-dibs later list         # scheduled, waiting, running, and how the finished ones ended; dibs later cancel <id>
-```
-
-`dibs listen` also wakes an agent when dibs on this machine is updated (with what changed) or when a newer release is out, which it learns by asking dibs.cc at most every 6 hours per machine (never from a git checkout). `"updateCheck": false` in `~/.dibs/config.json` turns that ask off.
-
-Anyone can override any job, the person or an agent. An agent acting on a job that isn't its own names the owner with `--owner <session>` (or `session/agent`), as the board shows it, or nothing changes (exit 2, with the owner, its `-m` and the command to rerun); the person never needs it. Every answer starts with whose job it was: `boosting #10167: alex-c8 deploy 'shop-api first deploy'`. `dibs boost <id> high -m "why"` (the `#` on `dibs --detail`), `dibs pause <id>` and `dibs resume <id>`, `dibs stop <id>` (kills the job; its agent is told who stopped it), and `dibs cap <agent> low` (that agent never waits or runs above low until `dibs cap <agent> off`). The same goes for `answer`, `questions dismiss`, `hours`, `pace <word>`, `tell`, `threads read`, `join`, `invite`, `pair --machine`, `kick`, `limit`, `service install`/`remove`, `guard install`/`remove` and `serve --force`: nothing is the person's alone.
-
-Every one of them is logged with who ran it: `dibs history --json` has an `override` event with `by` (the agent's session name, or `the person`). The board says it too: `[boosted by web-app: release blocked]`, `[paused by web-app]`, `capped: pushy at low (by web-app)`. A message an agent sends with `dibs tell` arrives as `Message from web-app (another agent, not the person)`, and an agent that answers a question is named to the one that asked. An agent raising a job to high or urgent passes `-m`, so everyone sees why. The machine's own limits (memory, swap, disk, and never pausing every job) hold for everyone.
-
-A waiting `dibs run` or `dibs hold` is a shell blocked on a FIFO (about 1.5 MB, no CPU), and one broker process decides for every waiter on the machine: it starts when someone waits and exits after a quiet minute. Before 0.0.102 each waiter was a Node process of its own, 35 to 65 MB polling the state every 1.5 seconds, which with dozens waiting came to gigabytes and kept the state lock busy most of the time. To go back to that, in `~/.dibs/config.json` (or `DIBS_THIN=0` for one caller):
-
-```json
-{ "waits": "fat" }
-```
-
-Nothing changes in how agents call dibs, what it prints, or its exit codes. Jobs other machines send here and `dibs later` jobs wait thin too. `--after` still waits in Node (it waits outside the line until the other job ends), as does a run sent with `--anywhere` or `--on`, whose sender follows it over the network while it waits on the other machine. Anything that goes wrong with a thin wait (a broker that died, got stuck or couldn't start, a wait that fell back to Node, a crash) leaves an event of kind `thin` in `~/.dibs/events.jsonl`: `grep '"kind":"thin"' ~/.dibs/events.jsonl`.
-
-## Watching your agents: the page and MCP
-
-```bash
-dibs service install web     # or: dibs web    (http://127.0.0.1:7421)
-dibs pair                    # a one-time code, e.g. K7QM-4XNA: one use, 10 minutes
-```
-
-Open http://127.0.0.1:7421 and type the code. The rail on the left switches between views:
-
-- **Now**: alerts first: anything wrong, why, and the one fix, until it resolves (then when it did). Then every agent's running and waiting jobs on a timeline that spans only the time something is in, file locks, tasks with their ETAs, and every `dibs progress` post, live. Click a job to make it go first, give it back its normal place, let others go first, pause, resume or stop it (stop asks twice). Pick an agent to hold all its jobs back (`dibs cap`).
-- **Questions**: what agents asked you at one-way doors. Answer with an option or your own words, or say not now.
-- **Messages**: one thread per agent. What you send reaches the agent with its next tool call.
-- **Stats**: run and wait time by agent and by resource, how often jobs waited longer than they ran, failures by exit code, what held jobs back, top commands, ETAs met, a daily trend, a day-by-hour heatmap, and the machine's load, memory and disk over time. Agents get the same numbers from `dibs stats --me`.
-- **Scheduled**: `dibs later` runs coming up and ended this week; cancel one.
-- **History**: `dibs history` for the past day, week or 30 days, and every override with who made it.
-- **Settings**: the speed (`dibs pace`), your hours, and the Claude Code hook.
-
-Every change on the page runs the same CLI command you would, as you, so `dibs history` and the board name you, and the CLI's own rules apply. Changes need the page's sign-in; nothing else can make them.
-
-The same server is an MCP server at `http://127.0.0.1:7421/mcp`, so your own Claude can answer "what are my agents doing?". Add it to Claude Code with `claude mcp add --transport http dibs http://127.0.0.1:7421/mcp`; the client opens a sign-in page in your browser, and you type a code from `dibs pair`. With a plain `dibs pair` code it gets read-only tools: `board`, `agents`, `agent`, `progress`, `stats`, `questions`, `history`, `resource`, `machines` and `messages`. A code from `dibs pair --allow-actions` adds tools that act: post progress, answer questions, message agents and you, hold and release, and boost, pause, resume and stop jobs. It acts as an agent named after the client (`mcp-<name>`), never as you, so agents treat its messages as a peer's. A model reads text agents wrote, and text can steer a model, so give actions only to a client you'd trust with them. A code from `dibs pair --allow-commands` also lets a client signed in here (never through mcp.dibs.cc) queue commands to run on this Mac with `queue_run`, the way `dibs later` does. `dibs pair --list` shows what's signed in and `dibs pair --revoke <id|all>` signs it out.
-
-It answers only on 127.0.0.1 unless you pass `--bind <address>` (your Tailscale address, say), and only to requests that name that address, so a web page can't reach it by DNS rebinding. Codes and tokens are stored hashed in `~/.dibs/web.json`. After 10 wrong codes in 10 minutes every try is refused until the window passes; open codes stay good. To let claude.ai or another Claude account read your board, `dibs relay mcp on` serves it at `https://mcp.dibs.cc/mcp` through the relay (docs/relay.md).
-
-## Mac app
-
-`app/` builds a Mac app (macOS 26) over the same commands: the live board with boost, pause, stop and cap buttons, agents' questions to answer, the week's history, and the pace, in a window and the menu bar. It runs the `dibs` on your PATH and reads nothing else. A signed download will be at https://dibs.cc/mac/; until then, build it yourself. To build it yourself you need Xcode 26 and xcodegen (`brew install xcodegen`): [app/README.md](app/README.md) has the steps.
-
-Priority is `-p urgent|high|normal|low|idle`. `urgent` and `high` need `-m` and everyone sees them. `low` and `idle` run at background priority, and may be paused while urgent work borrows their slot. `--est 5m` tells dibs how long a new job takes, so short jobs can move up. A command that runs in under 15 seconds goes in the quick lane: wrap it with `--quick` (or `--est 10s`) and it starts at once, past the line and full slots, at most 2 at a time (on the simulator, or a deploy of the same repo, at the front of the line instead); dibs learns it after that, and takes the pass away from a run that goes over. `--by 23:30` moves you up as a deadline gets close.
-
-Agents show up by their Claude Code session name. Anywhere else, dibs names them after the folder they run in; set `DIBS_AGENT=name` to pick your own.
-
-## Exit codes
-
-Agents branch on these, so they don't change.
-
-| code | meaning |
-|---|---|
-| the command's own | it ran |
-| 75 | dibs stopped waiting in line. The command never started and did not fail. Run the same command again within 2 minutes to keep your place. For `dibs question --wait`: no answer (timed out or dismissed), nothing was decided |
-| 74 | not enough free disk, and nothing running would free it. Other sessions' `/private/tmp/claude-*` folders are off limits for making room |
-| 76 | lost the coordinator or the other machine before a remote job started. Nothing ran there: sending it again is safe |
-| 77 | lost the other machine after a remote job started. It may have run, or may still be running: check before running it again |
-| 127 | the command didn't start |
-| 2 | bad usage, a job asking more memory or cores than the machine ever hands out (it says the most it can ask), a resource name close to a real one (`simulator` for `sim`), an agent's high or urgent boost without `-m`, `--on` on a machine that isn't in a group, or a `dibs run` you already have waiting or running (wait for that one) |
-| 3 | `dibs listen` heard nothing in its time (`--for`, 60m by default). Run it again to keep listening |
-| 1 | nothing matched: `mine` with nothing held (the clean result after a release), `release` with nothing to give back |
-| 70 | dibs itself crashed: a bug in dibs, not your command. Report it with `dibs ask "..."`. If your command already ran, you get its code instead |
-
-Inside Claude Code, `dibs run` waits as long as it takes: when the tool call hits its timeout, Claude Code moves it to the background and tells the agent when it ends. Everywhere else (Codex, scripts, a terminal) dibs gives up after 8 minutes with exit 75, which fits a 10-minute tool call. `--wait` lifts the limit, `--max-wait 20m` sets your own.
-
-## Resources
-
-| name | slots | memory | cores | free disk | pausable |
-|---|---|---|---|---|---|
-| sim | 1 | 3G | 1 | 8G | no |
-| sim-own | 4 on 16 GB (RAM / 4G, at most 4), and only as many as free memory fits | 3G | 2 | 6G | no |
-| xcode-build | 2 | 4G | 4 | 4G | no |
-| playwright | 2 | 3G | 2 | 3G | yes |
-| test | 3 | 2G | 3 | | yes |
-| deploy | 1 per project (its repo's origin, or the folder outside git), up to 3 projects at once (`exclusiveBy: "repo"`, `across: 3`) | 0.5G | 1 | | no |
-| heavy | 1 | 4G | 4 | 10G | yes |
-| any other name | 1 | 1G | 1 | | no |
-| `files:<path or glob>` | one holder per path | 0 | 0 | | no |
-| `quota:<name>` | a token bucket from config | 0 | 0 | | no |
-
-A name close to a real one (`simulator`, `tests`, `xcode`) is refused with exit 2 and the right name, since two agents slipping differently would both get the real thing at once. A name of your own that looks like none of them starts a queue of its own.
-
-Running jobs share a budget of 8 GB and 6 cores while the machine is busy, so light jobs run side by side and heavy ones take turns. The cores count what running jobs are measured using, not what they asked for. dibs measures what each job really uses, failed and killed runs included, and plans the next run of the same command at that, when it's more than asked (a command it hasn't measured yet goes by the same program on the same resource, so a new Playwright spec starts at what the others used); `--mem` and `--cpu` say what you need up front. Override any of it in `~/.dibs/config.json`; you only need the keys you change. State lives in `~/.dibs`. A resource you make up can have a name people read on the board: `"resources": { "gpu": { "slots": 1, "label": "The GPU" } }` (a quota takes `"label"` too).
-
-## More
-
-- [docs/scheduling.md](docs/scheduling.md): how a turn is decided, what a lease guarantees, nested runs, measuring what jobs use, rate-limit quotas, pausing low-priority work, `dibs pace`, running jobs side by side, resetting a resource after each use, throttling
-- [docs/files.md](docs/files.md): file leases, and which edits the guard turns away
-- [docs/questions.md](docs/questions.md): agents queuing questions for the person, `--wait`, working hours
-- [app/README.md](app/README.md): the Mac app
-- [docs/simulators.md](docs/simulators.md): `sim-own`, the pool of private simulators
-- [docs/guard.md](docs/guard.md): the hook, what it matches, the subagent limit, installing it for Claude Code and Codex, your own rules
-- [docs/machines.md](docs/machines.md): sending jobs to other machines, adding one (`dibs pair --machine` on the coordinator, `dibs join <code>` on the new machine), tokens, and keeping a project's code on the machines you name
-- [AGENTS.md](AGENTS.md): working on dibs itself
-
-Platforms: macOS is what dibs is tested on. Linux uses the same code paths (`ps`, process groups, `/proc/pressure/memory`) but hasn't had a full test run yet. Windows support exists and is untested.
+**Platforms.** macOS and Linux run the full suite in CI on every push. Windows support exists and is untested.
 
 ## License
 
@@ -225,4 +83,4 @@ dibs is free to use, change and share under the [GNU Affero General Public Licen
 
 If your company can't use AGPL software, or you want to build dibs into something you don't open source, buy a commercial license from Creayo LLC: licensing@dibs.cc.
 
-Contributions are welcome. Before your first pull request is merged you'll sign a contributor license agreement, which lets Creayo LLC offer your change under both licenses.
+Contributions are welcome: [CONTRIBUTING.md](CONTRIBUTING.md). Before your first pull request is merged you sign a contributor license agreement, which lets Creayo LLC offer your change under both licenses.

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DOCS = ['skills/dibs/SKILL.md', 'README.md', ...['guard', 'files', 'questions', 'later', 'machines', 'simulators', 'scheduling', 'relay'].map(d => `docs/${d}.md`)];
+const DOCS = ['skills/dibs/SKILL.md', 'README.md', ...['reference', 'guard', 'files', 'questions', 'later', 'machines', 'simulators', 'scheduling', 'relay'].map(d => `docs/${d}.md`)];
 export const ISSUES = 'https://github.com/dibssoftware/dibs/issues';
 // Two passages answer most questions; more is reading the docs.
 const SHOW = 2;
@@ -24,7 +24,7 @@ const words = text => text.toLowerCase().match(/[a-z0-9][a-z0-9:_-]*/g)?.filter(
 function pieces(block) {
   const lines = block.split('\n');
   if (lines.every(l => l.startsWith('|'))) return lines.filter(l => !/^\|[\s:|-]+\|$/.test(l)).slice(1);
-  // The README's paste-in block for agents is one fence of bullets: each bullet answers on its own.
+  // docs/reference.md's paste-in block for agents is one fence of bullets: each bullet answers on its own.
   if (lines[0] === '```markdown') return lines.filter(l => l.startsWith('- '));
   if (!/^(- |\d+\. )/.test(lines[0])) return [block];
   const items = [];
