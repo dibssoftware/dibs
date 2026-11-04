@@ -162,7 +162,7 @@ test('when, who and why answer without joining the line', async t => {
 test('ask records a request, answers from the docs it can, and points at a maintainer only where there is one', t => {
   const h = tmp(t);
   const stranger = sync(h, 'a', ['ask', 'what', 'does', 'exit', '74', 'mean']).out;
-  assert.match(stranger, /^From the docs:\n[\s\S]*(docs\/reference\.md|skills\/dibs\/SKILL\.md) \(Exit codes\):\n {4}\| 74 \| not enough free disk/, 'the table row that answers it, not the table\'s start');
+  assert.match(stranger, /^From the docs:\n[\s\S]*(docs\/reference\.md|skills\/dibs\/SKILL\.md) \(Exit codes\):\n {4}\| 74 \| this run can't fit on this disk/, 'the table row that answers it, not the table\'s start');
   assert.match(stranger, /If that doesn't answer it, or it's a bug, open an issue: https:\/\/github\.com\/dibssoftware\/dibs\/issues$/m);
   assert.doesNotMatch(stranger, /SendMessage|maintainer/, 'nobody maintains dibs on this machine');
   assert.match(sync(h, 'a', ['ask', 'please', 'add', 'gpu']).out, /^Nothing in the docs matched\. If it's a bug or something dibs should do, open an issue: https:/);
@@ -188,11 +188,12 @@ test('dibs inside a dibs run that has the resource goes straight ahead', t => {
   assert.match(p.out, /^\d+ \d+\n$/, p.err);
 });
 
-test('not enough disk with nothing running exits 74 and runs nothing', t => {
-  const r = sync(tmp(t), 'a', ['sim', '--', 'echo', 'ran'], { env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 1e9 }) } });
+// Since 0.0.179 low disk is waited out (test/diskfloor.test.mjs); a run that doesn't wait still says why it didn't run.
+test('not enough disk with --no-wait exits 74 and runs nothing', t => {
+  const r = sync(tmp(t), 'a', ['sim', '--no-wait', '--', 'echo', 'ran'], { env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 1e9 }) } });
   assert.equal(r.code, 74);
   assert.equal(r.out, '');
-  assert.match(r.err, /not enough free disk: 0\.9 GB free, it needs 8\.0 GB, and nothing running will free any\. Your command did NOT run \(exit 74\)\. Free some space, or pass --disk with what this job really needs if that's less, then run it again:\n {6}dibs sim -- echo ran/);
+  assert.match(r.err, /not enough free disk: 0\.9 GB free, it needs 8\.0 GB\. Your command did NOT run \(exit 74\)\. Free some space, or pass --disk with what this job really needs if that's less, then run it again:\n {6}dibs sim --no-wait -- echo ran/);
   assert.match(r.err, /\n {6}Never delete in another session's \/private\/tmp\/claude-\* folder to make room: they're off limits\.$/m, 'and never by deleting other sessions\' temp folders');
 });
 
@@ -325,7 +326,7 @@ test('dibs when counts the disk the resource needs, as a real run would', t => {
   assert.equal(when.code, 0, when.err);
   assert.deepEqual(JSON.parse(when.out).blockedBy, 'disk');
   assert.equal(JSON.parse(when.out).freeNow, false);
-  assert.equal(sync(h, 'a', ['run', 'sim', '--', 'true'], disk(7 * G)).code, 74);
+  assert.equal(sync(h, 'a', ['run', 'sim', '--no-wait', '--', 'true'], disk(7 * G)).code, 74);
 });
 
 test('one broken line in the run history leaves the rest of it in use', async t => {

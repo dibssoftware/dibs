@@ -287,11 +287,16 @@ export function raise(pid) {
 export function freeDisk(dir) {
   try { const st = fs.statfsSync(dir); return st.bavail * st.bsize; } catch { return null; }
 }
+// The volume's whole size: a job that needs more can never start there, however long it waits.
+export function diskSize(dir) {
+  try { const st = fs.statfsSync(dir); return st.blocks * st.bsize; } catch { return null; }
+}
 
 // Free disk where dibs lives, swap in use, % of memory free, 1-minute load.
 // Windows has no load average, so CPU busy % across all cores stands in for it.
 export function pressure(dir) {
-  const diskFree = freeDisk(OS === 'macos' ? '/System/Volumes/Data' : dir);
+  const vol = OS === 'macos' ? '/System/Volumes/Data' : dir;
+  const diskFree = freeDisk(vol), diskTotal = diskSize(vol);
   let swapUsed = 0, swapFiles = null, memFree = Math.round(100 * os.freemem() / os.totalmem()), memAvail = null;
   if (OS === 'macos') {
     const sw = run('sysctl', ['-n', 'vm.swapusage']).match(/used = ([\d.]+)M/);
@@ -326,7 +331,7 @@ export function pressure(dir) {
       : run('ps', ['-Ao', 'pcpu=']).split('\n').map(Number).filter(x => !isNaN(x));
     if (cpus.length) busy = cpus.reduce((a, c) => a + c, 0) / 100;
   }
-  return { diskFree, swapUsed, ...(swapFiles != null && { swapFiles }), memFree, memAvail, load, busy, cores: os.cpus().length, os: OS };
+  return { diskFree, ...(diskTotal != null && { diskTotal }), swapUsed, ...(swapFiles != null && { swapFiles }), memFree, memAvail, load, busy, cores: os.cpus().length, os: OS };
 }
 
 // Memory a new job can take without anything going to swap, from vm_stat: pages

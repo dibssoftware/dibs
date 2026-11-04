@@ -100,7 +100,7 @@ test('an alert shows once, keeps when it started, and says when it resolved', ()
 test('disk under the floor and a service that is down are urgent, each with what fixes it', () => {
   const st = { ...blank(), svc: { throttle: { what: 'moves hot work outside dibs to background priority', running: false, runs: 3, exit: 78 } } };
   const found = detect({ s: { leases: [], queue: [] }, cfg, hist: [], m: { ...MACHINE, diskFree: 2 * G }, t: T, st });
-  assert.match(find(found, 'disk').title, /^Free disk is 2\.0 GB, under the 5\.0 GB dibs keeps free, so no new job starts/);
+  assert.match(find(found, 'disk').title, /^Free disk is 2\.0 GB, under the 5\.0 GB dibs keeps free, so only jobs that write next to nothing start; the rest wait for room/);
   const svc = find(found, 'service:throttle');
   assert.equal(svc.level, 'urgent');
   assert.match(svc.title, /throttle service isn't running \(it last exited with code 78\)/);

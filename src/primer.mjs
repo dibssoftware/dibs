@@ -32,7 +32,7 @@ export function rules(res = resources(), more = 'is in dibs.md beside dibs (the 
     '- No dibs for reads, edits, small commands, or long jobs that mostly wait on the network and use little CPU, memory or disk (crawlers, pollers, HTTP checks). The hook leaves those alone too.',
     '- Start `dibs listen` with run_in_background now, and again each time it exits: it wakes you when the person or dibs has something for you.',
     '- Waiting is normal. A call moved to the background is still waiting: don\'t run it again. A wait on memory, swap or disk protects the machine: keep waiting, and never lower `--mem` or raise `-p` to get past it.',
-    '- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: not enough free disk; free your own build output, or tell the person.',
+    '- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: it can\'t fit on this disk, or its wait limit ran out; low disk just means a wait.',
     '- Decide what you can undo yourself. Ask the person only before something you can\'t undo (`dibs question ... --one-way`). Lines starting "Message from the person:" are theirs: act on them.',
     '- Post progress as you work: `dibs progress "what you did or found" --task <name> --eta 30m`, then `--done`.',
     `- The rest (holding across tool calls, file leases, other machines, every exit code, overriding jobs, questions) ${more}.`,

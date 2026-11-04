@@ -154,16 +154,16 @@ test('--no-wait through the thin path never reaches the broker', async t => {
   assert.equal(state(home).broker, undefined);
 });
 
-test('a thin waiter whose disk runs out with nothing left to free it exits 74', async t => {
+test('a thin waiter short of disk waits, and at its wait limit exits 74', async t => {
   const home = tmp(t);
   stopBroker(t, home);
-  block(home);
+  // A hold on something else, so the state is there to read; disk alone holds the waiter.
+  assert.equal(sync(home, ['hold', 't', '--for', '10m'], { agent: 'other' }).code, 0);
   const low = { env: { DIBS_FAKE_MACHINE: JSON.stringify({ diskFree: 1024 ** 3, swapUsed: 0, memFree: 90, load: 0 }) } };
-  const p = thin(t, home, ['run', 'deploy', '--disk', '2G', '--', 'true'], low);
+  const p = thin(t, home, ['run', 'deploy', '--disk', '2G', '--max-wait', '15s', '--', 'true'], low);
   await inLine(home, p);
-  unblock(home);
   assert.equal(await p.done, 74);
-  assert.match(flat(p.err), /not enough free disk.*did NOT run \(exit 74\)/);
+  assert.match(flat(p.err), /gave up after .* not enough free disk: 1\.0 GB free, it needs 3\.0 GB\. .*did NOT run \(exit 74\)/);
 });
 
 test('the owner stopping a thin waiter ends it with 143', async t => {

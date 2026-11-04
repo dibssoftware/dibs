@@ -54,6 +54,7 @@ Always run the suite through dibs: it spawns real processes and coordinators, an
 |---|---|
 | `DIBS_HOME` | state folder (default `~/.dibs`) |
 | `DIBS_FAKE_MACHINE` | JSON overriding memory, disk, load and swap readings |
+| `DIBS_FAKE_DISK` | a file holding free disk in bytes, read at every reading, so a test can free disk under a waiting run (with `DIBS_FAKE_MACHINE` set) |
 | `DIBS_FAKE_SIMCTL` | JSON file that plays CoreSimulator for the simulator pool |
 | `DIBS_FAKE_FOOTPRINT` | JSON file of `{ pid: bytes }` read in place of real memory footprints; pids not in it read 0 |
 | `DIBS_FAKE_MEMORY` | JSON file of `{ pid: bytes }` read in place of top's MEM plus CMPRS for every process, for the memory alert's list of what to close (src/alerts.mjs) |

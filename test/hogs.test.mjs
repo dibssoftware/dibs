@@ -77,18 +77,19 @@ test('under the disk floor, the biggest scratch folders\' agents hear once per d
   assert.equal(hogs().under, true);
 });
 
+// A browser run keeps the 5 GB floor; a test run, which writes next to nothing, would start (src/schedule.mjs tinyDisk).
 test('a disk wait names the biggest scratch folder and whose it is', t => {
   t.after(() => fs.rmSync(path.join(HOME, 'hogs.json'), { force: true }));
   const home = HOME;
   fs.writeFileSync(path.join(home, 'hogs.json'), JSON.stringify({ under: true, drop: Date.now(), at: Date.now(), free: 3 * G, floor: 5 * G, waiting: 4,
     folders: [{ folder: '/private/tmp/claude-503/-Users-x/sess-b1', session: 'sess-b1', bytes: 18 * G, what: '58 git worktrees, node_modules in each', who: 'alex-b1', agentId: 'main' }] }));
   const disk = { env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 3 * G }) } };
-  const r = sync(home, ['when', 'test'], { agent: 'waiter', ...disk });
+  const r = sync(home, ['when', 'playwright'], { agent: 'waiter', ...disk });
   assert.equal(r.code, 0, r.err);
   assert.match(r.out.replace(/\s+/g, ' '), /more free disk \(3\.0 GB free, it needs 5\.0 GB\)\. The most is in alex-b1's scratch folder \(18 GB, 58 git worktrees, node_modules in each\): ask alex-b1 \(SendMessage\) to free it, or the person/);
   // Once the disk has room again, the hint goes.
   fs.writeFileSync(path.join(home, 'hogs.json'), JSON.stringify({ under: false, at: Date.now(), folders: [] }));
-  assert.doesNotMatch(sync(home, ['when', 'test'], { agent: 'waiter', ...disk }).out, /scratch folder/);
+  assert.doesNotMatch(sync(home, ['when', 'playwright'], { agent: 'waiter', ...disk }).out, /scratch folder/);
 });
 
 // 2026-10-20: the Mac kept dropping under the floor with no big session folder, and nobody knew what was writing.
@@ -107,6 +108,6 @@ test('under the disk floor, a disk wait names what grew most since the last read
   await hogsOnce(cfg, { diskFree: 3 * G, swapUsed: 3.5 * G }, t0);
   assert.deepEqual([hogs().writer.label, hogs().writer.by], ['swap', 2.5 * G]);
   const disk = { env: { DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 3 * G }) } };
-  const r = sync(HOME, ['when', 'test'], { agent: 'waiter', ...disk });
+  const r = sync(HOME, ['when', 'playwright'], { agent: 'waiter', ...disk });
   assert.match(r.out.replace(/\s+/g, ' '), /more free disk \(3\.0 GB free, it needs 5\.0 GB\)\. Growing fastest: swap, up 2\.5 GB in 10 min/);
 });

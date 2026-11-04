@@ -256,7 +256,8 @@ A profile is a name for a resource with its ports and sizes, set once in config.
 files:<path or glob> is a file lease: while you hold it, dibs guard turns away other sessions' edits and writes there.
 sim is the one shared booted simulator. sim-own boots a private one for your command: its udid is in $SIM, its name in $SIM_NAME.
 Exit codes: the command's own, or 75 gave up waiting (NOT a failure: your command never started; run the
-same command again within 2 minutes to keep your place), 74 not enough disk,
+same command again within 2 minutes to keep your place), 74 this run can't fit on this disk even empty of
+other jobs, or its wait limit ran out on disk (low disk otherwise just means you wait),
 76 lost the coordinator or the other machine before the job started (safe to send again),
 77 lost it after the job started on another machine (it may have run: check before running it again),
 127 command didn't start, 2 bad usage (also: you already have this exact command waiting or running),

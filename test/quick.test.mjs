@@ -77,7 +77,7 @@ test('the quick lane passes full shared slots, warning pressure, swap and the lo
   assert.equal(judge(s, me, cfg(), { swapUsed: 6 * G, swapGrowth: 1.2 * G }).ok, true, 'swap growing');
   assert.equal(judge(s, me, cfg({ maxLoad: 5 }), { load: 30, busy: 10 }).ok, true, 'the load ceiling');
   assert.equal(judge(s, me, cfg(), { vmPressure: 2 }).rule, 'pressure', 'critical pressure still holds it');
-  assert.equal(judge(s, me, cfg(), { diskFree: 1 * G }).rule, 'disk', 'the disk floor still holds it');
+  assert.equal(judge(s, me, cfg(), { diskFree: 0.5 * G }).rule, 'disk', 'the 1 GB a deploy keeps free still holds it');
   const held = lease({ kind: 'hold', res: ['test'], pid: 9, spid: 9, expires: T + 6e5 });
   assert.equal(judge({ leases: [held], queue: [me] }, me, cfg({ resources: { test: { ...DEFAULT_CONFIG.resources.test, slots: 1 } } })).rule, 'slot', 'someone else holds it');
 });

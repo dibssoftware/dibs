@@ -85,7 +85,7 @@ test('a job over in seconds that never used much memory starts through warning p
   assert.equal(judge(s, me, cfg(), { vmPressure: 1 }, quick).ok, true, 'warning: it goes');
   assert.equal(judge(s, me, cfg(), { swapUsed: 6 * G, swapGrowth: 1.2 * G }, quick).ok, true, 'swap growing: it goes');
   assert.equal(judge(s, me, cfg(), { vmPressure: 2 }, quick).rule, 'pressure', 'critical holds it');
-  assert.equal(judge(s, me, cfg(), { vmPressure: 1, diskFree: 1 * G }, quick).rule, 'disk', 'the disk floor holds it');
+  assert.equal(judge(s, me, cfg(), { vmPressure: 1, diskFree: 0.5 * G }, quick).rule, 'disk', 'the 1 GB a test run keeps free holds it');
   // Never seen: a short --est stands in, unless it asked for memory itself.
   assert.equal(judge(s, waiter({ key: 'test|new', est: 10e3 }), cfg(), { vmPressure: 1 }).ok, true, 'an --est of 10s goes');
   assert.equal(judge(s, waiter({ key: 'test|new', est: 10e3, declared: true }), cfg(), { vmPressure: 1 }).rule, 'pressure', 'with --mem it waits');
@@ -197,8 +197,8 @@ test('below minDisk nothing new starts, urgent work included; a run inside its o
   const me = waiter({ spid: 77 });
   const s = { leases: [hold], queue: [me] };
   assert.equal(judge(s, me, cfg(), { diskFree: 1 * G }).ok, true, 'inside its own hold');
-  assert.equal(judge(s, waiter({ spid: 88 }), cfg(), { diskFree: 1 * G }).rule, 'disk', 'anyone else waits');
-  assert.equal(judge(s, waiter({ prio: 'urgent', purpose: 'x' }), cfg(), { diskFree: 1 * G }).rule, 'disk', 'urgent too');
+  assert.equal(judge(s, waiter({ spid: 88, res: ['heavy'] }), cfg(), { diskFree: 1 * G }).rule, 'disk', 'anyone else waits');
+  assert.equal(judge(s, waiter({ prio: 'urgent', purpose: 'x', res: ['heavy'] }), cfg(), { diskFree: 1 * G }).rule, 'disk', 'urgent too');
 });
 
 // 2026-11-03: dibs hold sim exited 74 with 7 GB free, on the 8 GB the simulator declares;
@@ -229,7 +229,7 @@ test('while the machine swaps, new work below urgent keeps swapRoom of disk free
   assert.equal(judge(s, waiter({ prio: 'urgent', purpose: 'x' }), cfg(), { swapUsed: 8.4 * G, diskFree: 7 * G }).ok, true, 'urgent still starts');
   assert.equal(judge({ leases: [], queue: [me] }, me, cfg(), { swapUsed: 8.4 * G, diskFree: 7 * G }).ok, true, 'nothing else running: one starts');
   // A job that needs disk of its own keeps the room on top of that.
-  assert.equal(judge(s, waiter({ disk: 6 * G }), cfg({ maxSwap: null }), { swapUsed: 8.4 * G, swapGrowth: 1 * G, diskFree: 8.5 * G }).need, 9 * G);
+  assert.equal(judge(s, waiter({ res: ['heavy'], disk: 6 * G }), cfg({ maxSwap: null }), { swapUsed: 8.4 * G, swapGrowth: 1 * G, diskFree: 8.5 * G }).need, 9 * G);
 });
 
 test('holds with nothing running under them, file leases and paused jobs do not count as running for the swap, disk and memory gates', () => {
@@ -334,7 +334,8 @@ test('swap over maxSwap that holds still, with memory pressure normal, is left o
   assert.equal(judge(s, me, cfg(), { ...stale, swapGrowth: 1 * G }).rule, 'swap', 'still growing over maxSwap: the swap gate holds');
   assert.equal(judge(s, me, cfg(), { ...stale, swapUsed: 3 * G, swapGrowth: 1 * G }).rule, 'swaproom', 'growing under maxSwap: the room for it holds');
   assert.equal(judge(s, me, cfg(), { ...stale, vmPressure: 1 }).rule, 'pressure', 'pressure above normal holds');
-  assert.equal(judge(s, me, cfg(), { ...stale, diskFree: 4.5 * G }).rule, 'disk', 'and minDisk itself still holds');
+  assert.equal(judge(s, me, cfg(), { ...stale, diskFree: 4.5 * G }).ok, true, 'a test run writes next to nothing: under minDisk it goes');
+  assert.equal(judge(s, waiter({ res: ['heavy'] }), cfg(), { ...stale, diskFree: 4.5 * G }).rule, 'disk', 'and minDisk itself still holds the rest');
 });
 
 test("the stall breaker picks among waiters the machine holds back, not ones waiting their turn, and only gated starts reset its clock", () => {
@@ -617,11 +618,11 @@ test('a small job on an exclusive resource (a deploy) or one that writes little 
   const squeezed = { diskFree: 6 * G, swapUsed: 3 * G, vmPressure: 1 };
   assert.equal(judge(s, deploy, c, { load: 9 }).ok, true, 'past the load ceiling');
   assert.equal(judge(s, deploy, c, squeezed).ok, true, 'past the room kept for swap');
-  assert.equal(judge(s, deploy, c, { diskFree: 4 * G }).rule, 'disk', 'not under minDisk');
+  assert.equal(judge(s, deploy, c, { diskFree: 0.5 * G }).rule, 'disk', 'not under the 1 GB it keeps free');
   const test2 = waiter({ mem: 0.5 * G, cpu: 1 });
   // 2026-10-26: every start waited on the room kept for swap with 6.8 GB free, one-second test runs included.
   assert.equal(judge({ leases: [lease()], queue: [test2] }, test2, c, squeezed).ok, true, 'a test run of the same size goes too');
-  assert.equal(judge({ leases: [lease()], queue: [test2] }, test2, c, { diskFree: 4 * G }).rule, 'disk', 'but not under minDisk');
+  assert.equal(judge({ leases: [lease()], queue: [test2] }, test2, c, { diskFree: 0.5 * G }).rule, 'disk', 'but not under the 1 GB it keeps free');
   const browser = waiter({ res: ['playwright'], mem: 0.5 * G, cpu: 1 });
   { const v = judge({ leases: [lease()], queue: [browser] }, browser, c, squeezed); assert.equal(v.rule, 'swaproom', JSON.stringify(v)); }
   const big = waiter({ mem: 2 * G, cpu: 1 });

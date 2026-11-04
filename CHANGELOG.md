@@ -2,6 +2,11 @@
 
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
+## Unreleased
+- Low disk is a wait now, never a refusal at the start. A `dibs run`, `dibs hold` or `dibs later` job short of disk keeps its place and starts the moment there's room, so stop writing `until df ...` loops before a ship. Exit 74 now means the run needs more than the whole disk, or (outside Claude Code) the wait limit ran out while disk held it.
+- Jobs that write next to nothing start below the 5 GB floor, keeping 1 GB free: any command whose own runs ate under 100 MB, and, before it has runs, anything on test, deploy or a lock of your own. An honest small `--disk` (say `--disk 200M` on a test suite) is taken at its word there. The simulator, builds, browsers and heavy keep the floor until their runs show they write little. A run that eats more takes the exemption away until its runs come back down.
+- A job the person is waiting on (`-p high`, `-p urgent`, or `--by`) no longer waits for the room dibs keeps for swap, and may start down to 3 GB free instead of the 5 GB floor, as long as its own need is free. Use those only when a person really waits.
+
 ## 0.0.179
 - Alerts are only for what the person should know: deploys, high, urgent or `--by` jobs, the same command failing 3 times in a row, lost jobs and crashes. Everything else is in `dibs alerts --all`. Times from another day say which day. Nothing for you to do; don't dismiss alerts the person should see.
 - Notices about your jobs go only to the session they're about, once per change. dibs no longer prints "used up to N cores, pass --cpu N": it learns that silently. A progress task belongs to the agent that posted it, and its nudge goes to that agent.

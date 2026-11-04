@@ -311,6 +311,8 @@ let cache = null;
 export function machine() {
   if (process.env.DIBS_FAKE_MACHINE) {
     const m = { at: now(), load: 0, cores: 8, dibsMem: 0, ...JSON.parse(process.env.DIBS_FAKE_MACHINE) };
+    // DIBS_FAKE_DISK names a file holding the free disk in bytes, read at each call, so a test can free disk under a waiter.
+    if (process.env.DIBS_FAKE_DISK) m.diskFree = Number(fs.readFileSync(process.env.DIBS_FAKE_DISK, 'utf8'));
     // A fake that gives the 5-minute totals but not the recent ones is still moving.
     if (m.swapGrowth != null && m.diskDrain != null) return { drainMs: SWAP_WINDOW, swapRecent: m.swapGrowth, drainRecent: m.diskDrain, ...m };
     const t = trends(m.swapUsed, m.diskFree, m.at);

@@ -799,7 +799,9 @@ function ownDisk(hist, key) {
 // A --disk given in so many words is the job's own: on 2026-10-26 a streaming loader that writes one
 // 12 MB chunk was held for 23 GB it had "eaten" on a run whose swap grew while it sat paused.
 export function diskNeed(s, me, cfg, hist) {
-  const floor = bytes(cfg.minDisk);
+  const floor = floorFor(me, cfg);
+  // A job that writes next to nothing keeps only ALONE_ROOM free, under the floor (tinyDisk).
+  if (tinyDisk(me, hist, cfg)) return { need: (me.diskDeclared ? me.disk || 0 : 0) + ALONE_ROOM, ate: null, others: othersOf(s, me).length > 0, tiny: true };
   // With others running, a resource that declares disk (simulators, builds, browsers, heavy) also
   // counts what its kind of job usually eats. Alone, or on a resource that declares none, the
   // job's own runs still count: starting a job that always eats more than there is only fails it.
@@ -815,7 +817,37 @@ export function diskNeed(s, me, cfg, hist) {
   return { need: Math.max(learned ?? me.disk ?? 0, floor, ate != null ? ate + (others ? floor : ALONE_ROOM) : 0), ate, others };
 }
 // A job alone still leaves this much free past what it eats: the system writes while it runs too.
-const ALONE_ROOM = 1024 ** 3;
+export const ALONE_ROOM = 1024 ** 3;
+
+// A job the person is waiting on (high, urgent, or a --by deadline) may take the headroom
+// down to this, the same hard floor the watcher pauses jobs at (src/preempt.mjs DISK_FLOOR),
+// and isn't held for the room kept for swap. On 2026-11-02 and 03 a Shop ship
+// (#18328) waited about a day while idle sessions' swap kept free disk under 9 GB.
+const HARD_FLOOR = 3 * 1024 ** 3;
+export const waitedOn = q => q.prio === 'high' || q.prio === 'urgent' || q.by != null;
+const floorFor = (q, cfg) => (waitedOn(q) ? Math.min(bytes(cfg.minDisk), HARD_FLOOR) : bytes(cfg.minDisk));
+
+// A job that eats less than this of the disk starts under minDisk: holding it back
+// frees nothing. On 2026-11-02 and 03 a post-deploy check that only makes HTTP calls,
+// a test suite that writes nothing (--disk 200M) and a later job that uploads a 100 MB
+// archive were all refused (exit 74) with 4.4 to 5 GB free, and a prod build went out unchecked.
+export const TINY_DISK = 100 * 1024 ** 2;
+// Whether a job is that small. Its own runs say first: the middle of its last ten good
+// runs (the most of them until there are DISK_RUNS) under TINY_DISK, and the last run,
+// failed or not, under it too: one that ate more takes the exemption away until it's
+// back down. A failed run alone, stopped early, says nothing about what a whole one eats.
+// With no good runs, its resources say: one that declares a disk need (simulators,
+// builds, browsers, heavy) is big, the rest (tests, deploys, locks) small, and an
+// honest --disk on those is taken at its word (diskNeed).
+export function tinyDisk(me, hist, cfg) {
+  // A --disk of minDisk or more says it isn't small, whatever its resource.
+  if (me.diskDeclared && (me.disk || 0) >= bytes(cfg.minDisk)) return false;
+  const runs = runsOf(hist || [], me.key).filter(h => h.ate != null).slice(-10);
+  if (runs.length && runs.at(-1).ate >= TINY_DISK) return false;
+  const good = runs.filter(h => !h.failed).map(h => h.ate);
+  if (good.length) return (good.length < DISK_RUNS ? Math.max(...good) : mid(good)) < TINY_DISK;
+  return me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk);
+}
 
 // The verdict, and for a job held by something else (its turn, memory, cores) a
 // word that free disk will hold it next, while there's still time to free some.
@@ -865,7 +897,7 @@ function decide(s, me, cfg, hist, t) {
   // whole heavy line. It keeps its place, and once the disk has room for it,
   // it's ahead of everyone again. A job that would eat into that room waits.
   const floor = bytes(cfg.minDisk);
-  const diskStuck = q => m.diskFree != null && m.diskFree < Math.max(q.disk || 0, floor);
+  const diskStuck = q => m.diskFree != null && m.diskFree < (tinyDisk(q, hist, cfg) ? (q.diskDeclared ? q.disk || 0 : 0) + ALONE_ROOM : Math.max(q.disk || 0, floor));
   const leavesRoom = m.diskFree != null && m.diskFree - floor >= (me.disk || 0);
   const blocks = q => {
     if (leavesRoom && diskStuck(q)) return false;
@@ -914,14 +946,14 @@ function decide(s, me, cfg, hist, t) {
   // checking the disk again refused (exit 74) a run right after "you already have the
   // simulator, so you go ahead" (2026-11-03). The watcher's low-disk pauses still hold it.
   if (me.res.every(r => mine.has(r))) return { ok: true, covered: [...me.res] };
-  // Below minDisk nothing else starts, urgent work included:
-  // a full disk breaks every job on the machine, and on macOS swap needs it too.
+  // Below minDisk nothing else starts, urgent work included, but a job that writes next to
+  // nothing (tinyDisk): a full disk breaks every job on the machine, and on macOS swap needs it too.
   const others = othersOf(s, me);
   // The floor plus what it usually eats (diskNeed).
-  const { need: needDisk, ate, others: crowded } = diskNeed(s, me, cfg, hist);
+  const { need: needDisk, ate, others: crowded, tiny } = diskNeed(s, me, cfg, hist);
   // An unreadable disk (null) doesn't stop work; the board and dibs run say it's unknown.
   if (m.diskFree != null && m.diskFree < needDisk)
-    return { ok: false, rule: 'disk', why: `disk: ${gb(m.diskFree)} free, you need ${gb(needDisk)}${ate != null && ate + (crowded ? bytes(cfg.minDisk) : ALONE_ROOM) >= needDisk ? ` (${crowded ? `the ${gb(bytes(cfg.minDisk))} dibs keeps free` : `${gb(ALONE_ROOM)} to spare`}, plus the ${gb(ate)} this usually takes; --disk <size> says this run needs less)` : ''}`, disk: true, free: m.diskFree, need: needDisk, alone: !others.length, ...(ate != null && { usual: ate }) };
+    return { ok: false, rule: 'disk', why: `disk: ${gb(m.diskFree)} free, you need ${gb(needDisk)}${tiny ? (me.diskDeclared ? ` (the ${gb(me.disk || 0)} its --disk says, and ${gb(ALONE_ROOM)} kept free)` : ` (a job that writes next to nothing still leaves ${gb(ALONE_ROOM)} free)`) : ate != null && ate + (crowded ? floorFor(me, cfg) : ALONE_ROOM) >= needDisk ? ` (${crowded ? `the ${gb(floorFor(me, cfg))} dibs keeps free` : `${gb(ALONE_ROOM)} to spare`}, plus the ${gb(ate)} this usually takes; --disk <size> says this run needs less)` : ''}`, disk: true, free: m.diskFree, need: needDisk, ...(ate != null && { usual: ate }) };
   // While the machine swaps, only urgent work starts on top of what's running.
   // With nothing else working, one job may start: waiting can't make the swap
   // go down then, and swap the OS hasn't reclaimed yet mustn't stop dibs for good.
@@ -935,11 +967,12 @@ function decide(s, me, cfg, hist, t) {
   if (sw && sw.level !== 'critical' && !light && sw.rule === 'pressure' && probation(s, me, cfg, hist, t)) trial = true;
   if (sw && (light || trial || quick) && sw.level !== 'critical') sw = null;
   // The same for the disk swap grows on: one job may still start alone, since waiting frees nothing then.
+  // Swap grows with memory, not with what a job writes, so a job let under the floor (tinyDisk) keeps the room past the floor.
   // A light job can't grow the swap, so on a resource that writes little (exclusive, or declaring
   // no disk: tests, deploys) only the floor holds it. On 2026-10-26 every start waited on the room
   // kept for swap with 6.8 GB free, one-second test runs included.
   const writesLittle = me.res.every(r => cfg.resources[r]?.exclusive || !resCfg(cfg, r).disk);
-  const squeeze = (me.prio || 'normal') !== 'urgent' && busy && !sw && !quick && !(light && writesLittle) && diskSqueeze(cfg, needDisk, m);
+  const squeeze = !waitedOn(me) && busy && !sw && !quick && !(light && writesLittle) && diskSqueeze(cfg, tiny ? Math.max(needDisk, bytes(cfg.minDisk)) : needDisk, m);
   let breaker = (sw || squeeze) && breaksStall(s, me, cfg, hist, t, m);
   if (sw && !breaker) return { ok: false, why: swapWhy(sw), ...sw, machine: true };
   if (squeeze && !breaker) return { ok: false, ...squeeze, machine: true };

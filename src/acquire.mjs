@@ -73,13 +73,15 @@ export const defaultMaxWait = () =>
   backgroundable() ? Infinity : process.env.DIBS_MAX_WAIT ? ms(process.env.DIBS_MAX_WAIT) : DEFAULT_MAX_WAIT;
 
 // Said once, when the wait starts, so nobody has to guess what happens at the end of it.
-function waitTerms(w) {
+function waitTerms(w, disk) {
   if (w.maxWait === Infinity)
     return !w.info.waitSet
       ? "No time limit. If this tool call times out, Claude Code moves it to the background and tells you when it ends: don't run it again, or it runs twice."
       : 'No time limit (--wait).';
-  return `Gives up at ${clock(w.started + w.maxWait)} if it's still waiting (exit 75: your command won't have run). To wait as long as it takes, add --wait.`;
+  return `Gives up at ${clock(w.started + w.maxWait)} if it's still waiting (exit ${disk ? 74 : 75}: your command won't have run). To wait as long as it takes, add --wait.`;
 }
+
+const GB = x => gb(x).replace(/G$/, ' GB');
 
 // The command as the agent typed it, to paste back.
 const again = () => `dibs ${quoted(process.argv.slice(2))}`;
@@ -366,7 +368,7 @@ export function decide(s, w) {
     // Sitting on one resource while waiting for another wastes it for everyone.
     // A file lease doesn't count: it keeps edits off files while you work, and a job waiting for a test slot doesn't change that.
     const sitting = s.leases.filter(l => l.kind === 'hold' && me.spid && l.pid === me.spid && !l.res.some(x => me.res.includes(x)) && !l.res.every(isFiles));
-    return { v, line: waitLine(s, cur, v, cfg, hist, w.talk.told), idle: !s.leases.length, sitting, holding: cur.holding };
+    return { v, line: waitLine(s, cur, v, cfg, hist, w.talk.told), sitting, holding: cur.holding };
   }
   s.queue = s.queue.filter(x => x.id !== me.id);
   takeQuota(s, cur, cfg);
@@ -440,16 +442,25 @@ export function step(r, w) {
     out.say(`you're keeping ${andList(kept.map(x => named(cfg, x).the))} reserved while you wait, so nobody else can use it.`
       + ` Give it back (dibs release ${kept[0]}) or ask for everything at once: dibs run ${[...new Set([...kept, ...me.res])].join(',')} -- <command>`);
   }
-  // Waiting can't free disk when nothing else is running.
-  if (r.v.disk && (r.idle || r.v.alone)) {
-    left(w, 'not enough disk');
+  // Low disk is waited out, like memory: a person or a job ending frees space, and the run
+  // starts the moment there's room, checked again at every poll. Until 0.0.179 a run with
+  // nothing else running was refused at once (exit 74): on 2026-11-02 a TestFlight ship
+  // waited 10 hours, then its inner dibs hold sim was refused with 6.7 GB free, and a
+  // scheduled job died the same way. Only a run that needs more than the whole disk is.
+  const total = r.v.disk && machine().diskTotal;
+  if (total && r.v.need > total) {
+    left(w, 'never fits the disk');
     leave(w, false);
-    return out.die(`not enough free disk: ${gb(r.v.free).replace(/G$/, ' GB')} free, it needs ${gb(r.v.need).replace(/G$/, ' GB')}, and nothing running will free any.`
-      + ` Your command did NOT run (exit 74). Free some space, or pass --disk with what this job really needs if that's less, then run it again:\n      ${w.info.again}\n      ${OFF_LIMITS}`, 74);
+    return out.die(`not enough disk, ever: it needs ${GB(r.v.need)} free and the whole disk is ${GB(total)}.`
+      + ` Your command did NOT run (exit 74). If this run needs less, pass --disk with what it really needs:\n      ${w.info.again}`, 74);
   }
   if (now() - w.started >= w.maxWait) {
     note(w, 'timeout', { ms: now() - me.enq });
     leave(w, w.maxWait > 0);
+    // Outside Claude Code the wait has a limit; ended by the disk, it says so (exit 74).
+    if (r.v.disk)
+      return out.die(`${w.maxWait ? `gave up after ${dur(now() - w.started)} in the queue: ` : ''}not enough free disk: ${GB(r.v.free)} free, it needs ${GB(r.v.need)}.`
+        + ` Your command did NOT run (exit 74). Free some space, or pass --disk with what this job really needs if that's less, then run it again${w.maxWait ? `, or add --wait to wait until there's room` : ''}:\n      ${w.info.again}\n      ${OFF_LIMITS}`, 74);
     if (!w.maxWait)
       return out.die(`not free yet. ${r.line.why} --no-wait doesn't wait, so your command did NOT run (exit 75).`
         + ` See when it frees up: dibs when ${shellRes(me.res.map(x => short(x)))}`, 75);
@@ -481,7 +492,7 @@ export function step(r, w) {
   // every MOVE_EVERY), or now and then.
   const l = r.line;
   const what = w.talk.step(l);
-  if (what === 'full') out.said(`queued for ${andList(me.res.map(x => named(cfg, x).the))}.${me.kind === 'hold' ? ' dibs hold waits for its turn like dibs run, then returns.' : ''}`, l.head, l.why, l.ask, w.maxWait > 0 ? waitTerms(w) : '');
+  if (what === 'full') out.said(`queued for ${andList(me.res.map(x => named(cfg, x).the))}.${me.kind === 'hold' ? ' dibs hold waits for its turn like dibs run, then returns.' : ''}`, l.head, l.why, l.ask, w.maxWait > 0 ? waitTerms(w, r.v.disk) : '');
   else if (what === 'change') out.said(`still queued (${dur(now() - w.started)}). ${l.head}`, l.why);
   else if (what === 'moved') out.say(`still queued (${dur(now() - w.started)}). You ${l.moved}`);
   else if (what === 'repeat') out.say(`still queued (${dur(now() - w.started)}). ${l.head}`);

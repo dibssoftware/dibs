@@ -11,7 +11,7 @@ dibs runs on this machine. Agents take turns through it on the simulator, Xcode 
 - No dibs for reads, edits, small commands, or long jobs that mostly wait on the network and use little CPU, memory or disk (crawlers, pollers, HTTP checks). The hook leaves those alone too.
 - Start `dibs listen` with run_in_background now, and again each time it exits: it wakes you when the person or dibs has something for you.
 - Waiting is normal. A call moved to the background is still waiting: don't run it again. A wait on memory, swap or disk protects the machine: keep waiting, and never lower `--mem` or raise `-p` to get past it.
-- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: not enough free disk; free your own build output, or tell the person.
+- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: it can't fit on this disk, or its wait limit ran out; low disk just means a wait.
 - Decide what you can undo yourself. Ask the person only before something you can't undo (`dibs question ... --one-way`). Lines starting "Message from the person:" are theirs: act on them.
 - Post progress as you work: `dibs progress "what you did or found" --task <name> --eta 30m`, then `--done`.
 - The rest (holding across tool calls, file leases, other machines, every exit code, overriding jobs, questions) is below, under "When you need it", and in `dibs help`.
@@ -69,7 +69,7 @@ A script running under `dibs run deploy` that calls `dibs run xcode-build` waits
 ### When dibs holds you back
 
 - **Memory, swap or disk** ("waiting for memory pressure to ease", "this machine to stop swapping", "free disk to stop falling"): dibs is protecting the machine. Keep waiting. Don't pass a smaller `--mem` or a higher `-p` to get past it. A memory wait names the jobs holding the most: if one is yours and finished, end it.
-- **Disk at your turn:** a resource that declares a disk need (the simulator asks 8 GB) is refused with exit 74 when that much isn't free and nothing running will free it. If your job needs less, pass `--disk 1G` on the hold and on each `dibs run`. A job whose own past runs ate more disk than is free waits for disk too, even alone. While you wait on something else, the wait message says early when disk will hold you next, so free your own build output then.
+- **Disk at your turn:** low disk is a wait, like memory: your run or hold stays in line and starts the moment there's room (a person or another job frees it). dibs gives up on it (exit 74) only when it can't fit on this disk even empty of other jobs, or, outside Claude Code, its wait limit runs out. A command whose own runs ate under 100 MB starts below the 5 GB floor (only 1 GB has to be free); with no runs yet, tests, deploys and made-up locks count as small and the simulator, builds, browsers and heavy as big. On a small resource an honest `--disk 200M` is taken at its word; its runs overrule it if they eat more. While you wait on something else, the wait message says early when disk will hold you next, so free your own build output then.
 - **Paused** ("paused your job: free disk is low", or for urgent work): leave it, it resumes by itself.
 - **Load** ("waiting for the machine to cool down"): ends within 20 minutes.
 - **A person is waiting on the job now:** run it with `-p high -m "why"`, or send it to another machine with `--on <machine>` (`dibs machines`). That's the only reason to raise it.
@@ -82,7 +82,7 @@ A script running under `dibs run deploy` that calls `dibs run xcode-build` waits
 |---|---|---|
 | the command's own | it ran | read it as usual |
 | 75 | gave up waiting: your command never started and didn't fail (outside Claude Code, after `--max-wait`, 8m by default), or a question got no answer | rerun the same command within 2 minutes to keep your place, or add `--wait`. On a question: nothing was decided, skip that step |
-| 74 | not enough free disk | the message says how much it needed. Free your own build output, or tell the person; if this run needs less, pass a smaller `--disk` on that `dibs run` (a hold's `--disk` doesn't cover the runs under it). Never delete in another session's `/private/tmp/claude-*` folder |
+| 74 | this run can't fit on this disk even when it's empty of other jobs, or (outside Claude Code) its wait limit ran out. Low disk otherwise just means you wait | the message says how much it needed. Free your own build output, or tell the person; if this run needs less, pass a smaller `--disk` on that `dibs run` (a hold's `--disk` doesn't cover the runs under it). Never delete in another session's `/private/tmp/claude-*` folder |
 | 76 | lost the coordinator or the other machine before the job started | nothing ran there: send it again |
 | 77 | lost the other machine after the job started | it may have run, or still be running: check before running it again, above all a deploy |
 | 70 | dibs itself crashed | a bug in dibs, not your command: `dibs ask "..."` |

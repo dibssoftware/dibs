@@ -14,7 +14,7 @@ dibs runs on this machine. Agents take turns through it on the simulator, Xcode 
 - No dibs for reads, edits, small commands, or long jobs that mostly wait on the network and use little CPU, memory or disk (crawlers, pollers, HTTP checks). The hook leaves those alone too.
 - Start `dibs listen` with run_in_background now, and again each time it exits: it wakes you when the person or dibs has something for you.
 - Waiting is normal. A call moved to the background is still waiting: don't run it again. A wait on memory, swap or disk protects the machine: keep waiting, and never lower `--mem` or raise `-p` to get past it.
-- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: not enough free disk; free your own build output, or tell the person.
+- Exit 75: it gave up waiting and your command never ran; run the same command again. Exit 74: it can't fit on this disk, or its wait limit ran out; low disk just means a wait.
 - Decide what you can undo yourself. Ask the person only before something you can't undo (`dibs question ... --one-way`). Lines starting "Message from the person:" are theirs: act on them.
 - Post progress as you work: `dibs progress "what you did or found" --task <name> --eta 30m`, then `--done`.
 - The rest (holding across tool calls, file leases, other machines, every exit code, overriding jobs, questions) is in the dibs skill and in `dibs help`.
@@ -111,7 +111,7 @@ Agents branch on these, so they don't change.
 |---|---|
 | the command's own | it ran |
 | 75 | dibs stopped waiting in line. The command never started and did not fail. Run the same command again within 2 minutes to keep your place. For `dibs question --wait`: no answer (timed out or dismissed), nothing was decided |
-| 74 | not enough free disk, and nothing running would free it. Other sessions' `/private/tmp/claude-*` folders are off limits for making room |
+| 74 | this run can't fit on this disk even when it's empty of other jobs, or (outside Claude Code) its wait limit ran out while disk held it. Low disk otherwise just means you wait. Other sessions' `/private/tmp/claude-*` folders are off limits for making room |
 | 76 | lost the coordinator or the other machine before a remote job started. Nothing ran there: sending it again is safe |
 | 77 | lost the other machine after a remote job started. It may have run, or may still be running: check before running it again |
 | 127 | the command didn't start |

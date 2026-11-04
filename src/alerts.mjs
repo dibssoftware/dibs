@@ -334,7 +334,7 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
   const floor = bytes(cfg.minDisk || '0');
   if (floor && m.diskFree != null && m.diskFree < floor)
     out.push({ id: 'disk', cause: 'disk', level: 'urgent',
-      title: `Free disk is ${gb(m.diskFree).replace(/G$/, ' GB')}, under the ${gb(floor).replace(/G$/, ' GB')} dibs keeps free, so no new job starts`,
+      title: `Free disk is ${gb(m.diskFree).replace(/G$/, ' GB')}, under the ${gb(floor).replace(/G$/, ' GB')} dibs keeps free, so only jobs that write next to nothing start; the rest wait for room`,
       fix: diskFix() });
   return out;
 }
