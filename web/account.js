@@ -147,8 +147,8 @@
   // #join=<machine>.<secret>.<fingerprint> from dibs connect --account. Read on load and on every
   // change after: a link pasted into a tab already on this page changes only the fragment, and a
   // page brought back from the back-forward cache runs no script again.
-  // The emailed link carries its token in the query (?signin=), which mail clients' link wrappers
-  // keep; a link from before had it in the fragment, which still works.
+  // The emailed link carries its token in the fragment (#signin=); ?signin= is taken too, for a
+  // mail wrapper that drops fragments, and loading it spends nothing: it's redeemed from here.
   function takeFragment() {
     const frag = root.location.hash, query = root.location.search;
     if (!frag && !query) return null;
