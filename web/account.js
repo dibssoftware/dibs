@@ -255,8 +255,8 @@
   const RESEND_AFTER = 30e3;
   async function askCode(to) {
     const page = await emailPage;
+    say(page ? 'Opening the email step…' : 'Sending your code…', 'busy');
     if (page) return root.location.assign(`${page}#e=${encodeURIComponent(to)}`);
-    say('Sending your code…');
     const r = await api('POST', '/account/link', { email: to });
     const p = { rid: r.rid, to, exp: r.expires, sent: Date.now() };
     await pending.put(p);
@@ -304,7 +304,7 @@
     if (!p) return signedOut();
     redeeming = true;
     $('code-submit').disabled = true;
-    codeState('Checking…');
+    codeState('Signing in…', 'busy');
     try {
       const res = await api('POST', '/account/code', { rid: p.rid, code });
       await pending.clear();
@@ -402,9 +402,11 @@
   $('passkey-signin').addEventListener('click', async () => {
     if (signingIn) return;
     abortConditional();
+    say('Waiting for your passkey…', 'busy');
     try {
       const { challenge } = await api('POST', '/account/signin/begin', {});
       const cred = await root.navigator.credentials.get({ publicKey: getOptions(challenge) });
+      say('Signing in…', 'busy');
       await passkeySignIn(cred, challenge);
     } catch (x) { say(x.name === 'NotAllowedError' ? 'No passkey was used.' : x.message || 'That passkey didn\'t work.', 'error'); offerAutofill(); }
   });

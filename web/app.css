@@ -887,3 +887,9 @@ button.prog { cursor: pointer; }
 #account .passkey-only { margin-top: 18px; }
 #account .passkey-only p { font-size: 13.5px; margin-bottom: 8px; }
 #account .ways + .sub { margin-top: 16px; }
+/* A wait said in words, with a small spinner: sending, checking, signing in. */
+.signin-card .status { min-height: 1.4em; margin: 10px 0 2px; font-size: 14px; color: var(--ink-2); }
+.signin-card .status.error { color: var(--red-ink); }
+.status.busy::before { content: ''; display: inline-block; width: 11px; height: 11px; margin-right: 8px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: dibs-spin 0.7s linear infinite; }
+@keyframes dibs-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .status.busy::before { animation: none; border-right-color: currentColor; opacity: 0.6; } }
