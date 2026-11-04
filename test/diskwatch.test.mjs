@@ -120,8 +120,11 @@ test('an urgent job a rate limit stops never pauses anyone while it waits', { sk
   assert.equal(fs.existsSync(path.join(cwd, 'conts')), false, 'never stopped and continued');
   assert.match(flat(boss.err), /App Store Connect budget|quota/);
   boss.kill('SIGTERM');
-  fs.writeFileSync(path.join(cwd, 'stop'), '');
-  assert.equal(await low.done, 0);
+  // Ended by dibs, not by its loop: a low job runs at background QoS, which macOS starves
+  // while normal work fills every core, and under the suite at load 35 its loop didn't see
+  // a stop file before the 120 s test limit (2026-11-03).
+  low.kill('SIGTERM');
+  await low.done;
 });
 
 // 2026-10-20: jobs sat paused on "free disk" and their agents heard only when the tool call returned.

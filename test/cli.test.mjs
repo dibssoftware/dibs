@@ -54,7 +54,13 @@ test('bad usage exits 2, says what was wrong, and runs nothing', t => {
 
 test('priority 5 is idle, and a priority with its reason runs', t => {
   const h = tmp(t);
-  assert.equal(sync(h, 'a', ['t', '-p', '5', '--', 'echo', 'idle']).out, 'idle\n');
+  // A hold, not a run: an idle run's command is lowered to background QoS, which macOS runs
+  // only when the cores have time left over. At load 35 on 10 cores (2026-11-03) a shell
+  // loop of 0.08 s took 13.6 s that way, and the idle echo went past the 60 s spawn limit.
+  const idle = sync(h, 'a', ['hold', 't', '-p', '5', '--for', '1m']);
+  assert.equal(idle.code, 0, idle.err);
+  assert.equal(board(h).held[0].prio, 'idle');
+  assert.equal(sync(h, 'a', ['release', 't']).code, 0);
   assert.equal(sync(h, 'a', ['t', '-p', 'high', '-m', 'release blocker', '--', 'echo', 'high']).out, 'high\n');
 });
 
