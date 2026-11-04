@@ -68,7 +68,7 @@
   const SHOWN = {
     unpaired: 'The Mac says this browser isn\'t paired (or was signed out). Run dibs pair --remote for a new link.',
     impostor: 'Something between this browser and your Mac failed a security check, so the connection was dropped. Nothing was sent.',
-    tampered: 'Something between this browser and your Mac failed a security check, so the connection was dropped. Nothing was sent.',
+    tampered: 'Something between this browser and your Mac failed a security check, so the connection was dropped.',
     offline: 'Your Mac isn\'t connected to the relay. Is dibs relay running? (dibs service status)',
     timeout: 'Your Mac took too long to answer. Trying again.',
   };
@@ -176,6 +176,10 @@
     const sigD = await sign(record.keys.privateKey, tx('dibs-hs3-v1', th, sigM));
     chan.send(hs({ t: 'hello3', sig: b64u(sigD) }));
 
+    // The keys are known now, bound to the Mac's signed ephemeral key, so only that Mac can read
+    // what's sent with them: calls go out at once, right behind hello3, instead of a round trip to
+    // the Mac later. The Mac handles hello3 before the next frame (src/relay.mjs data), and its
+    // first frame must still be its 'ready', or the session dies and every call with it.
     const salt = await sha(tx('dibs-hs-keys-v1', th, sigM, sigD));
     const ikm = await hkdfKey(ss);
     const aes = (info, use) => subtle.deriveKey(hkdfParams(salt, info), ikm, { name: 'AES-GCM', length: 256 }, false, [use]);
@@ -196,10 +200,6 @@
       if (!msg) throw fail('tampered', 'a frame held no message');
       return msg;
     }
-    // The first frame is the Mac's proof it derived the same keys.
-    const first = await readFrame(await chan.recv());
-    if (first.t !== 'ready') throw fail('protocol', 'the Mac didn\'t confirm the session');
-
     function die(e) {
       if (dead) return;
       dead = e;
@@ -207,8 +207,14 @@
       for (const p of pending.values()) p.reject(e);
       pending.clear();
     }
+    // The first frame is the Mac's proof it derived the same keys.
+    const confirmed = (async () => {
+      const first = await readFrame(await chan.recv());
+      if (first.t !== 'ready') throw fail('protocol', 'the Mac didn\'t confirm the session');
+    })();
     (async () => {
       try {
+        await confirmed;
         for (;;) {
           const msg = await readFrame(await chan.recv());
           const p = msg.t === 'res' && pending.get(msg.id);
@@ -233,7 +239,7 @@
         pending.set(id, { resolve: v => { clearTimeout(timer); resolve(v); }, reject: e => { clearTimeout(timer); reject(e); } });
       });
     }
-    return { request, close: () => die(fail('closed', 'closed')), get dead() { return dead; } };
+    return { request, confirmed, close: () => die(fail('closed', 'closed')), get dead() { return dead; } };
   }
 
   // IndexedDB: one record per paired Mac, the device's CryptoKeyPair stored as the
@@ -315,7 +321,8 @@
   // session up, reconnecting with backoff and fresh keys each time.
   function remote({ store = idbStore(), WS = root.WebSocket, base = root.location, link = null } = {}) {
     const listeners = new Set();
-    let state = { state: 'connecting', detail: '' };
+    // 'starting' until the pairing records are read: then 'unpaired', or 'connecting' to a Mac.
+    let state = { state: 'starting', detail: '' };
     const set = (s, detail = '') => { state = { state: s, detail }; for (const f of listeners) { try { f(state); } catch {} } };
     let session = null, connecting = null, wait = BACKOFF_MIN, macUp = null, pairTries = 0;
     const wsUrl = mid => `${base.protocol === 'https:' ? 'wss' : 'ws'}://${base.host}/ws/b/${mid}`;
@@ -339,12 +346,16 @@
         set(link ? 'pairing' : 'connecting');
         let r = rec;
         if (link) { r = await pair(chan, link, deviceName(), store); link = null; }
-        session = await open(chan, r);
-        clearTimeout(timer);
-        wait = BACKOFF_MIN;
-        set('ready');
-        return session;
+        const s = session = await open(chan, r);
+        // Calls can go now; the state says ready once the Mac confirms the keys.
+        s.confirmed.then(() => { clearTimeout(timer); wait = BACKOFF_MIN; if (session === s) set('ready'); },
+          e => { if (session === s) session = null; failed(e); });
+        return s;
       } catch (e) {
+        failed(e);
+        throw e;
+      }
+      function failed(e) {
         clearTimeout(timer);
         chan.close(e.message);
         // The relay hears of a new link within a second or so of dibs pair --remote; a link opened
@@ -352,10 +363,11 @@
         if (link && e.relay && e.code === 'pair-expired' && ++pairTries < PAIR_TRIES) set('pairing');
         else if (link && ['pair-expired', 'bad-pair', 'impostor', 'protocol'].includes(e.code)) { link = null; set('error', pairingError(e)); }
         else if (e.code === 'unpaired') set('unpaired', 'the Mac says this browser isn\'t paired (or was signed out). Run dibs pair --remote for a new link.');
-        else if (e.code === 'impostor' || e.code === 'tampered') set('error', 'something between this browser and your Mac failed a security check, so the connection was dropped. Nothing was sent.');
+        else if (e.code === 'impostor') set('error', 'something between this browser and your Mac failed a security check, so the connection was dropped. Nothing was sent.');
+        // A bad frame from the Mac's side comes after the first call went out, sealed for that Mac alone.
+        else if (e.code === 'tampered') set('error', 'something between this browser and your Mac failed a security check, so the connection was dropped.');
         else if (macUp === false) set('offline', 'your Mac isn\'t connected to the relay. Is dibs relay running? (dibs service status)');
         else set('connecting', shown(e));
-        throw e;
       }
     }
     const pairingError = e => (e.code === 'pair-expired' ? 'that link was already used or has expired. Run dibs pair --remote for a new one.'

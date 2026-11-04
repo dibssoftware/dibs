@@ -271,9 +271,10 @@ async function main() {
   // A CSP or Trusted Types refusal on the real page means the policy broke something.
   page.on('console', m => { if (m.type() === 'error' && /Content Security Policy|TrustedHTML|Trusted Type|integrity/i.test(m.text())) errors.push(m.text()); });
   await page.goto(link);
+  // The app shows as soon as there's a Mac to reach, saying what it waits on; the board follows.
   await page.waitForSelector('#app:not([hidden])', { timeout: 30e3 });
+  await until(() => page.evaluate(() => dibsTransport.state.state === 'ready' && !document.querySelector('#eyebrow.busy') && document.getElementById('timeline').childElementCount > 0), 30e3, 'the board');
   assert.equal(await page.evaluate(() => location.hash), '');
-  assert.equal(await page.evaluate(() => dibsTransport.state.state), 'ready');
   const key = await page.evaluate(() => new Promise((resolve, reject) => {
     const r = indexedDB.open('dibs-relay', 1);
     r.onsuccess = () => {
@@ -298,10 +299,15 @@ async function main() {
   for (const word of ['/api/board', '"agents"', '"machine"', 'Chrome on Mac', await tokenOf(page)]) assert.ok(!seen.includes(word), `the relay carried ${word} in the clear`);
   step(`${frames.length} WebSocket frames carried no path, board field or device name in the clear`);
 
+  // The board this browser got is kept for its next visit, with no command lines in it.
+  await page.evaluate(() => dispatchEvent(new Event('pagehide')));
+  const keptBoard = await page.evaluate(() => localStorage.getItem('dibs-board:'));
+  assert.ok(JSON.parse(keptBoard).v.agents, 'the board is kept');
+  assert.doesNotMatch(keptBoard, /"cmd":"[^"]/, 'no command line is kept');
   await page.reload();
   await page.waitForSelector('#app:not([hidden])', { timeout: 30e3 });
-  await until(() => page.evaluate(() => dibsTransport.state.state === 'ready'), 30e3, 'a session after reload');
-  step('a reload opens a fresh session from the stored keys, no link needed');
+  await until(() => page.evaluate(() => dibsTransport.state.state === 'ready' && !document.querySelector('#app.stale')), 30e3, 'a live board after reload');
+  step('a reload draws the kept board at once (no commands in it), then opens a fresh session from the stored keys, no link needed');
 
   // A tab holding this browser's real token is let in; once the Mac goes, it's closed after the
   // grace even while it keeps sending.
@@ -338,7 +344,8 @@ async function main() {
   await page.reload();
   await until(() => page.evaluate(() => dibsTransport.state.state === 'unpaired'), 30e3, 'the revoked page to be refused');
   assert.equal(await page.isVisible('#signin'), true);
-  step('after dibs pair --revoke all the page is refused and shows how to pair again');
+  assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('dibs-board:')).length), 0, 'the kept board goes with the pairing');
+  step('after dibs pair --revoke all the page is refused, shows how to pair again, and the kept board is gone');
 
   // Remote MCP through mcp.dibs.cc (mcp.localhost here): off by default, then the whole sign-in.
   const B = `http://${MCP_HOST}/${mid}`;

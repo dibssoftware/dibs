@@ -821,6 +821,13 @@ button.prog { cursor: pointer; }
 @keyframes appear { to { opacity: 1; } }
 @keyframes turn { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
+/* Through the relay, before the board is live: the line above the title says what the page waits
+   on, with a spinner, and a board kept from the last visit shows dimmed, its buttons off. */
+.eyebrow.busy { color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
+.eyebrow.busy::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--hairline); border-top-color: var(--red); animation: turn 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .eyebrow.busy::before { animation-duration: 2.4s; } }
+.shell.stale .panel .view-body { opacity: 0.6; transition: opacity 200ms ease-out; }
+.shell.stale .panel .view-body button { pointer-events: none; }
 
 /* Machines: a gauge per figure, label, bar, value. */
 .gauge { gap: 16px; }

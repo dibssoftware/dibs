@@ -46,7 +46,7 @@ function wire({ meddle = (dir, b) => [b], call } = {}) {
     recv: () => (inbox.length ? Promise.resolve(inbox.shift()) : closed ? Promise.reject(closed) : new Promise((resolve, reject) => waiters.push({ resolve, reject }))),
     close: why => { shut(why); mac.gone(ch); },
   };
-  return { chan, mac, calls, kicked };
+  return { chan, mac, calls, kicked, deliver };
 }
 
 const linkFrom = s => B.parseLink(`#${new URL(s).hash.slice(1)}`);
@@ -184,6 +184,33 @@ test('a tampered request frame closes the session; the Mac never runs it', async
   await assert.rejects(s.request('GET', '/api/board'));
   assert.equal(w.calls.length, 0);
   assert.match(w.kicked.join(), /decrypt/);
+});
+
+test('the first call goes out right behind hello3, before the Mac confirms the keys, and is answered', async () => {
+  const { rec } = await paired();
+  // A slow relay: the Mac's frames (its ready, then the answer) wait until the call has reached the Mac.
+  const held = [];
+  let hold = true;
+  const w = wire({ meddle: (dir, b) => (hold && dir === 'm2b' && b[0] === relay.T_FRAME ? (held.push(b), []) : [b]) });
+  const s = await B.open(w.chan, rec);
+  const r = s.request('GET', '/api/board');
+  await until(() => w.calls.length === 1);
+  assert.equal(w.calls[0].path, '/api/board', 'the Mac ran the call sent before its ready came back');
+  hold = false;
+  for (const b of held.splice(0)) w.deliver(b);
+  await s.confirmed;
+  assert.deepEqual(await r, { status: 200, json: { echo: '/api/board', n: 1 } });
+});
+
+test('a session whose first frame from the Mac isn\'t its ready dies, with the calls already sent', async () => {
+  const { rec } = await paired();
+  let first = true;
+  // The relay swaps the Mac's ready for a second copy of a later frame: the browser reads seq 0 that doesn't decrypt.
+  const w = wire({ meddle: (dir, b) => { if (first && dir === 'm2b' && b[0] === relay.T_FRAME) { first = false; b = Buffer.from(b); b[b.length - 1] ^= 1; } return [b]; } });
+  const s = await B.open(w.chan, rec);
+  await assert.rejects(s.confirmed, { code: 'tampered' });
+  await assert.rejects(s.request('GET', '/api/board'));
+  assert.ok(s.dead);
 });
 
 test('a tampered answer is refused by the browser and the session closes', async () => {

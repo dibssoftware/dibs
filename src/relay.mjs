@@ -487,7 +487,8 @@ export function macPeer({ k = keys(), send, kick, call, admit = () => {}, clock 
       sid: hkdf(c.ss, salt, 'dibs-relay-v1 sid', 32), seqIn: 0, seqOut: 0, began: clock(), ss: null, th: null,
     });
     try { locked(w => { if (w.devices[c.did]) w.devices[c.did].seen = clock(); }); } catch {}
-    // Key confirmation: the page waits for this before it sends a call.
+    // Key confirmation. The page may already have sent its first call behind hello3 (it reads this
+    // before any answer); that frame is handled after this function, so the keys are in place.
     out(ch, c, { t: 'ready' });
   }
 

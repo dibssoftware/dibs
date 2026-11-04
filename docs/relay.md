@@ -56,7 +56,7 @@ Every connection, including the first right after pairing:
 
 Keys: `salt = SHA-256(tx("dibs-hs-keys-v1", TH, sigM, sigD))`; from the X25519 shared secret, HKDF-SHA-256 with that salt gives `k_b2m` (info "dibs-relay-v1 key b2m"), `k_m2b` ("... key m2b") and the session id `sid` ("... sid"). Both ephemeral private keys are dropped after the exchange, so a later theft of the long-term keys reveals no recorded session (forward secrecy). Both sides signed the same transcript (mutual authentication); a replayed hello3 fails because the Mac's `em` and `nm` are new every time.
 
-4. **ready**: the Mac's first encrypted frame. The page sends no call before it decrypts this (key confirmation).
+4. **ready**: the Mac's first encrypted frame (key confirmation). The page may send its first call right behind hello3, sealed under keys bound to the Mac's signed ephemeral key, so only that Mac can read it; it reads no answer before it decrypts this, and a session without it dies with every call on it. The Mac handles hello3 before the next frame, so the call finds the keys in place.
 
 ## Frames
 

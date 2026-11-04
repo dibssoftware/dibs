@@ -41,17 +41,29 @@
   const signedIn = () => T.remote || !!token.get();
   // A 401: this browser's sign-in (or, through the relay, its pairing) is gone.
   function unauthorized() { if (!T.remote) token.set(null); signin(true); }
-  let data = null, shown = FEED_STEP, timer = 0;
+  let data = null, shown = FEED_STEP, timer = 0, boardLoading = false;
+  // Through the relay the board takes a second or so to come (the encrypted session to the Mac,
+  // then the Mac's answer): until it does, the app shows and says what it's waiting on (note).
+  // Nothing from the board is kept in the browser: it stays end to end.
+  let note = null;
   let [view, chosen] = parseHash();
   let statsSpan = '7d', histSpan = '7d', heatKind = 'run', thread = null, busy = new Set();
 
   // ---- Reads: one cache for everything the page shows ------------------------
   // Each answer is kept by its path with when it came. A view draws at once from
   // what's kept and asks for fresh data behind it, so switching views never waits
-  // on the network. The reports (stats, history: counts and times, no commands
-  // or messages) also go to localStorage, so a new tab draws them at once too.
+  // on the network. The reports (stats, history) also go to localStorage, so a new
+  // tab draws them at once too, but only their numbers and names: every other string
+  // (commands, purposes, reasons, the written summary) is blanked, top commands are
+  // left out, nothing older than a day is drawn, and signing out or unpairing clears them.
   const cache = new Map(), inflight = new Map();
   const STORED = /^\/api\/(stats|history)\b/;
+  const STORED_FOR = 24 * 36e5;
+  const NAME_KEYS = new Set(['who', 'by', 'to', 'act', 'kind', 'type', 'verb', 'rule', 'prio', 'res', 'since', 'name', 'label', 'state', 'id']);
+  const numbersAndNames = (x, k) => (Array.isArray(x) ? (x.every(y => typeof y === 'string') && !NAME_KEYS.has(k) ? [] : x.map(y => numbersAndNames(y, k)))
+    : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).filter(([k2]) => k2 !== 'commands').map(([k2, y]) => [k2, numbersAndNames(y, k2)]))
+      : typeof x === 'string' && !NAME_KEYS.has(k) ? '' : x);
+  const forgetReports = () => { try { for (const k of Object.keys(localStorage)) if (k.startsWith('dibs:/api/')) localStorage.removeItem(k); } catch {} };
   const statsPath = () => `/api/stats?since=${statsSpan}${chosen ? `&agent=${encodeURIComponent(chosen)}` : ''}`;
   const histPath = () => `/api/history?since=${histSpan}`;
   const TODAY = '/api/history?since=1d';
@@ -61,6 +73,7 @@
     if (!STORED.test(path)) return null;
     try {
       const x = JSON.parse(localStorage.getItem(`dibs:${path}`));
+      if (x && !(Date.now() - x.at < STORED_FOR)) { localStorage.removeItem(`dibs:${path}`); return null; }
       // Kept from an earlier visit: it draws now and counts as stale, so it's asked for again.
       if (x?.v) { cache.set(path, { v: x.v, at: 0 }); return x.v; }
     } catch {}
@@ -73,9 +86,7 @@
     const p = get(path).then(v => {
       cache.set(path, { v, at: Date.now() });
       if (STORED.test(path)) {
-        // A stats view's top commands stay out of storage: a command line can say more than it should.
-        const keep = Array.isArray(v?.agents) ? { ...v, agents: v.agents.map(({ commands, ...a }) => a) } : v;
-        try { localStorage.setItem(`dibs:${path}`, JSON.stringify({ v: keep })); } catch {}
+        try { localStorage.setItem(`dibs:${path}`, JSON.stringify({ at: Date.now(), v: numbersAndNames(v) })); } catch {}
       }
       return v;
     }).finally(() => inflight.delete(path));
@@ -87,7 +98,7 @@
     if (v === 'now' || v === 'schedule') return [[TODAY, REPORT_MS]];
     if (v === 'questions') return [['/api/questions', FRESH_MS]];
     if (v === 'progress') return data?.postsApart ? [['/api/posts', FRESH_MS]] : [];
-    if (v === 'messages') return [['/api/threads', FRESH_MS]];
+    if (v === 'messages') return [['/api/threads', FRESH_MS], ['/api/questions', FRESH_MS]];
     if (v === 'later') return [['/api/later', FRESH_MS]];
     if (v === 'machines') return [['/api/machines', FRESH_MS], ...(T.remote ? [] : [['/api/machines/pairs', FRESH_MS]])];
     if (v === 'stats') return [[statsPath(), REPORT_MS]];
@@ -216,11 +227,13 @@
 
   async function load() {
     clearTimeout(timer);
+    boardLoading = true;
     try {
       if (!signedIn()) return signin(true);
       // The posts come apart from the board (src/web.mjs), for the Progress view alone; a Mac from
       // before that ignores ?posts=0 and sends them in the board, as it always did.
       data = await get('/api/board?posts=0');
+      note = null;
       signin(false);
       render();
       refresh();
@@ -228,15 +241,35 @@
       if (data.questions) prefetch('questions');
       if (data.notes) prefetch('messages');
     } catch (e) {
-      if (e.message !== 'signed out') $('eyebrow').textContent = `Can't reach dibs web (${e.message}). Retrying.`;
+      if (e.message !== 'signed out') say(`Can't reach dibs web (${e.message}). Retrying.`, true);
+    } finally {
+      boardLoading = false;
     }
     if (!document.hidden) timer = setTimeout(load, POLL);
+  }
+
+  // The line above the title: what the page waits on while it does, else the day, time and Mac.
+  function say(text, wait = false) {
+    note = text ? { text, wait } : null;
+    drawHead();
+  }
+  function drawHead() {
+    const e = $('eyebrow');
+    const text = note ? note.text
+      : data ? `${new Date(data.now).toLocaleDateString([], { weekday: 'long' })}, ${clock(data.now)}  ·  ${data.name || 'this Mac'}` : '';
+    e.textContent = text;
+    e.classList.toggle('busy', !!note?.wait);
+    // Nothing to draw yet: the jobs list says it's coming.
+    if (!data && note?.wait && !$('timeline').childElementCount) $('timeline').append(loading('Waiting for the board from your Mac'));
   }
 
   function signin(show, detail) {
     $('signin').hidden = !show;
     $('app').hidden = show;
     if (!show) return;
+    // Signed out, unpaired or forgotten: the kept reports go too, and what this tab holds.
+    forgetReports();
+    cache.clear();
     if (!T.remote) return $('code').focus();
     // Away from this Mac there's no code to type: a browser pairs by opening the link dibs pair --remote prints.
     $('signin-form').querySelector('h1').textContent = 'Pair this browser';
@@ -244,9 +277,17 @@
     for (const x of $('signin-form').querySelectorAll('label, input, button')) x.hidden = true;
   }
   T.onState(({ state, detail }) => {
-    if (state === 'unpaired' || state === 'error') signin(true, detail);
-    else if (state === 'offline' || state === 'connecting' || state === 'pairing') $('eyebrow').textContent = state === 'pairing' ? 'Pairing with your Mac.' : detail || 'Connecting to your Mac.';
-    else if (state === 'ready') load();
+    if (state === 'unpaired' || state === 'error') return signin(true, detail);
+    if (!['offline', 'connecting', 'pairing', 'ready'].includes(state)) return;
+    // A paired Mac was found: the app shows at once, saying what it waits on.
+    if ($('app').hidden && $('signin').hidden) signin(false);
+    if (state === 'ready') {
+      if (!data) say('Loading the board from your Mac.', true);
+      // The first load is usually under way already, its call sent with the handshake.
+      if (!boardLoading) load();
+    } else if (!data || state === 'offline') {
+      say(state === 'pairing' ? 'Pairing with your Mac.' : detail ? `${detail[0].toUpperCase()}${detail.slice(1)}${/[.?)]$/.test(detail) ? '' : '.'}` : 'Connecting to your Mac.', state !== 'offline');
+    }
   });
 
   function go(v, who = chosen) {
@@ -292,7 +333,7 @@
     document.querySelector('.rail-row[data-agent=""]').setAttribute('aria-current', String(!chosen));
     meters(data.machine);
 
-    $('eyebrow').textContent = `${new Date(now).toLocaleDateString([], { weekday: 'long' })}, ${clock(now)}  ·  ${data.name || 'this Mac'}`;
+    drawHead();
     // The banners are about what runs now; other views have their own words and the rail's counts.
     $('asks').hidden = !asks || view !== 'now';
     $('asks').replaceChildren();
@@ -333,7 +374,7 @@
       return keep($(`v-${view}`), () => (view === 'progress' ? progressView() : view === 'queues' ? queuesView() : scheduleView()));
     }
     const own = { questions: side.questions, messages: side.threads, stats: side.stats, later: side.later, history: side.history, settings: side.settings, machines: side.machines }[view];
-    const sig = [view, chosen, thread, statsSpan, histSpan, heatKind, lastW, [...busy].join(), confirmLater, view === 'machines' ? JSON.stringify([side.pairs, machineCode, kickArmed]) : ''].join('|');
+    const sig = [view, chosen, thread, streamFor, openAsk, view === 'messages' ? side.questions?.questions.map(x => x.id + x.state).join() : '', statsSpan, histSpan, heatKind, lastW, [...busy].join(), confirmLater, view === 'machines' ? JSON.stringify([side.pairs, machineCode, kickArmed]) : ''].join('|');
     if (drawn && drawn.own === own && drawn.sig === sig && own) return;
     drawn = { own, sig };
     $('title').textContent = view === 'stats' && chosen ? chosen : TITLES[view];
@@ -1298,69 +1339,308 @@
   }
 
   // ---- Messages ------------------------------------------------------------
+  // One conversation per agent: what it said to you and what you said to it. What agents
+  // tell each other and what dibs tells agents are their own streams, quiet, below the
+  // agents. Questions waiting on you sit above everything.
+
+  // The desk: the agent that answers for dibs (Chat.desk in the app).
+  const DESK = 'desk';
+  const nameOfThread = to => (to === DESK ? 'dibs' : to);
+  // The left list's two streams, picked like a thread.
+  const BETWEEN = '#between', DIBS = '#dibs', NEW = '#new';
+  let streamFor = '', picked = new Set(), openAsk = null;
+  const narrow = () => matchMedia('(max-width: 760px)').matches;
+  // A thread's conversation with the person: no receipts (they go under the message they're
+  // about) and no other agent's messages (those are in Between agents).
+  // A worded answer is also copied in as a message to the agent; the answer line already shows it.
+  const talkOf = th => th.messages.filter(m => !m.by && m.kind !== 'delivered' && !(m.kind === 'message' && /^\(answering your question #\d+\) /.test(m.text)));
+  // How a message sent now reaches the agent (reach, from dibs threads --json; older dibs: guessed).
+  const reachOf = th => th.reach || (!th.alive ? 'ended' : th.listening ? 'listening' : 'working');
+  const sub = th => th.to !== th.agent && th.to.startsWith(`${th.agent}/`);
+  const REACH = {
+    listening: 'Listening. It gets messages within seconds.',
+    working: 'Working. It gets messages at its next step.',
+    idle: "Idle and not listening. It won't see messages until it works again.",
+    ended: 'Not running. Messages wait in case it comes back.',
+    command: 'Not a Claude Code session. It gets messages with its next dibs command.',
+  };
+  const REACH_SHORT = { listening: 'listening', working: 'working', idle: 'idle, not listening', ended: 'not running', command: 'outside Claude Code' };
+  const VIA = { tool: 'with its next step', stop: 'as it finished its turn', listen: 'while it was listening', say: 'when it ran dibs say', command: 'with its next dibs command' };
+  const WAITING = {
+    listening: 'Not delivered yet. It gets it within seconds.',
+    working: 'Waiting for its next step.',
+    idle: "Not delivered: it's idle and not listening.",
+    ended: 'Not delivered: it isn\'t running.',
+    command: 'Waiting for its next dibs command.',
+  };
+  // Delivery in plain words, for a message from you or between agents. receipt: the old
+  // "delivered" line about it, for dibs from before deliveredAt.
+  function delivered(m, reach, receipt) {
+    if (m.state === 'queued') return WAITING[reach] || 'Not delivered yet.';
+    if (m.state === 'expired') return 'Never reached it.';
+    const at = m.deliveredAt || receipt?.at;
+    const how = VIA[m.via] || (receipt ? receipt.text.replace(/^got it /, '') : '');
+    return at ? `Delivered ${ago(data.now - at)}${how ? `, ${how}` : ''}.` : 'Delivered.';
+  }
 
   function messages() {
     const box = $('v-messages');
     const t = side.threads;
     if (!t) return box.replaceChildren(loading('Loading messages'));
-    // dibs's desk first, by the name it goes by in the app.
-    const list = [...t.threads].sort((a, b) => (b.to === DESK) - (a.to === DESK));
-    const unread = list.reduce((n, x) => n + x.unread, 0);
-    $('summary').textContent = list.length
-      ? `${plural(list.length, 'thread')}${unread ? `, ${unread} unread` : ''}. A message reaches its agent with its next tool call.`
-      : 'Nothing from agents yet. Agents start a thread with dibs say or dibs question.';
-    if (chosen && list.some(x => x.to === chosen)) thread = chosen;
-    if (!thread || !list.some(x => x.to === thread)) thread = list[0]?.to || null;
-    const left = el('div', 'threads');
-    for (const x of list) {
-      const b = el('button', 'thread');
-      b.type = 'button';
-      b.setAttribute('aria-current', String(x.to === thread));
-      const last = x.messages.filter(m => m.kind !== 'delivered').at(-1);
-      const top = el('span', 'thread-top');
-      top.append(x.to === DESK ? el('span', 'desk-dot', 'd') : el('span', `dot ${x.alive ? (x.working === 'running' ? 'running' : x.working === 'waiting' ? 'waiting' : 'busy') : 'idle'}`),
-        el('b', null, nameOfThread(x.to)), el('span', x.unread ? 'rail-meta count-pill hot' : 'rail-meta', x.unread ? String(x.unread) : ago(data.now - x.last)));
-      b.append(top, el('span', 'thread-last', last ? `${last.from === 'person' ? 'You: ' : ''}${last.text}` : ''));
-      b.addEventListener('click', () => { thread = x.to; chosen = ''; messages(); markRead(x); });
-      left.append(b);
+    const asks = (side.questions?.questions || []).filter(x => x.state === 'open');
+    const all = t.threads.filter(x => talkOf(x).length || x.to === DESK);
+    // An agent picked on the rail opens its conversation, even one with nothing in it yet.
+    if (chosen) thread = chosen;
+    const unread = all.reduce((n, x) => n + x.unread, 0);
+    const askers = [...new Set(asks.map(x => x.agent || x.who))];
+    $('summary').textContent = askers.length === 1 ? `${askers[0]} is waiting on your answer.`
+      : askers.length ? `${askers.length} agents are waiting on your answers.`
+      : unread ? `${plural(unread, 'unread message')} from agents.` : 'Nothing is waiting on you.';
+    if (!thread && !narrow()) thread = all.find(x => x.to === DESK)?.to || all[0]?.to || BETWEEN;
+
+    const out = [];
+    // The oldest question, small enough to leave room for the conversations; the whole ask on a click.
+    if (asks.length) {
+      const sec = el('section', 'waiting-on-you');
+      const x = asks[0];
+      const w = el('div', `ticket-wrap ask-wrap compact${openAsk === x.id ? ' open' : ''}`);
+      const card = askCard(x);
+      const more = button('linkish', openAsk === x.id ? 'Less' : 'Why, and answer in your own words', () => { openAsk = openAsk === x.id ? null : x.id; renderView(); });
+      card.querySelector('.ask-head').append(more);
+      w.append(card);
+      sec.append(w);
+      if (asks.length > 1) sec.append(button('linkish', `${plural(asks.length - 1, 'more question')} waiting`, () => go('questions', '')));
+      out.push(sec);
     }
-    const th = list.find(x => x.to === thread);
-    const right = el('div', 'convo');
-    if (th) {
-      markRead(th);
-      const head = el('div', 'convo-head');
-      head.append(el('h2', null, nameOfThread(th.to)), el('span', 'sec-note', th.to === DESK ? 'dibs answers about the machine and the agents' : th.alive ? (th.working || 'running') : 'not running; your messages wait for it'));
-      const log = el('ol', 'msgs');
-      for (const m of th.messages) log.append(message(m, th));
-      const form = el('form', 'say');
-      const input = el('textarea');
-      input.rows = 2;
-      input.maxLength = 4000;
-      input.placeholder = th.to === DESK ? 'Ask dibs' : `Message ${th.to}`;
-      input.dataset.keep = `tell-${th.to}`;
-      input.setAttribute('aria-label', `Message ${th.to}`);
-      const send = el('button', 'btn', 'Send');
-      send.type = 'submit';
-      send.disabled = busy.has(`tell-${th.to}`);
-      form.append(input, send);
-      const submit = async e => {
-        e?.preventDefault();
-        if (!input.value.trim()) return;
-        const r = await post('/api/tell', { to: th.to, text: input.value }, `tell-${th.to}`);
-        if (r && !r.error) input.value = '';
-      };
-      form.addEventListener('submit', submit);
-      input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e); });
-      right.append(head, log, form);
-      requestAnimationFrame(() => { if (!log.dataset.held) log.scrollTop = log.scrollHeight; });
-    } else right.append(el('p', 'empty', 'Pick a thread.'));
-    box.replaceChildren(el('div', 'talk'));
-    box.firstChild.append(left, right);
+    const talk = el('div', `talk${thread ? ' open' : ''}`);
+    talk.append(threadList(all, t), pane(all, t));
+    out.push(talk);
+    box.replaceChildren(...out);
+    // The panes end at the window's bottom edge, so the box to write in is always on screen.
+    if (!narrow()) requestAnimationFrame(() => {
+      const top = talk.getBoundingClientRect().top + (document.querySelector('.panel')?.scrollTop || 0);
+      talk.style.height = `${Math.max(380, innerHeight - top - 28)}px`;
+      // Newest at the bottom, scrolled to once the pane has its final height.
+      for (const log of talk.querySelectorAll('.msgs')) log.scrollTop = log.scrollHeight;
+    });
   }
 
-  // The desk: the agent that answers for dibs (Chat.desk in the app).
-  const DESK = 'desk';
-  const nameOfThread = to => (to === DESK ? 'dibs' : to);
+  // The desk first, then each agent by its latest word, its subagents under it.
+  function ordered(all) {
+    const mains = all.filter(x => !sub(x)).sort((a, b) => (b.to === DESK) - (a.to === DESK) || b.last - a.last);
+    const subs = all.filter(sub);
+    const out = [];
+    for (const m of mains) out.push(m, ...subs.filter(s => s.agent === m.agent).sort((a, b) => b.last - a.last));
+    return [...out, ...subs.filter(s => !out.includes(s))];
+  }
+
+  function threadList(all, t) {
+    const left = el('nav', 'threads');
+    left.setAttribute('aria-label', 'Conversations');
+    const pick = to => () => { thread = to; chosen = ''; streamFor = ''; go('messages', ''); };
+    const fresh = button(`thread new${thread === NEW ? ' on' : ''}`, 'New message', pick(NEW));
+    fresh.setAttribute('aria-current', String(thread === NEW));
+    left.append(fresh);
+    for (const x of ordered(all)) {
+      const b = el('button', `thread${sub(x) && all.some(m => m.agent === x.agent && !sub(m)) ? ' sub' : ''}`);
+      b.type = 'button';
+      b.setAttribute('aria-current', String(x.to === thread));
+      const reach = reachOf(x);
+      const last = talkOf(x).at(-1);
+      const top = el('span', 'thread-top');
+      top.append(x.to === DESK ? el('span', 'desk-dot', 'd') : el('span', `dot ${reach === 'listening' || reach === 'working' ? 'busy' : 'idle'}`),
+        el('b', null, sub(x) && b.classList.contains('sub') ? x.to.slice(x.agent.length + 1) : nameOfThread(x.to)),
+        el('span', x.unread ? 'rail-meta count-pill hot' : 'rail-meta', x.unread ? String(x.unread) : ago(data.now - x.last)));
+      b.append(top, el('span', 'thread-last', last ? `${last.from === 'person' ? 'You: ' : ''}${last.text}` : REACH_SHORT[reach]));
+      b.addEventListener('click', pick(x.to));
+      left.append(b);
+    }
+    // The two streams nobody has to read: no red, a plain count.
+    const stream = (key, title, list, line) => {
+      const b = el('button', 'thread stream');
+      b.type = 'button';
+      b.setAttribute('aria-current', String(thread === key));
+      const top = el('span', 'thread-top');
+      top.append(el('span'), el('b', null, title), el('span', 'rail-meta', list.length ? String(list.length) : ''));
+      const l = list.at(-1);
+      b.append(top, el('span', 'thread-last', l ? line(l) : 'Nothing yet'));
+      b.addEventListener('click', pick(key));
+      return b;
+    };
+    left.append(el('hr', 'threads-rule'),
+      stream(BETWEEN, 'Between agents', t.between || [], m => `${m.from}${m.fromGone ? ' (old name)' : ''} to ${m.to || 'another agent'}: ${m.text}`),
+      stream(DIBS, 'From dibs', t.fromDibs || [], m => `To ${m.to}: ${m.text}`));
+    return left;
+  }
+
+  function pane(all, t) {
+    const right = el('section', 'convo');
+    const back = button('btn quiet small back', 'All messages', () => { thread = null; chosen = ''; go('messages', ''); });
+    if (thread === BETWEEN) return betweenPane(right, back, t.between || []);
+    if (thread === DIBS) return dibsPane(right, back, t.fromDibs || []);
+    if (thread === NEW) return newPane(right, back, all);
+    if (!thread) return right;
+    const th = t.threads.find(x => x.to === thread) || { to: thread, agent: thread, alive: true, unread: 0, last: 0, messages: [], reach: agentReach(thread) };
+    markRead(th);
+    const reach = reachOf(th);
+    const head = el('header', 'convo-head');
+    const others = (t.between || []).filter(m => m.from === th.to || m.to === th.to || m.from === th.agent).length;
+    head.append(el('h2', null, nameOfThread(th.to)), el('span', 'sec-note', th.to === DESK ? 'dibs answers about the machine and the agents' : REACH[reach]));
+    if (others) head.append(button('linkish', `${plural(others, 'message')} with other agents`, () => { thread = BETWEEN; streamFor = th.to; chosen = ''; go('messages', ''); }));
+    const log = el('ol', 'msgs');
+    const receipts = new Map(th.messages.filter(m => m.kind === 'delivered' && m.about).map(m => [m.about, m]));
+    const lines = talkOf(th);
+    for (const m of lines) log.append(message(m, th, reach, receipts.get(m.id)));
+    if (!lines.length) log.append(el('li', 'msg sys', `Nothing between you and ${nameOfThread(th.to)} yet.`));
+    right.append(back, head, log, composer(th, reach));
+    requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+    return right;
+  }
+
+  // An agent on the board with no thread yet: how a message would reach it.
+  function agentReach(who) {
+    const a = data.agents.find(x => x.who === who);
+    return a?.listening ? 'listening' : 'working';
+  }
+
+  function composer(th, reach) {
+    const form = el('form', 'say compose');
+    const to = el('p', 'compose-to');
+    to.append('To ', el('b', null, nameOfThread(th.to)), th.to === DESK ? '' : ` (${REACH_SHORT[reach]})`);
+    const input = el('textarea');
+    input.rows = 2;
+    input.maxLength = 4000;
+    input.placeholder = th.to === DESK ? 'Ask dibs' : `Message ${th.to}`;
+    input.dataset.keep = `tell-${th.to}`;
+    input.setAttribute('aria-label', `Message ${th.to}`);
+    const send = el('button', 'btn', 'Send');
+    send.type = 'submit';
+    send.disabled = busy.has(`tell-${th.to}`);
+    const row = el('div', 'compose-row');
+    row.append(input, send);
+    form.append(to, row);
+    const submit = async e => {
+      e?.preventDefault();
+      if (!input.value.trim()) return;
+      const r = await post('/api/tell', { to: th.to, text: input.value }, `tell-${th.to}`);
+      if (r && !r.error) input.value = '';
+    };
+    form.addEventListener('submit', submit);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e); });
+    return form;
+  }
+
+  // Writing to one agent or several at once: each gets its own copy in its own conversation.
+  function newPane(right, back, all) {
+    const head = el('header', 'convo-head');
+    head.append(el('h2', null, 'New message'));
+    const live = new Map();
+    for (const x of all) if (x.to !== DESK && reachOf(x) !== 'ended') live.set(x.to, reachOf(x));
+    for (const a of data.agents) if (!live.has(a.who)) live.set(a.who, a.listening ? 'listening' : 'working');
+    const list = el('fieldset', 'pick-to');
+    list.append(el('legend', null, 'To'));
+    for (const [to, reach] of live) {
+      const l = el('label', 'pick-row');
+      const c = el('input');
+      c.type = 'checkbox';
+      c.checked = picked.has(to);
+      c.addEventListener('change', () => { c.checked ? picked.add(to) : picked.delete(to); sendBtn.textContent = label(); sendBtn.disabled = !picked.size; });
+      l.append(c, el('span', null, to), el('span', 'sec-note', REACH_SHORT[reach]));
+      list.append(l);
+    }
+    if (!live.size) list.append(el('p', 'empty', 'No agent is running.'));
+    const form = el('form', 'say compose');
+    const input = el('textarea');
+    input.rows = 3;
+    input.maxLength = 4000;
+    input.placeholder = 'Message';
+    input.dataset.keep = 'tell-new';
+    input.setAttribute('aria-label', 'Message');
+    const label = () => (picked.size > 1 ? `Send to ${picked.size}` : 'Send');
+    const sendBtn = el('button', 'btn', label());
+    sendBtn.type = 'submit';
+    sendBtn.disabled = !picked.size || busy.has('tell-new');
+    const row = el('div', 'compose-row');
+    row.append(input, sendBtn);
+    form.append(row);
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text || !picked.size) return;
+      busy.add('tell-new');
+      sendBtn.disabled = true;
+      // One by one: each answer says how that agent gets it.
+      const said = [], failed = [];
+      for (const to of picked) {
+        try {
+          const r = await T.fetchApi('POST', '/api/tell', { to, text });
+          if (r.status === 200) said.push(r.json?.said?.split('\n').filter(Boolean).at(-1) || `queued for ${to}`);
+          else failed.push(`${to}: ${r.json?.error || r.status}`);
+        } catch (x) { failed.push(`${to}: ${x.message}`); }
+      }
+      busy.delete('tell-new');
+      toast([...said, ...failed.map(f => `Not sent to ${f}`)].join(' '), !!failed.length);
+      if (!failed.length) { input.value = ''; picked = new Set(); }
+      load();
+      refresh(view, true);
+    });
+    right.append(back, head, list, form);
+    return right;
+  }
+
+  function betweenPane(right, back, list) {
+    const head = el('header', 'convo-head');
+    head.append(el('h2', null, 'Between agents'), el('span', 'sec-note', 'What agents tell each other. Nothing here needs you.'));
+    if (streamFor) head.append(button('linkish', `Only ${streamFor}. Show all`, () => { streamFor = ''; renderView(); }));
+    const reachBy = new Map((side.threads?.threads || []).map(x => [x.to, reachOf(x)]));
+    const shown = list.filter(m => !streamFor || m.from === streamFor || m.to === streamFor || m.to?.startsWith(`${streamFor}/`));
+    const log = el('ol', 'msgs stream-log');
+    for (const m of shown) {
+      const li = el('li', 'srow-msg');
+      const meta = el('p', 'msg-meta');
+      meta.append(el('b', null, m.from), m.fromGone ? ' (no agent answers to this name now)' : '', ' to ', el('b', null, m.to || 'another agent'), `, ${ago(data.now - m.at)}`);
+      // Written with plain dibs say, so it reached you, not the agent it was for.
+      li.append(meta, clamp(m.text), el('p', `msg-meta${m.state === 'queued' ? ' late' : ''}`, m.viaSay ? 'Sent with dibs say, so it came to you, not to the agent.' : delivered(m, reachBy.get(m.to) || 'working')));
+      log.append(li);
+    }
+    if (!shown.length) log.append(el('li', 'msg sys', 'No agent has messaged another this week.'));
+    right.append(back, head, log);
+    requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+    return right;
+  }
+
+  function dibsPane(right, back, list) {
+    const head = el('header', 'convo-head');
+    head.append(el('h2', null, 'From dibs'), el('span', 'sec-note', 'What dibs tells agents about their jobs. Nothing here needs you.'));
+    const log = el('ol', 'msgs stream-log');
+    for (const m of list) {
+      const li = el('li', 'srow-msg');
+      const meta = el('p', 'msg-meta');
+      meta.append('To ', el('b', null, m.to), `, ${ago(data.now - m.at)}`);
+      li.append(meta, clamp(m.text));
+      if (m.kind === 'notice') li.append(el('p', 'msg-meta', m.state === 'expired' ? 'Never reached it: it stopped mattering after an hour.' : delivered(m, 'working')));
+      log.append(li);
+    }
+    if (!list.length) log.append(el('li', 'msg sys', 'dibs hasn\'t told any agent anything this week.'));
+    right.append(back, head, log);
+    requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+    return right;
+  }
+
+  // Long text shows four lines until it's clicked.
+  function clamp(text) {
+    const p = el('p', 'stream-text', text);
+    if (text.length > 280 || text.split('\n').length > 4) {
+      p.classList.add('clamped');
+      p.tabIndex = 0;
+      p.title = `${press()} to read it all`;
+      const open = () => { p.classList.remove('clamped'); p.removeAttribute('title'); p.tabIndex = -1; };
+      p.addEventListener('click', open);
+      p.addEventListener('keydown', e => { if (e.key === 'Enter') open(); });
+    }
+    return p;
+  }
+
   const reading = new Set();
   function markRead(th) {
     if (!th.unread || reading.has(th.to)) return;
@@ -1369,23 +1649,27 @@
       .finally(() => { reading.delete(th.to); pull('/api/threads', 0).catch(() => {}); });
   }
 
-  function message(m, th) {
+  function message(m, th, reach, receipt) {
     const mine = m.from === 'person';
-    const li = el('li', `msg ${mine ? 'me' : m.from === 'dibs' ? 'sys' : 'them'}${m.kind === 'delivered' ? ' sys' : ''}`);
-    const meta = el('span', 'msg-meta', `${mine ? (m.by ? `${m.by} (an agent)` : 'You') : m.from === 'dibs' ? 'dibs' : nameOfThread(th.to)}, ${ago(data.now - m.at)}`);
+    const li = el('li', `msg ${mine ? 'me' : 'them'}${m.kind === 'decided' ? ' sys' : ''}`);
+    const meta = el('span', 'msg-meta', `${mine ? 'You' : nameOfThread(th.to)}, ${ago(data.now - m.at)}`);
     let text = m.text;
     if (m.kind === 'question') text = `Asked: ${m.text}`;
-    if (m.kind === 'decided') text = `Decided it themselves: ${m.text} -> ${m.answer}`;
+    if (m.kind === 'decided') text = `Decided it themselves: ${m.text} ${m.answer ? `Chose ${m.answer}.` : ''}`;
     if (m.kind === 'answer') text = `Answered: ${m.text}`;
-    const body = el('p', 'msg-text', text);
-    li.append(meta, body);
+    // An open question is asked in its card above the conversations: here it's one line.
+    if (m.kind === 'question' && m.state === 'open' && side.questions?.questions.some(x => x.id === m.questionId && x.state === 'open')) {
+      li.append(el('span', 'msg-meta late', `${nameOfThread(th.to)} asked you something, ${ago(data.now - m.at)}. Waiting on your answer, above.`));
+      return li;
+    }
+    li.append(meta, el('p', 'msg-text', text));
     if (m.kind === 'question' && m.state === 'open' && m.questionId != null) {
       const row = el('div', 'ask-opts');
       for (const o of m.options || []) row.append(button(`btn${o === m.recommend ? ' primary' : ''}`, o === m.recommend ? `${o} (recommended)` : o, () => post(`/api/questions/${m.questionId}/answer`, { text: o }, `q-${m.questionId}`)));
       row.append(button('btn quiet', 'Not now', () => post(`/api/questions/${m.questionId}/dismiss`, {}, `q-${m.questionId}`)));
       li.append(row);
     }
-    if (m.state === 'queued') li.append(el('span', 'msg-meta', 'not delivered yet'));
+    if (mine && m.kind === 'message') li.append(el('span', `msg-meta after${m.state === 'queued' ? ' late' : ''}`, delivered(m, reach, receipt)));
     return li;
   }
 
