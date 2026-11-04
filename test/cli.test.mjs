@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync as dibs, bg, until, board, allLow, BIN, MACHINE, G } from './helpers.mjs';
+import { spawnSync } from 'node:child_process';
+import { tmp, sync as dibs, bg, until, board, allLow, BIN, MACHINE, G, env } from './helpers.mjs';
 import { freeDisk } from '../src/platform.mjs';
 import { VERSION } from '../src/version.mjs';
 
@@ -216,6 +217,55 @@ test('a lock left by a dead writer is taken over', t => {
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, 'ran\n');
   assert.ok(!fs.existsSync(lock));
+});
+
+// dibs with fs patched by a preload, to make the lock race happen on cue (2026-11-04, exit 70 twice).
+function patched(t, h, patch, args) {
+  const pre = path.join(tmp(t, 'pre'), 'patch.mjs');
+  fs.writeFileSync(pre, `import fs from 'node:fs';\nconst LOCK = ${JSON.stringify(path.join(h, 'lock'))};\n${patch}\n`);
+  const r = spawnSync(process.execPath, ['--import', pre, BIN, ...args], { env: env(h, { agent: 'a' }), encoding: 'utf8', timeout: 60e3 });
+  return { code: r.status, out: r.stdout, err: r.stderr };
+}
+
+test('a stale lock replaced by a fresh one before the takeover: the fresh one is never taken from its writer', t => {
+  const h = tmp(t);
+  const lock = path.join(h, 'lock');
+  // Stale and pid-less, as a writer that died before writing its pid leaves it.
+  fs.mkdirSync(lock);
+  const old = new Date(Date.now() - 10e3);
+  fs.utimesSync(lock, old, old);
+  const log = path.join(h, 'fresh.json');
+  // Just before this dibs moves the stale lock aside, another writer's fresh lock replaces it
+  // (still without its pid). Record when that fresh lock is removed, and how old it was then.
+  const r = patched(t, h, `
+const rename = fs.renameSync, rm = fs.rmSync;
+let fresh = null;
+fs.renameSync = (a, b) => {
+  if (a === LOCK && !fresh && String(b).includes('.stale-')) { fs.rmdirSync(LOCK); fs.mkdirSync(LOCK); fresh = { ino: fs.statSync(LOCK).ino, at: Date.now() }; }
+  return rename(a, b);
+};
+fs.rmSync = (p, o) => {
+  try { if (fresh && !fresh.gone && fs.statSync(p).ino === fresh.ino) { fresh.gone = Date.now() - fresh.at; fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(fresh)); } } catch {}
+  return rm(p, o);
+};`, ['t', '--', 'echo', 'ran']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, 'ran\n');
+  const fresh = JSON.parse(fs.readFileSync(log, 'utf8'));
+  assert.ok(fresh.gone >= 2900, `the fresh lock was taken ${fresh.gone} ms after it was made, before it could look stale`);
+});
+
+test('a lock taken from this dibs before its pid went in: it waits its turn again, no crash', t => {
+  const h = tmp(t);
+  // The first pid write finds the lock directory gone, as when a takeover moved it aside.
+  const r = patched(t, h, `
+const write = fs.writeFileSync;
+let once = false;
+fs.writeFileSync = (p, ...rest) => {
+  if (!once && p === LOCK + '/pid') { once = true; fs.rmSync(LOCK, { recursive: true, force: true }); }
+  return write(p, ...rest);
+};`, ['t', '--', 'echo', 'ran']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, 'ran\n');
 });
 
 test('the update notice: one line, once per agent per version, and never on a fresh install', t => {

@@ -23,17 +23,27 @@ export function withState(fn) {
       // Take the lock over only from a writer that died holding it, or one stuck
       // for 30s. The age check matters: the pid we read may belong to a writer
       // that just finished, while the directory is already someone's fresh lock.
-      let pid = 0, age = 0;
+      // The lock judged is the one taken over (takeOver checks its inode): judged stale, it can be
+      // replaced by a fresh one before the rename, and on 2026-11-04 a takeover moved a fresh lock
+      // aside before its writer had put its pid in, and that writer crashed (exit 70).
+      let pid = 0, st;
+      try { st = fs.statSync(paths.lock); } catch { continue; }
       try { pid = Number(fs.readFileSync(owner, 'utf8')); } catch {}
-      try { age = now() - fs.statSync(paths.lock).mtimeMs; } catch { continue; }
-      if (age > 30000 || (age > 3000 && (!pid || !makeAlive([pid])(pid)))) takeOver(pid);
+      const age = now() - st.mtimeMs;
+      if (age > 30000 || (age > 3000 && (!pid || !makeAlive([pid])(pid)))) takeOver(st);
       if (now() - t0 > 45000) die(`state lock stuck; remove ${paths.lock} if no dibs is running. Your command did not run.`, 75);
       sleepSync(10 + Math.random() * 20);
       continue;
     }
     // A lock with no pid in it (a full disk) would hold everyone up until it looked stale: give it back now.
+    // Gone before the pid went in (taken over by an older dibs that judged it stale): not ours, so
+    // nothing to give back, and the caller waits its turn again instead of crashing.
     try { fakeFull('lock'); fs.writeFileSync(owner, String(process.pid)); break; }
-    catch (e) { fs.rmSync(paths.lock, { recursive: true, force: true }); throw e; }
+    catch (e) {
+      if (e.code === 'ENOENT') continue;
+      fs.rmSync(paths.lock, { recursive: true, force: true });
+      throw e;
+    }
   }
   let written = false, moved = false;
   vanished = [];
@@ -90,14 +100,15 @@ export function withStateIfRoom(fn) {
   try { return withState(fn); } catch (e) { if (noSpace(e)) return undefined; throw e; }
 }
 
-// Move the stale lock aside atomically, then check it was the one we judged.
-// If another waiter replaced it in between, put theirs back.
-function takeOver(pid) {
+// Move the stale lock aside atomically, then check it was the one we judged, by inode: its pid
+// can't tell, since a fresh lock has none yet and reads as the same 0 as a pid-less stale one.
+// If another waiter's lock had replaced it in between, put theirs back.
+export function takeOver(judged) {
   const aside = `${paths.lock}.stale-${process.pid}-${now()}`;
   try { fs.renameSync(paths.lock, aside); } catch { return; }
-  let got = 0;
-  try { got = Number(fs.readFileSync(path.join(aside, 'pid'), 'utf8')); } catch {}
-  if (got === pid) fs.rmSync(aside, { recursive: true, force: true });
+  let ino = null;
+  try { ino = fs.statSync(aside).ino; } catch {}
+  if (ino === judged.ino) fs.rmSync(aside, { recursive: true, force: true });
   else try { fs.renameSync(aside, paths.lock); } catch { fs.rmSync(aside, { recursive: true, force: true }); }
 }
 
