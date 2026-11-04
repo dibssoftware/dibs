@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
+import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
@@ -63,12 +64,15 @@ async function skipPasskey(page) {
 }
 const linkIn = text => text.match(/http:\/\/localhost:\d+\/account#signin=[A-Za-z0-9_-]+/)[0];
 const codeIn = text => text.match(/\b(\d{3}) (\d{3})\b/).slice(1).join('');
-const signedIn = page => page.waitForSelector('[data-view="signed-in"]:not([hidden]), [data-view="passkey-offer"]:not([hidden])', { timeout: 15e3 });
+const signedIn = page => page.waitForSelector('[data-view="signed-in"]:not([hidden]), [data-view="passkey-offer"]:not([hidden])', { timeout: 15e3 })
+  .catch(async e => { throw new Error(`${e.message}\nshowing: ${await page.evaluate(() => [...document.querySelectorAll('[data-view]')].filter(x => !x.hidden).map(x => x.dataset.view).join(',') + ' | ' + document.getElementById('status').textContent + ' | ' + location.href).catch(x => x.message)}`); });
 
 async function main() {
   assert.equal(spawnSync(process.execPath, ['build.mjs'], { cwd: HERE }).status, 0);
   wrangler = spawn(path.join(HERE, 'node_modules', '.bin', 'wrangler'), ['dev', '--env', 'local', '--ip', '127.0.0.1', '--port', String(PORT), '--inspector-port', '0',
-    '--var', `ACCOUNT_SECRET:${crypto.randomBytes(32).toString('base64url')}`], { cwd: HERE, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+    '--var', `ACCOUNT_SECRET:${crypto.randomBytes(32).toString('base64url')}`,
+    // Every sign-in here comes from one address, more than a person's ten in ten minutes.
+    '--var', 'ACCOUNT_LIMITS:{"SIGNINS_PER_IP":200,"LINKS_PER_IP":200}'], { cwd: HERE, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1', NO_COLOR: '1' } });
   wrangler.log = '';
   wrangler.stdout.on('data', d => (wrangler.log += d));
@@ -76,6 +80,10 @@ async function main() {
   await until(async () => { try { return (await fetch(`${ORIGIN}/account`)).ok; } catch { return false; } }, 90e3, `wrangler dev\n${wrangler.log}`);
   step('relay Worker up');
 
+  // The wrapper: /url?q=<link> answers with a redirect to the link.
+  const wrapSrv = http.createServer((req, res) => { res.writeHead(302, { Location: new URL(req.url, 'http://x').searchParams.get('q') }); res.end(); });
+  await new Promise(r => wrapSrv.listen(0, '127.0.0.1', r));
+  const WRAPPER = `http://127.0.0.1:${wrapSrv.address().port}`;
   let n = 0;
   const engines = (process.env.ENGINES || 'chromium,firefox,webkit').split(',');
   for (const name of engines) {
@@ -141,6 +149,29 @@ async function main() {
     await away.goto(linkIn(mail3));
     await signedIn(away);
     step(`${name}: the link opened in another browser (another context) signs in there`);
+
+    // A mail client's link wrapper (Gmail's google.com/url?q=, Outlook Safe Links): a redirect
+    // to the link, which the query-string token survives.
+    const mail4 = await ask(asker, `wrapped-${name}@example.com`);
+    const wrapped = await (await b.newContext()).newPage();
+    await wrapped.goto(`${WRAPPER}/url?q=${encodeURIComponent(linkIn(mail4))}`);
+    await signedIn(wrapped);
+    assert.equal(await wrapped.evaluate(() => location.search + location.hash), '', 'the token is out of the address bar');
+    step(`${name}: the link through a mail client's redirect wrapper signs in`);
+
+    // A wrapper that drops the fragment can be given the ?signin= form instead: loading the page
+    // spends nothing (a mail scanner's prefetch runs no script); the page takes the token out of
+    // the address bar and redeems it from script.
+    const mail5 = await ask(asker, `query-${name}@example.com`);
+    const q = await (await b.newContext()).newPage();
+    const token = linkIn(mail5).split('#signin=')[1];
+    const plain = await fetch(`${ORIGIN}/account?signin=${token}`);
+    assert.equal(plain.headers.get('cache-control'), 'no-store');
+    assert.equal(plain.headers.get('referrer-policy'), 'no-referrer');
+    await q.goto(`${ORIGIN}/account?signin=${token}`);
+    await signedIn(q);
+    assert.equal(await q.evaluate(() => location.search), '');
+    step(`${name}: the ?signin= form loads without spending the link (a plain fetch first) and signs in from the page`);
     n++;
   }
   assert.equal(n, engines.length);

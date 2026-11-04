@@ -1,9 +1,11 @@
 'use strict';
 // The person check before a sign-in code is sent (web/email.html, served at mcp.dibs.cc/email).
 // The account page sends the address here in the fragment (#e=<address>), which never reaches a
-// server; Turnstile's token comes, the relay checks it with Cloudflare and sends the code, and
-// this page goes straight back to the account page with the request's id (#code=<id>) for the
-// code to be typed there. Opened by hand, it asks for the address first.
+// server. The person clicks Send code once Turnstile is happy: never sent by itself, or any site
+// could open this page for its visitors and spend their checks mailing codes to addresses it
+// picks (relayreview, 2026-11-03). The relay checks the token with Cloudflare and sends the code,
+// and this page goes back to the account page with the request's id (#code=<id>) for the code
+// to be typed there.
 (function (root) {
   const $ = id => root.document.getElementById(id);
   const say = (text, cls = '') => { const p = $('status'); p.textContent = text; p.className = `status ${cls}`; };
@@ -38,13 +40,10 @@
     try { c = await (await root.fetch('/email/config')).json(); } catch {}
     if (!c.sitekey || !c.page) return say('Email sign-in isn\'t set up here. Sign in with a passkey instead.', 'error');
     page = c.page;
-    if (given) {
-      $('lede').textContent = `Checking you're a person, then a 6-digit code goes to ${given}.`;
-      say('Checking…');
-    }
+    if (given) $('lede').textContent = `A quick check that you're a person, then send a 6-digit code to ${given}.`;
     widget = root.turnstile.render('#human', {
       sitekey: c.sitekey, action: 'account-link',
-      callback: t => { token = t; $('send').disabled = false; if (given) send(); else say(''); },
+      callback: t => { token = t; $('send').disabled = false; say(''); $('send').focus(); },
       'expired-callback': () => { token = null; $('send').disabled = true; },
       'error-callback': () => say('The check that you\'re a person couldn\'t load. Reload the page.', 'error'),
     });

@@ -8,6 +8,7 @@
 //   k:<cred id>      { aid }                         which account a passkey belongs to
 //   l:<sha(token)>   { eh, exp, q }                  a sign-in link, 10 minutes, one use (q: its code's key)
 //   q:<sha(rid)>     { eh, exp, code, tries, l }      the code mailed with it, by the asking page's request id
+//   w:<day>:<eh>     { n, exp }                      wrong codes an address took that day
 //   s:<sha(token)>   { aid, exp, created, how }      a session, 30 days
 //   u:<challenge>    { exp }                         a WebAuthn challenge already used, 5 minutes
 //   r:<hour>:<what>  { n, exp }                      sign-in links sent that hour, per IP, address, both, or all
@@ -27,6 +28,8 @@ export const LINK_LIFE = 10 * 60e3;
 // Wrong codes one request takes before it's gone: 5 tries at a 6-digit code is a 1 in 200,000
 // chance, and every request takes Turnstile and the link limits above.
 export const CODE_TRIES = 5;
+// Wrong codes an address may take in a day across all its requests, before only its links work.
+export const WRONG_CODES_PER_DAY = 10;
 export const SESSION_LIFE = 30 * 24 * 36e5;
 export const CHALLENGE_LIFE = 5 * 60e3;
 export const APPROVAL_LIFE = 10 * 60e3;
@@ -37,7 +40,7 @@ export const APPROVAL_LIFE = 10 * 60e3;
 export const LINKS_PER_EMAIL_IP = 3, LINKS_PER_EMAIL = 20, LINKS_PER_IP = 10, LINKS_GLOBAL = 300;
 // Sign-in attempts (links redeemed, passkeys): per IP in 10 minutes.
 export const SIGNINS_PER_IP = 10;
-const HOUR = 36e5, TEN_MIN = 10 * 60e3;
+const HOUR = 36e5, TEN_MIN = 10 * 60e3, DAY = 24 * HOUR;
 export const MAX_KEYRING = 64 * 1024;
 export const MAX_CREDS = 10, MAX_MEMBERS = 50, MAX_PENDING = 5;
 // Open approval requests per session: one browser asks once (twice if it retries), so a single
@@ -64,7 +67,8 @@ export class AccountBook {
     this.s = storage;
     this.secret = secret;
     this.rp = { rpId, origin };
-    this.lim = { LINKS_PER_EMAIL_IP, LINKS_PER_EMAIL, LINKS_PER_IP, LINKS_GLOBAL, SIGNINS_PER_IP, ...limits };
+    this.lim = { LINKS_PER_EMAIL_IP, LINKS_PER_EMAIL, LINKS_PER_IP, LINKS_GLOBAL, SIGNINS_PER_IP, WRONG_CODES_PER_DAY, ...limits };
+    this.codeTurns = new Map();
     this.counts = new Map();
     // Sign-in challenges in flight: so two finishes with one challenge can't both pass.
     this.inflight = new Set();
@@ -128,27 +132,50 @@ export class AccountBook {
   }
 
   // The code typed on the page that asked, against its request: once, CODE_TRIES wrong at most.
+  // Guesses at one request run one at a time (codeTurns, by request id), each reading the tries
+  // the last one wrote: concurrent guesses once all read tries 0, and 200 of them were checked
+  // against one code (relayreview, 2026-11-03). The MAC is worked out before storage is read,
+  // so in the Durable Object nothing but storage runs between reading the tries and writing them.
   async redeemCode(rid, code, ip, t = Date.now()) {
     if (!this.allow(`si:${ip}`, TEN_MIN, this.lim.SIGNINS_PER_IP, t)) throw err(429, 'Too many sign-in tries from here. Wait ten minutes.');
-    const key = typeof rid === 'string' && /^[A-Za-z0-9_-]{22}$/.test(rid) ? `q:${await sha(rid)}` : null;
-    const q = key && await this.s.get(key);
-    if (!q || q.exp <= t) throw Object.assign(err(401, 'That code has expired or was already used. Ask for a new one.'), { expired: true });
+    const expired = () => Object.assign(err(401, 'That code has expired or was already used. Ask for a new one.'), { expired: true });
+    if (typeof rid !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(rid)) throw expired();
+    const key = `q:${await sha(rid)}`;
     const typed = typeof code === 'string' ? code.replace(/\D/g, '') : '';
-    const a = enc.encode(await this.codeMac(rid, typed)), b = enc.encode(q.code);
-    let diff = a.length ^ b.length;
-    for (let i = 0; i < Math.min(a.length, b.length); i++) diff |= a[i] ^ b[i];
-    if (diff !== 0) {
-      q.tries++;
-      if (q.tries >= CODE_TRIES) {
-        await this.s.delete([key, q.l]);
-        throw Object.assign(err(401, `That's ${CODE_TRIES} wrong codes, so this one is gone. Ask for a new one.`), { expired: true });
-      }
-      await this.s.put(key, q);
-      const left = CODE_TRIES - q.tries;
-      throw Object.assign(err(401, `That code isn't right. ${left} ${left === 1 ? 'try' : 'tries'} left.`), { left });
+    const mac = enc.encode(await this.codeMac(rid, typed));
+    const before = this.codeTurns.get(rid) || Promise.resolve();
+    const turn = before.then(() => this.checkCode(key, mac, t), () => this.checkCode(key, mac, t));
+    const settled = turn.then(() => {}, () => {});
+    this.codeTurns.set(rid, settled);
+    settled.then(() => { if (this.codeTurns.get(rid) === settled) this.codeTurns.delete(rid); });
+    const eh = await turn;
+    return this.signInEmail(eh, t);
+  }
+  // One guess against one request, from its stored state: the account's email hash when right.
+  async checkCode(key, mac, t) {
+    const q = await this.s.get(key);
+    if (!q || q.exp <= t) throw Object.assign(err(401, 'That code has expired or was already used. Ask for a new one.'), { expired: true });
+    // An address's wrong codes in a day, across all its requests: past the budget, only the link
+    // in the email signs it in.
+    const day = Math.floor(t / DAY), wkey = `w:${day}:${q.eh}`;
+    const w = await this.s.get(wkey);
+    if ((w?.n || 0) >= this.lim.WRONG_CODES_PER_DAY) throw Object.assign(err(429, 'Too many wrong codes for this address today. Use the link in the email instead.'), { expired: true });
+    const b = enc.encode(q.code);
+    let diff = mac.length ^ b.length;
+    for (let i = 0; i < Math.min(mac.length, b.length); i++) diff |= mac[i] ^ b[i];
+    if (diff === 0) {
+      await this.s.delete([key, q.l]);
+      return q.eh;
     }
-    await this.s.delete([key, q.l]);
-    return this.signInEmail(q.eh, t);
+    q.tries++;
+    await this.s.put(wkey, { n: (w?.n || 0) + 1, exp: (day + 2) * DAY });
+    if (q.tries >= CODE_TRIES) {
+      await this.s.delete([key, q.l]);
+      throw Object.assign(err(401, `That's ${CODE_TRIES} wrong codes, so this one is gone. Ask for a new one.`), { expired: true });
+    }
+    await this.s.put(key, q);
+    const left = CODE_TRIES - q.tries;
+    throw Object.assign(err(401, `That code isn't right. ${left} ${left === 1 ? 'try' : 'tries'} left.`), { left });
   }
 
   // The link's token, once: a session for its account (made on first sign-in).
@@ -416,7 +443,7 @@ export class AccountBook {
   // where the last batch stopped. Only the alarm calls this. True while a prefix has more to go.
   async sweep(t = Date.now(), batch = SWEEP_BATCH) {
     let more = false;
-    for (const prefix of ['l:', 'q:', 's:', 'u:', 'p:', 'r:', 'c:']) {
+    for (const prefix of ['l:', 'q:', 'w:', 's:', 'u:', 'p:', 'r:', 'c:']) {
       const after = this.cursor[prefix];
       const page = await this.s.list({ prefix, limit: batch, ...(after && { startAfter: after }) });
       const gone = [...page].filter(([, v]) => !v?.exp || v.exp <= t).map(([k]) => k);

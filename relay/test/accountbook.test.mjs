@@ -123,6 +123,36 @@ test('the code is typed against its request: once, five wrong tries at most, and
   await assert.rejects(b.redeemCode('not-an-id', '123456', 'ipm', t), /expired/);
 });
 
+// relayreview's race.mjs: 200 wrong guesses in flight at once, on storage that yields at every call.
+test('guesses in flight together each count: five wrong ones and the code is gone, the right one after them too', async () => {
+  const m = new Map();
+  const tick = () => new Promise(r => setImmediate(r));
+  const st = { get: async k => { await tick(); return structuredClone(m.get(k)); }, put: async (k, v) => { await tick(); m.set(k, structuredClone(v)); },
+    delete: async k => { await tick(); [].concat(k).forEach(x => m.delete(x)); }, list: async ({ prefix }) => new Map([...m].filter(([k]) => k.startsWith(prefix))) };
+  const b = new AccountBook(st, { secret: 'x', rpId: 'app.dibs.cc', origin: 'https://app.dibs.cc', limits: { SIGNINS_PER_IP: 1e9, WRONG_CODES_PER_DAY: 1e9 } });
+  const { rid, code } = await b.requestLink('victim@example.com', '6.6.6.6');
+  const guesses = Array.from({ length: 200 }, (_, i) => String((Number(code) + 1 + i) % 1e6).padStart(6, '0'));
+  const results = await Promise.allSettled(guesses.map((g, i) => b.redeemCode(rid, g, `10.0.${i}.1`)));
+  const checked = results.filter(r => r.status === 'rejected' && /isn't right|wrong codes, so/.test(r.reason.message)).length;
+  assert.equal(checked, 5, 'five checked against the code, the rest found it gone');
+  await assert.rejects(b.redeemCode(rid, code, '10.9.9.9'), /expired or was already used/);
+});
+
+test('an address takes ten wrong codes a day across its requests; then only its link signs in', async () => {
+  const { b } = book({ SIGNINS_PER_IP: 1e9, LINKS_PER_EMAIL_IP: 1e9, LINKS_PER_EMAIL: 1e9 });
+  const t = Date.UTC(2026, 10, 3, 12);
+  const wrong = c => String((Number(c) + 1) % 1e6).padStart(6, '0');
+  for (let n = 0; n < 10; n++) {
+    const r = await b.requestLink('budget@example.com', `ip${n}`, t);
+    await assert.rejects(b.redeemCode(r.rid, wrong(r.code), `g${n}`, t), /isn't right/);
+  }
+  const r = await b.requestLink('budget@example.com', 'ipz', t);
+  await assert.rejects(b.redeemCode(r.rid, r.code, 'gz', t), /Too many wrong codes for this address today. Use the link/);
+  assert.ok((await b.redeemLink(r.token, 'gz', t)).session, 'the link still works');
+  const next = await b.requestLink('budget@example.com', 'ipy', t + 24 * 36e5);
+  assert.ok((await b.redeemCode(next.rid, next.code, 'gy', t + 24 * 36e5)).session, 'the next day, codes work again');
+});
+
 test('an account that requires a passkey: email signs in only to ask a Mac, and turning it on needs a passkey and the key', async () => {
   const { b } = book();
   const o = await owned(b, 'only@example.com');

@@ -373,6 +373,9 @@ export default {
     const res = await env.ASSETS.fetch(req);
     const headers = new Headers(res.headers);
     for (const [k, v] of Object.entries(pageHeaders(host))) headers.set(k, v);
+    // The account page may carry a sign-in token in its query (?signin=, for mail wrappers that drop
+    // fragments): never kept by a cache.
+    if (url.pathname === '/account') headers.set('Cache-Control', 'no-store');
     return new Response(res.body, { status: res.status, headers });
   },
 };

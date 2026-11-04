@@ -6,7 +6,7 @@ import { signinMail, deviceOf } from '../src/mail.js';
 
 test('the sign-in email leads with the code, then the link, and says where the request came from', () => {
   const m = signinMail('https://app.dibs.cc', { token: 'T'.repeat(43), code: '042917' }, { device: 'Safari on iPhone', city: 'Austin', country: 'US' }, Date.UTC(2026, 10, 3, 15, 4));
-  assert.equal(m.subject, 'Your dibs sign-in code: 042 917');
+  assert.equal(m.subject, 'Your dibs sign-in code', 'no code where a lock screen shows it');
   assert.match(m.text, /^Your dibs sign-in code:\n\n {4}042 917\n/);
   assert.ok(m.text.indexOf('042 917') < m.text.indexOf('https://app.dibs.cc/account#signin='), 'code first');
   assert.match(m.text, /Asked from Safari on iPhone near Austin, US at 15:04 UTC\./);
