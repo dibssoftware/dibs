@@ -26,7 +26,8 @@ test("a subagent's board, why and mine are its own; a sibling's job is named, ne
   const home = tmp(t);
   fs.writeFileSync(`${home}/config.json`, JSON.stringify({ resources: { test: { slots: 1 } } }));
   bgAs(t, home, 'agent-a', 'fix-guard', ['run', 'test', '-m', 'guard tests', '--', 'sleep', '30']);
-  await until(() => board(home).held.length === 1);
+  // Its command started, not just its lease granted: until then mine and the board have no job to show.
+  await until(() => board(home).held[0]?.pgid);
   const b = bgAs(t, home, 'agent-b', 'fix-talk', ['run', 'test', '-m', 'talk tests', '--', 'true']);
   await until(() => board(home).waiting.length === 1);
 
