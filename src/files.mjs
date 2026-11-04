@@ -87,12 +87,11 @@ function guessedOthers(prefix, session) {
   return null;
 }
 
-// Inside a session's own folder its subagents share the scratchpad, so a
-// recursive delete there could still take a sibling's work. dibs remembers
-// which agent first wrote into each folder at the top of the scratchpad
-// (scratch/<session>/<folder> in DIBS_HOME, made with wx so the first one
-// wins without a lock), and a recursive delete of one is that agent's alone.
-const UNTRACKED_MAX = 20;   // files: an older folder this small is cheap to lose, one bigger may be someone's work
+// dibs remembers which agent first wrote into each folder at the top of a
+// session's scratchpad (scratch/<session>/<folder> in DIBS_HOME, made with wx so
+// the first one wins without a lock), so the disk watcher can tell whose it is
+// (src/hogs.mjs). It never decides who may delete: every agent of a session may
+// delete anything in its own scratchpad short of all of it.
 const makersDir = session => path.join(dibsHome(), 'scratch', session);
 const agentOf = input => input.agent_id || 'main';
 
@@ -106,73 +105,25 @@ function inSession(p) {
   return null;
 }
 
-// Subagents of a session that have stopped (SubagentStop), so the main thread may clear
-// what they left in the scratchpad. A teammate that takes another message starts again
-// and loses the mark. The name can't be a folder's: encodeURIComponent never makes a bare %.
-const stopMark = (session, agent) => path.join(makersDir(session), '%stopped', encodeURIComponent(agent));
-export function subagentState(input) {
-  if (typeof input?.session_id !== 'string' || typeof input.agent_id !== 'string' || !input.agent_id) return;
-  const f = stopMark(input.session_id, input.agent_id);
-  try {
-    if (input.hook_event_name === 'SubagentStop') { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, String(Date.now())); }
-    else if (input.hook_event_name === 'SubagentStart') fs.rmSync(f, { force: true });
-  } catch {}
-}
-const stopped = (session, agent) => fs.existsSync(stopMark(session, agent));
-
-// Folders that rebuild themselves: a browser profile's caches, Xcode's and Swift's build
-// output, a bundler's. Any agent of the session may clear them in its own scratchpad
-// (on 2026-11-03 an agent had to ask a teammate to delete Chrome caches in its own session).
-const CACHES = new Set(['Cache', 'Caches', 'Code Cache', 'GPUCache', 'DerivedData', '.build', 'build', 'dist', '.next', '.turbo', '.cache']);
-
 export function maker(session, name) {
   try { return JSON.parse(fs.readFileSync(path.join(makersDir(session), encodeURIComponent(name)), 'utf8')); } catch { return null; }
 }
 
-// Whether the folder at dir holds more than max files, stopping as soon as it does.
-function bigger(dir, max) {
-  const stack = [dir];
-  let n = 0;
-  while (stack.length) {
-    let list;
-    try { list = fs.readdirSync(stack.pop(), { withFileTypes: true }); } catch { continue; }
-    for (const e of list) {
-      if (e.isDirectory()) stack.push(path.join(e.parentPath ?? e.path, e.name));
-      else if (++n > max) return true;
-    }
-  }
-  return false;
-}
-
-const agentName = m => (m.agent === 'main' ? 'the main thread' : m.type ? `${m.type} (${m.agent})` : m.agent);
-
 // Why a recursive delete of p, in the caller's own session folder, would take
-// what isn't the caller's to take, or null when it's fine.
+// the whole of what every agent of the session shares, or null when it's fine.
 function ownDelete(p, t, input) {
   const at = inSession(p);
   if (!at) return null;
   const [folder, rest] = at, pad = path.join(folder, 'scratchpad');
   const whole = what => `${p} is ${what}, which every agent of your session keeps its scratch files in, so ${t.why} can't delete all of it.\n`
-    + 'Delete the folders in it that you made instead. If it really must all go, have the person delete it.';
+    + 'Delete the folders in it you are done with instead. If it really must all go, have the person delete it.';
   if (!rest.length) return whole("your session's temp folder");
   if (!overlap(path.join(folder, rest[0]), pad)) return null;
   if (rest.length === 1) return whole("your session's scratchpad");
-  if (!GLOB.test(rest.slice(1).join('/')) && rest.slice(1).some(n => CACHES.has(n))) return null;
-  let names = [rest[1]];
-  if (GLOB.test(rest[1])) {
-    try { names = fs.readdirSync(pad).filter(n => overlap(path.join(pad, rest[1]), path.join(pad, n))); } catch { names = []; }
-  }
-  for (const n of names) {
-    const m = maker(input.session_id, n), dir = path.join(pad, n);
-    // The main thread may clear what a subagent of its own left, once that subagent has stopped.
-    if (m && m.agent !== agentOf(input) && !(agentOf(input) === 'main' && m.agent !== 'main' && stopped(input.session_id, m.agent)))
-      return `${dir} in your session's scratchpad was made by ${agentName(m)}, another agent of your session, so ${t.why} can't delete it.\n`
-        + `Ask ${m.agent === 'main' ? 'the main thread' : m.type || m.agent} whether it's done with it, or have the person delete it. Deleting single files in it is fine, `
-        + `and so is a cache or build folder in it (${[...CACHES].join(', ')})${agentOf(input) === 'main' ? '. Once that subagent has finished, you may delete the folder' : ''}.`;
-    if (!m && !namedBy(input.session_id, n, agentOf(input)) && bigger(names.length > 1 || rest.length === 2 ? dir : p, UNTRACKED_MAX))
-      return `${dir} in your session's scratchpad holds more than ${UNTRACKED_MAX} files, and dibs can't tell which agent of your session made it (it's older than dibs's record), so ${t.why} can't delete it all.\n`
-        + 'Ask the agents of your session whose it is, or have the person delete it. Deleting single files in it is fine.';
-  }
+  // A glob of only wildcards at the top (scratchpad/*, scratchpad/.*) is the whole scratchpad by another name.
+  if (rest.length === 2 && /^[*?.]+$/.test(rest[1])) return whole("your session's scratchpad");
+  // Anything under it is the session's own, whoever of the session made it and however
+  // old: 2e had to ask a teammate to delete 850 MB of browser profiles at 4.9 GB free (2026-11-04).
   return null;
 }
 
@@ -180,10 +131,9 @@ function ownDelete(p, t, input) {
 // A program can make a scratchpad folder dibs doesn't see it write
 // (xcodebuild -derivedDataPath scratchpad/dd made fix-app's 0.5 GB of derived
 // data on 2026-10-18), so a folder that doesn't exist yet and is named
-// anywhere in a command counts as made by whoever ran it. And an agent whose
-// command named a folder dibs has no record of may delete it, whatever its size.
+// anywhere in a command counts as made by whoever ran it.
 function noteMakers(input, split, written) {
-  const made = new Set(), named = new Set(), gone = new Set();
+  const made = new Set(), gone = new Set();
   const top = p => {
     const at = inSession(real(p));
     return at && at[1][0] === 'scratchpad' && at[1].length >= 2 && !GLOB.test(at[1][1]) && path.basename(at[0]) === input.session_id
@@ -198,12 +148,10 @@ function noteMakers(input, split, written) {
   }
   for (const p of namedPaths(input, split)) {
     const f = top(p);
-    if (!f) continue;
-    named.add(f[0]);
-    if (!fs.existsSync(f[1])) made.add(f[0]);
+    if (f && !fs.existsSync(f[1])) made.add(f[0]);
   }
-  for (const n of gone) { made.delete(n); named.delete(n); }
-  if (!made.size && !named.size && !gone.size) return;
+  for (const n of gone) made.delete(n);
+  if (!made.size && !gone.size) return;
   // Best effort: a full disk or a race costs only a record, never the call.
   try {
     const dir = makersDir(input.session_id);
@@ -217,12 +165,9 @@ function noteMakers(input, split, written) {
       try { fs.writeFileSync(path.join(dir, encodeURIComponent(n)), JSON.stringify({ agent: agentOf(input), type: input.agent_type || null, at: Date.now() }), { flag: 'wx' }); fresh = true; }
       catch {}
     }
-    // name@agent: encodeURIComponent turns any @ into %40, so these never meet a folder's own record.
-    for (const n of named) fs.writeFileSync(path.join(dir, `${encodeURIComponent(n)}@${encodeURIComponent(agentOf(input))}`), '');
     if (fresh) pruneMakers();
   } catch {}
 }
-const namedBy = (session, name, agent) => fs.existsSync(path.join(makersDir(session), `${encodeURIComponent(name)}@${encodeURIComponent(agent)}`));
 
 // Every word of a Bash command that could be a path in this session's folder,
 // absolute: arguments anywhere (after dibs run's --, too), and --out=<path> values.

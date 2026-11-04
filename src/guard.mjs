@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpGuard, fileGuard, resList, subagentState } from './files.mjs';
+import { tmpGuard, fileGuard, resList } from './files.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK_BIN = path.join(ROOT, 'bin', 'dibs-guard.mjs');
@@ -463,7 +463,6 @@ export async function hook() {
   let out = null, input = null;
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8'));
-    subagentState(input);
     if (AGENT_EVENT(input)) out = (await import('./agents.mjs')).agentHook(input, dibsConfig());
     else if (!STOP_EVENT(input) && !START_EVENT(input)) out = respond(input, guardConfig(), dibsCommand());
   } catch (e) { logError(e, input); }

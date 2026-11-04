@@ -471,13 +471,13 @@ test("deletes and writes in another Claude Code session's temp folder are turned
   assert.equal(as(edit('/', `${mine}/notes.md`, 'Write')), null);
 });
 
-test("in a session's own scratchpad, a recursive delete of what a sibling made, of an old big folder, or of the scratchpad itself is turned away", t => {
+test("any agent of a session may delete anything in its own scratchpad, however old and whoever made it; the scratchpad itself and the session folder stay whole", t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
   const folder = path.join(fs.realpathSync(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
-  fs.mkdirSync(path.join(pad, 'old'), { recursive: true });
-  for (let i = 0; i < 21; i++) fs.writeFileSync(path.join(pad, 'old', `f${i}`), '');
-  fs.mkdirSync(path.join(pad, 'small'));
-  fs.writeFileSync(path.join(pad, 'small', 'a'), '');
+  const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.join(dir, `f${i}`), ''); };
+  // 2e on 2026-11-04: six browser profiles a teammate made before dibs's record, 850 MB at 4.9 GB free.
+  for (let i = 1; i <= 6; i++) fill(path.join(pad, `r7-profile-${i}`, 'Default'), 30);
+  fill(path.join(pad, 'old'), 25);
   // The hook as Claude Code runs it, for one agent of the session (none: the main thread).
   const call = (agent, input) => {
     const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },
@@ -485,25 +485,20 @@ test("in a session's own scratchpad, a recursive delete of what a sibling made, 
     assert.equal(r.status, 0, r.stderr);
     return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
   };
+  assert.equal(call(null, bash(pad, `rm -rf ${pad}/r7-profile-1`)), null, 'the main thread, a folder older than the record');
+  assert.equal(call('a-lead', bash(pad, 'rm -rf old && find r7-profile-2 -name "*.log" -delete')), null);
+  assert.equal(call('a-lead', bash(pad, 'rm -rf r7-profile-*')), null, 'a teammate, a glob of them');
+
   assert.equal(call('a-smoke', bash(pad, 'mkdir -p live-smoke && echo ok > live-smoke/run.log')), null);
-  assert.equal(call('a-tester', edit(pad, path.join(pad, 'tester', 'out.log'), 'Write')), null);
-  assert.equal(call(null, bash(pad, 'echo x > lead/notes.md')), null);
+  fill(path.join(pad, 'live-smoke'), 25);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'scratch', S, 'live-smoke'), 'utf8')).agent, 'a-smoke', 'the disk watcher still learns who made it');
+  for (const cmd of [`rm -rf ${pad}/live-smoke`, 'find live-smoke -delete', 'rm -r ./live-smoke', 'rsync -a --delete empty/ live-smoke/', 'rm -rf live-smoke/*'])
+    assert.equal(call('a-tester', bash(pad, cmd)), null, `a sibling's folder: ${cmd}`);
 
-  const sibling = call('a-tester', bash(pad, `rm -rf ${pad}/live-smoke`));
-  assert.equal(sibling?.permissionDecision, 'deny');
-  assert.match(sibling.permissionDecisionReason, /^dibs: .*\/scratchpad\/live-smoke in your session's scratchpad was made by a-smoke-worker \(a-smoke\), another agent of your session, so rm can't delete it\.\nAsk a-smoke-worker whether it's done with it, or have the person delete it\./);
-  for (const cmd of ['find live-smoke -delete', 'rm -r ./live-smoke', 'rsync -a --delete empty/ live-smoke/'])
-    assert.equal(call('a-tester', bash(pad, cmd))?.permissionDecision, 'deny', cmd);
-  assert.match(call('a-smoke', bash(pad, 'rm -rf lead')).permissionDecisionReason, /made by the main thread/);
-  assert.equal(call('a-smoke', bash(pad, 'find live-smoke -name "*.log" -delete')), null, 'a find delete in its own folder');
-  assert.equal(call('a-smoke', bash(pad, 'rm -rf live-smoke')), null, 'its own folder');
-  assert.equal(call(null, bash(pad, 'rm -rf lead && rm tester/out.log')), null, "the lead's own folder, and a single file of a sibling's");
-  assert.equal(call('a-tester', bash(pad, 'rm live-smoke/run.log')), null, 'a single file');
-
-  for (const cmd of [`rm -rf ${pad}`, `rm -rf ${folder}`, 'rm -rf ../scratchpad', `find ${pad} -delete`]) {
+  for (const cmd of [`rm -rf ${pad}`, `rm -rf ${folder}`, 'rm -rf ../scratchpad', `find ${pad} -delete`, `rm -rf ${pad}/*`, `rm -rf ${pad}/.*`]) {
     const d = call('a-smoke', bash(pad, cmd));
     assert.equal(d?.permissionDecision, 'deny', cmd);
-    assert.match(d.permissionDecisionReason, /every agent of your session keeps its scratch files in, so (rm|find) can't delete all of it\.\nDelete the folders in it that you made instead/);
+    assert.match(d.permissionDecisionReason, /every agent of your session keeps its scratch files in, so (rm|find) can't delete all of it\.\nDelete the folders in it you are done with instead/, cmd);
   }
   // interop's sweeps on 2026-10-16: filters don't make a sweep of the scratchpad safe, and a variable dibs can't see is refused.
   const sweep = "find $S -mindepth 1 -maxdepth 1 -mmin +180 ! -name '*.patch' -exec rm -rf {} +";
@@ -518,9 +513,11 @@ test("in a session's own scratchpad, a recursive delete of what a sibling made, 
     assert.match(d.permissionDecisionReason, /named only by a variable dibs can't see the value of[\s\S]*Write the path out/, cmd);
   }
   assert.equal(call('a-smoke', bash(pad, 'rm -rf "$S/build"')), null, 'a variable with a literal end');
-  const old = call('a-smoke', bash(pad, 'rm -rf old'));
-  assert.match(old?.permissionDecisionReason, /old in your session's scratchpad holds more than 20 files, and dibs can't tell which agent of your session made it/);
-  assert.equal(call('a-smoke', bash(pad, 'rm -rf small')), null, 'an old folder of a few files');
+
+  // Another session's scratchpad stays off limits, however small the folder.
+  const theirs = path.join(path.dirname(folder), 'sess-other', 'scratchpad', 'chrome');
+  fill(theirs, 1);
+  assert.equal(call(null, bash(pad, `rm -rf ${theirs}`))?.permissionDecision, 'deny', "another session's folder");
 
   // Records go with the session's folder.
   fs.rmSync(folder, { recursive: true });
@@ -531,42 +528,7 @@ test("in a session's own scratchpad, a recursive delete of what a sibling made, 
   assert.deepEqual(fs.readdirSync(path.join(home, 'scratch')), ['sess-2']);
 });
 
-test("the main thread may clear what a stopped subagent left, and any agent of the session may clear caches; another session's stay off limits", t => {
-  const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
-  const root = path.join(fs.realpathSync(base), `claude-${process.getuid()}`, '-Users-x-proj');
-  const pad = path.join(root, S, 'scratchpad');
-  fs.mkdirSync(pad, { recursive: true });
-  const call = (agent, input) => {
-    const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },
-      input: JSON.stringify({ session_id: S, ...input, ...(agent ? { agent_id: agent, agent_type: `${agent}-worker` } : {}) }) });
-    assert.equal(r.status, 0, r.stderr);
-    return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
-  };
-  const event = (name, agent) => call(agent, { hook_event_name: name, cwd: pad });
-  assert.equal(call('relay', bash(pad, 'mkdir -p build-web && echo x > build-web/a.js')), null);
-  const early = call(null, bash(pad, 'rm -rf build-web'));
-  assert.equal(early?.permissionDecision, 'deny', 'not while relay is still running');
-  assert.match(early.permissionDecisionReason, /Once that subagent has finished, you may delete the folder/);
-  event('SubagentStop', 'relay');
-  event('SubagentStart', 'relay');
-  assert.equal(call(null, bash(pad, 'rm -rf build-web'))?.permissionDecision, 'deny', 'a teammate that took another message is running again');
-  event('SubagentStop', 'relay');
-  assert.equal(call('webapp', bash(pad, 'rm -rf build-web'))?.permissionDecision, 'deny', 'a sibling still may not');
-  assert.equal(call(null, bash(pad, 'rm -rf build-web')), null, 'the main thread may, once relay stopped');
-
-  // Caches and build output rebuild themselves: anyone in the session may clear them, nothing more.
-  assert.equal(call('relay', bash(pad, 'mkdir -p chrome/Default/Cache chrome/Default/"Code Cache" app/DerivedData app/node_modules/.cache && echo x > chrome/Default/Prefs')), null);
-  for (const cmd of ['rm -rf chrome/Default/Cache', 'rm -rf "chrome/Default/Code Cache"', 'rm -rf app/DerivedData', 'rm -rf app/node_modules/.cache'])
-    assert.equal(call('webapp', bash(pad, cmd)), null, cmd);
-  assert.equal(call('webapp', bash(pad, 'rm -rf chrome'))?.permissionDecision, 'deny', 'the profile itself is still relay\'s');
-  assert.equal(call('webapp', bash(pad, 'rm -rf chrome/*'))?.permissionDecision, 'deny', 'a glob is not a cache folder');
-
-  const theirs = path.join(root, 'sess-other', 'scratchpad', 'chrome', 'Default', 'Cache');
-  fs.mkdirSync(theirs, { recursive: true });
-  assert.equal(call(null, bash(pad, `rm -rf ${theirs}`))?.permissionDecision, 'deny', "another session's cache stays off limits");
-});
-
-test('a folder a program made in the scratchpad belongs to the agent whose command named it: fix-app may delete its own derived data', t => {
+test('a folder a program made in the scratchpad is recorded as made by the agent whose command named it, so the disk watcher can name it', t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
   const folder = path.join(fs.realpathSync(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
   fs.mkdirSync(pad, { recursive: true });
@@ -576,46 +538,33 @@ test('a folder a program made in the scratchpad belongs to the agent whose comma
     assert.equal(r.status, 0, r.stderr);
     return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
   };
+  const made = name => { try { return JSON.parse(fs.readFileSync(path.join(home, 'scratch', S, encodeURIComponent(name)), 'utf8')); } catch { return null; } };
   const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.join(dir, `f${i}`), ''); };
   // fix-app's build on 2026-10-18: xcodebuild, not a write dibs can see, made 0.5 GB under scratchpad/dd-flip.
   const dd = path.join(pad, 'dd-flip');
   assert.equal(call('afix-app-12345', bash('/Users/x/app', `~/bin/dibs run xcode-build -m "flip build" -- xcodebuild -project App.xcodeproj -scheme App -derivedDataPath ${dd} build`)), null);
   fill(path.join(dd, 'Build', 'Products'), 30);
-  const sibling = call('atester-67890', bash(pad, `rm -rf ${dd}`));
-  assert.match(sibling?.permissionDecisionReason ?? '', /dd-flip in your session's scratchpad was made by fix-app \(afix-app-12345\)/);
-  assert.equal(call('afix-app-12345', bash(pad, `rm -rf ${dd}`)), null, 'its maker deletes it, however big');
+  assert.deepEqual([made('dd-flip')?.agent, made('dd-flip')?.type], ['afix-app-12345', 'fix-app']);
 
   // Other ways a command names a folder before a program makes it: --flag=<path>, -o, relative to a scratchpad cwd.
   call('afix-app-12345', bash(pad, `node gen.mjs --out=${pad}/gen-out && tool -o shots`));
-  fill(path.join(pad, 'gen-out'), 25);
-  fill(path.join(pad, 'shots'), 25);
-  for (const name of ['gen-out', 'shots']) {
-    assert.equal(call('atester-67890', bash(pad, `rm -rf ${name}`))?.permissionDecision, 'deny', name);
-    assert.equal(call('afix-app-12345', bash(pad, `rm -rf ${name}`)), null, name);
-  }
-
   // 2026-10-20: the path inside a script handed to sh -c, the way dibs run usually wraps a build,
   // and inside that, a variable set in the script and a cd.
   call('afix-app-12345', bash('/Users/x', `cd app && ~/bin/dibs run xcode-build -m "app tests" -- sh -c 'xcodegen generate >/dev/null && xcodebuild -scheme App -derivedDataPath ${pad}/dd-test test 2>&1 | grep -E "Executed|error:" | tail -15'`));
   call('afix-app-12345', bash('/Users/x', `dibs run test -- bash -c "S=${pad}; tool --out \$S/var-out && cd ${pad} && tool -o rel-out"`));
-  for (const name of ['dd-test', 'var-out', 'rel-out']) {
-    fill(path.join(pad, name), 25);
-    assert.match(call('atester-67890', bash(pad, `rm -rf ${name}`))?.permissionDecisionReason ?? '', /made by fix-app \(afix-app-12345\)/, name);
-    assert.equal(call('afix-app-12345', bash(pad, `rm -rf ${name}`)), null, name);
-  }
+  for (const name of ['gen-out', 'shots', 'dd-test', 'var-out', 'rel-out']) assert.equal(made(name)?.agent, 'afix-app-12345', name);
 
-  // A folder made before dibs kept records: whoever's commands named it may delete it; nobody else past 20 files.
+  // A folder that already exists isn't claimed by naming it.
   fill(path.join(pad, 'old-run'), 25);
-  assert.match(call('afix-app-12345', bash(pad, 'rm -rf old-run'))?.permissionDecisionReason ?? '', /can't tell which agent of your session made it/);
-  assert.equal(call('afix-app-12345', bash(pad, `ls ${pad}/old-run`)), null);
-  assert.match(call('atester-67890', bash(pad, 'rm -rf old-run'))?.permissionDecisionReason ?? '', /can't tell which agent/);
-  assert.equal(call('afix-app-12345', bash(pad, 'rm -rf old-run')), null);
+  call('atester-67890', bash(pad, `ls ${pad}/old-run`));
+  assert.equal(made('old-run'), null);
 
   // A deleted folder's record goes with it: the next one is whoever makes it.
+  assert.equal(call('atester-67890', bash(pad, `rm -rf ${dd}`)), null, "a sibling may delete fix-app's derived data");
   fs.rmSync(dd, { recursive: true, force: true });
+  assert.equal(made('dd-flip'), null);
   assert.equal(call('atester-67890', bash(pad, `mkdir ${dd}`)), null);
-  fill(dd, 25);
-  assert.equal(call('atester-67890', bash(pad, `rm -rf ${dd}`)), null);
+  assert.equal(made('dd-flip')?.agent, 'atester-67890');
 });
 
 // ----- worktrees -----
