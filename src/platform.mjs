@@ -94,6 +94,13 @@ const DIBS_PROC = /^\S*\bnode\s+(?:-\S+\s+)*\S*(?:\/bin\/dibs|\/dibs\.mjs)(?:\s|
 export const isDibs = p => DIBS_PROC.test(p.args);
 export const dibsMem = (procs = processes()) => procs.reduce((a, p) => a + (isDibs(p) ? p.rss || 0 : 0), 0);
 
+// The process table as it is now, not as the last 5 seconds' cache had it: for joining with another
+// reading by pid, where a pid that ended meanwhile would carry its name onto nothing.
+export function processesNow() {
+  procCache = null;
+  return processes();
+}
+
 // Every process group that has a process in it right now.
 export function liveGroups() {
   procCache = null;
@@ -125,9 +132,9 @@ export function descendants(pid) {
 // smaps_rollup, which splits shared pages between the processes sharing them.
 // Windows: null. DIBS_FAKE_FOOTPRINT names a JSON file of { pid: bytes } for tests.
 const UNITS = { B: 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 };
-// Every process's memory, the way Activity Monitor's Memory column adds it up
-// on macOS: top's MEM plus CMPRS, what it holds in RAM plus what the system
-// squeezed of it. For telling the person what to close (src/alerts.mjs), so
+// Every process's memory, the way Activity Monitor's Memory column shows it on
+// macOS: its physical footprint, top's MEM, which already counts what the system
+// compressed of it. For telling the person what to close (src/alerts.mjs), so
 // all processes, not only dibs's. Linux: resident memory. DIBS_FAKE_MEMORY,
 // a JSON file of { pid: bytes }, stands in for tests.
 export function memoryUse() {
@@ -135,12 +142,17 @@ export function memoryUse() {
     try { return new Map(Object.entries(JSON.parse(fs.readFileSync(process.env.DIBS_FAKE_MEMORY, 'utf8'))).map(([p, b]) => [Number(p), b])); } catch { return new Map(); }
   }
   if (OS !== 'macos') return new Map(processes().map(p => [p.pid, p.rss || 0]));
-  const txt = tryRun('top', ['-l', '1', '-o', 'mem', '-stats', 'pid,mem,cmprs']);
+  return topMemory(tryRun('top', ['-l', '1', '-o', 'mem', '-stats', 'pid,mem']));
+}
+// top's MEM by pid. MEM is the footprint, compressed pages included: adding CMPRS on top counted
+// those twice, and under swap, when this is read, most of a process can be compressed. On
+// 2026-11-05 a WebKit page read 813 MB in MEM and 805 MB in CMPRS, and footprint -p said 813 MB.
+export function topMemory(txt) {
   const out = new Map();
   const size = x => { const m = x?.match(/^([\d.]+)([BKMGT])[+-]?$/); return m ? Number(m[1]) * UNITS[m[2]] : 0; };
   for (const line of (txt || '').split('\n')) {
     const f = line.trim().split(/\s+/);
-    if (f.length === 3 && /^\d+$/.test(f[0])) out.set(Number(f[0]), size(f[1]) + size(f[2]));
+    if (f.length >= 2 && /^\d+$/.test(f[0])) out.set(Number(f[0]), size(f[1]));
   }
   return out;
 }

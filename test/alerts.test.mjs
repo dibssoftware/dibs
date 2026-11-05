@@ -8,6 +8,7 @@ import path from 'node:path';
 import { HOME, G, MACHINE, tmp, sync } from './helpers.mjs';
 import { detect, merge, memoryUsers, scan, stamp, FILE } from '../src/alerts.mjs';
 import { loadConfig } from '../src/config.mjs';
+import { topMemory } from '../src/platform.mjs';
 
 const MIN = 6e4;
 const T = 2e12;
@@ -82,6 +83,30 @@ test('memory users are grouped the way a person closes them: an app with its hel
   assert.deepEqual(memoryUsers(s, procs, use).map(g => [g.name, g.bytes / G, g.n]),
     [['dibs job #9 (ios)', 4, 1], ['Google Chrome', 3, 2], ['Safari and other web pages', 1.5, 2], ['node playwright-mcp', 0.75, 1], ['the iOS Simulator', 0.25, 1]],
     "a simulator runtime's processes are the Simulator's, and node is named by its script");
+});
+
+// 2026-11-05: the swap notice blamed "curl (5.4 GB)" for 25 short-lived curls at about 950 MB
+// resident in all. top's MEM is the footprint and already holds the compressed pages, so adding
+// CMPRS counted them twice; and 25 processes under one name read as one.
+test("a process's memory is top's MEM alone: CMPRS is already in it", () => {
+  const txt = 'Processes: 812 total\n\nPID    MEM   CMPRS\n51195  813M  805M\n91439  674M  672M\n93300  2864K 0B\n';
+  const m = topMemory(txt);
+  assert.equal(m.get(51195), 813 * 1024 ** 2, 'footprint -p 51195 said 813 MB');
+  assert.equal(m.get(91439), 674 * 1024 ** 2);
+  assert.equal(m.get(93300), 2864 * 1024);
+});
+
+test('many processes of one command are named with how many there are', () => {
+  const procs = Array.from({ length: 25 }, (_, i) => ({ pid: 100 + i, ppid: 1, pgid: 100 + i, cpu: 0, args: `curl -s https://runner.example/poll?n=${i}` }));
+  const use = new Map(procs.map(p => [p.pid, 38 * 1024 ** 2]));
+  const users = memoryUsers({ leases: [] }, procs, use);
+  assert.deepEqual(users.map(g => [g.name, Math.round(g.bytes / 1024 ** 2), g.n]), [['curl', 950, 25]]);
+  const s = { leases: [lease(1, { res: ['deploy'] })], queue: [waiter(2)] };
+  const was = process.env.DIBS_FAKE_MACHINE;
+  process.env.DIBS_FAKE_MACHINE = JSON.stringify({ ...MACHINE, memFree: 3, vmPressure: 2 });
+  const found = detect({ s, cfg, hist: [], m: MACHINE, t: T, st: blank(), users });
+  if (was == null) delete process.env.DIBS_FAKE_MACHINE; else process.env.DIBS_FAKE_MACHINE = was;
+  assert.match(find(found, 'wait:#2').fix, /^Close what you can of curl \(0\.9 GB, 25 processes\)\./);
 });
 
 test('an alert shows once, keeps when it started, and says when it resolved', () => {

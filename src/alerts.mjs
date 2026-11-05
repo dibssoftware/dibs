@@ -25,7 +25,7 @@ import path from 'node:path';
 import { HOME, machine } from './config.mjs';
 import { verdict } from './schedule.mjs';
 import { stuckFor, minutes, andList } from './plain.mjs';
-import { processes, memoryUse } from './platform.mjs';
+import { processesNow, memoryUse } from './platform.mjs';
 import { treeOf } from './measure.mjs';
 import { withState, history } from './state.mjs';
 import { markIdle } from './acquire.mjs';
@@ -196,33 +196,35 @@ export function memoryUsers(s, procs, use) {
     const bytes = use.get(p.pid);
     if (!bytes) continue;
     const l = owner.get(p.pid);
-    const name = l ? `dibs job #${l.id} (${l.who})` : appOf(p, sessions);
-    const g = groups.get(name) || { name, bytes: 0, n: 0, dibs: !!l, ...(l && { id: l.id }) };
+    const [name, cmd] = l ? [`dibs job #${l.id} (${l.who})`] : appOf(p, sessions);
+    const g = groups.get(name) || { name, bytes: 0, n: 0, dibs: !!l, ...(l && { id: l.id }), ...(cmd && { cmd: true }) };
     g.bytes += bytes; g.n++;
     groups.set(name, g);
   }
   return [...groups.values()].sort((a, b) => b.bytes - a.bytes).slice(0, 5);
 }
 
+// [name, true when it's named by its command]: one of those may be many separate processes.
 function appOf(p, sessions) {
   const a = p.args || '';
-  if (/\blaunchd_sim\b|\/CoreSimulator\/Devices\/|\.simruntime\//.test(a)) return 'the iOS Simulator';
-  if (/com\.apple\.WebKit\.(WebContent|GPU|Networking)/.test(a)) return 'Safari and other web pages';
+  if (/\blaunchd_sim\b|\/CoreSimulator\/Devices\/|\.simruntime\//.test(a)) return ['the iOS Simulator'];
+  if (/com\.apple\.WebKit\.(WebContent|GPU|Networking)/.test(a)) return ['Safari and other web pages'];
   if (/(^|\/)claude(\s|$)/.test(a)) {
     const x = sessions.get(p.pid);
-    return x?.name ? `Claude Code session ${x.name}` : `Claude Code (pid ${p.pid})`;
+    return [x?.name ? `Claude Code session ${x.name}` : `Claude Code (pid ${p.pid})`];
   }
   const app = a.match(/\/([^/]+)\.app\//);
-  if (app) return app[1];
+  if (app) return [app[1]];
   // A script under an interpreter is the script: "node" alone says nothing about which.
   const [cmd, ...args] = a.split(/\s+/);
   const name = path.basename(cmd || `pid ${p.pid}`);
   const script = INTERPRETERS.test(name) && args.find(x => !x.startsWith('-'));
-  return script ? `${name} ${path.basename(script)}` : name;
+  return [script ? `${name} ${path.basename(script)}` : name, true];
 }
 
 const INTERPRETERS = /^(node|bun|deno|python3?(\.\d+)?|ruby|perl)$/;
-const sized = g => `${g.name} (${gb(g.bytes).replace(/G$/, ' GB')}${g.n > 1 && g.name.startsWith('Safari') ? `, ${g.n} pages` : ''})`;
+// A command's count when it's more than one: 25 short-lived curls (2026-11-05) read as one big curl otherwise.
+const sized = g => `${g.name} (${gb(g.bytes).replace(/G$/, ' GB')}${g.n > 1 && g.name.startsWith('Safari') ? `, ${g.n} pages` : g.n > 1 && g.cmd ? `, ${g.n} processes` : ''})`;
 
 // Every alert the state calls for now: { id, cause, level, title, fix, after?, at? }.
 // level: urgent (a person is held up or dibs is broken), warn, or note.
@@ -424,7 +426,9 @@ export function scan({ s, cfg, hist, m = machine(), t = now(), force = false } =
       let found = detect({ s, cfg, hist, m, t, st, users });
       // The machine-wide reading only once memory is what holds jobs back.
       if (!users && found.some(a => a.want === 'users')) {
-        users = memoryUsers(s, processes(), memoryUse());
+        // Memory first, then the process table it's named from: both as they are now.
+        const use = memoryUse();
+        users = memoryUsers(s, processesNow(), use);
         st.top = { at: t, list: users };
         found = detect({ s, cfg, hist, m, t, st, users });
       }
