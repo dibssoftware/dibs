@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
 import { tmp, sync as dibs, bg, until, board, alive, wait, allStopped, noneStopped } from './helpers.mjs';
-import { MACHINE, flat, groupTree, allLow, noneLow } from './helpers.mjs';
+import { MACHINE, flat, groupTree } from './helpers.mjs';
 
 const WIN = process.platform === 'win32';
 const CONFIG = { resources: {
@@ -96,20 +96,32 @@ test('pausing a job that forks all the time stops every process in it, even one 
   await job.done;
 });
 
+// What dibs asked of the OS, not when the scheduler got round to it: a process at background
+// priority on a loaded machine (load 14-16, 2026-11-04) can go 10 s and more without a core, and
+// ps reads its new priority only once it runs. A taskpolicy on PATH that logs each call, then
+// runs the real one, shows the job's shell was moved (its children, a sleep forked each
+// 0.05 s, take its priority from it, and dibs moves any it catches too).
+function taskpolicyLog(t, h) {
+  const dir = tmp(t, 'shim');
+  const log = path.join(dir, 'calls');
+  fs.writeFileSync(path.join(dir, 'taskpolicy'), `#!/bin/sh\necho "$*" >> '${log}'\nexec /usr/sbin/taskpolicy "$@"\n`, { mode: 0o755 });
+  return { env: { PATH: `${dir}:${process.env.PATH}` }, calls: () => { try { return fs.readFileSync(log, 'utf8'); } catch { return ''; } } };
+}
+
 test('boost of a running low job moves it off background priority, and back', { skip: WIN }, async t => {
   const h = home(t);
   const job = counter(t, h, 'slow', 't', 'low');
   await until(() => held(h, 'slow')?.pgid);
   assert.equal(held(h, 'slow').background, true, 'a low run starts on background priority');
   const { id, pgid } = held(h, 'slow');
-  await until(() => allLow(pgid));
-  const up = owner(h, ['boost', String(id), 'high']);
+  const shim = taskpolicyLog(t, h);
+  const up = owner(h, ['boost', String(id), 'high'], shim.env);
   assert.equal(up.code, 0, up.err);
   assert.match(up.out, /low -> high, moved off background priority/);
+  assert.doesNotMatch(up.out, /couldn't be moved/);
   // Really moved, and what it starts from now on with it. Until 2026-11-01 a run started
   // at background priority on macOS stayed there whatever boost said. Linux lets only root raise it.
-  const tree = () => spawnSync('ps', ['-o', 'pid=,pri=,nice=,stat=,command=', '-g', String(pgid)], { encoding: 'utf8' }).stdout;
-  if (process.platform === 'darwin') await until(() => noneLow(pgid), 10e3).catch(e => { throw new Error(`${e.message}\n${up.out}\n${tree()}`); });
+  if (process.platform === 'darwin') assert.match(shim.calls(), new RegExp(`^-B -p ${pgid}$`, 'm'), `the job's shell (${pgid}) raised\n${shim.calls()}`);
   let l = held(h, 'slow');
   assert.equal(l.prio, 'high');
   assert.equal(l.background, false);
@@ -121,11 +133,11 @@ test('boost of a running low job moves it off background priority, and back', { 
   assert.equal(await runs(job), true);
   urgent.kill('SIGTERM');
   await urgent.done;
-  const down = owner(h, ['boost', String(id), 'idle']);
+  const down = owner(h, ['boost', String(id), 'idle'], shim.env);
   assert.match(down.out, /high -> idle, moved to background priority .*urgent and high work may now pause it/);
   l = held(h, 'slow');
   assert.equal(l.background, true);
-  await until(() => allLow(pgid)).catch(e => { throw new Error(`${e.message}\n${down.out}\n${tree()}`); });
+  if (process.platform === 'darwin') assert.match(shim.calls(), new RegExp(`^-b -p ${pgid}$`, 'm'), `the job's shell (${pgid}) lowered\n${shim.calls()}`);
   assert.equal(l.owner.act, 'boost');
   assert.match(dibs(h, ['--detail'], { agent: 'viewer' }).out, /\[idle\]  \[lowered by owner\]/);
 });

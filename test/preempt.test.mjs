@@ -144,12 +144,12 @@ test('the low job resumes when the urgent job crashes, on the next state read', 
   await until(() => low.lease()?.pgid);
   const urgent = spawnDibs(t, h, ['t', '-p', 'high', '-m', 'release', '--', 'sleep', '30'], { agent: 'boss' });
   await until(() => board(h).held.some(l => l.who === 'boss'));
-  // The stop signal goes out once the state is written, so the board can show boss a moment before it lands.
-  await until(() => stopped(low.lease().pgid)).catch(e => {
-    const b = board(h);
-    throw new Error(`${e.message}\nleases: ${JSON.stringify(b.held.map(l => ({ who: l.who, prio: l.prio, pausedAt: l.pausedAt, pauses: l.pauses, stopped: l.stopped, alongside: l.alongside, pgid: l.pgid })))}\n${groupTree(low.lease().pgid)}`
-      + `\ncool.log: ${(() => { try { return fs.readFileSync(path.join(h, 'cool.log'), 'utf8'); } catch { return 'none'; } })()}`);
-  });
+  // What dibs decided, not when the stop lands: the stop reaches an idle job only when it next
+  // gets a core, and at load 14-16 (2026-11-04) that took over 30 s. Stopped or still pending,
+  // the resume below ends it (a SIGCONT discards a stop not yet taken). The pause landing is
+  // the test above's to check.
+  await until(() => low.lease()?.pausedAt);
+  assert.equal(low.lease().pauses[0].who, 'boss');
   urgent.kill('SIGKILL');   // no release path at all
   await urgent.done;
   await until(() => !low.lease().pausedAt);   // board reads reap the dead lease and resume
