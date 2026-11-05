@@ -56,7 +56,7 @@ dibs run test -- sh -c 'npm run build && npm test'                  # a shell li
 - dibs on this machine was updated: it prints what changed since your last version, once
 - a newer dibs is out on dibs.cc ("dibs X is out (you have Y)"): the person upgrades it; don't upgrade it yourself. Asked at most every 6 hours per machine, never from a git checkout, off with `"updateCheck": false` in config.json.
 
-Exit 0 ends with "To keep listening, start dibs listen again with run_in_background." Exit 3 means nothing came within `--for` (60m by default). Either way, start it again. `--json` gives `{ messages }`, `{ updated, changes }` or `{ release }`.
+Exit 0 ends with "To keep listening, start dibs listen again with run_in_background." It has no time limit: it waits until something comes, and when your session ends it exits quietly on its own. `--for 30m` sets a limit; then exit 3 means nothing came in that time, and you start it again. `--json` gives `{ messages }`, `{ updated, changes }` or `{ release }`.
 
 One listener per agent: the main agent of a session, and each subagent, separately. A newer one replaces the older, which exits 0 saying another took over. Messages that arrive while you work come with your next tool call instead; none is lost or handed over twice. If you end a turn after your listener exited, the hook keeps you going once with "re-arm: your dibs listen has ended". The board, `dibs threads` and `dibs tell` say who is listening.
 
@@ -89,7 +89,7 @@ A script running under `dibs run deploy` that calls `dibs run xcode-build` waits
 | 127 | the command didn't start | check the command and its path |
 | 2 | bad usage: a near-miss resource name, a high or urgent boost without `-m`, a job bigger than this machine (ask for what it names, or `--anywhere`), `--on` or `dibs machines` outside a group, or a run you already have going | read the message: it names the fix |
 | 1 | nothing matched (`mine` with nothing held, `release` with nothing to give back) | usually the clean result |
-| 3 | `dibs listen` heard nothing within `--for` (60m by default) | start it again with run_in_background |
+| 3 | `dibs listen --for <time>` heard nothing in that time (without `--for` it waits as long as your session lives) | start it again with run_in_background |
 
 ### Files other agents may edit
 

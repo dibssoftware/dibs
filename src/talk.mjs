@@ -50,11 +50,12 @@ const RECENT = 20;
 // an hour is stale advice, and it would keep inbox.json around for nothing.
 const NOTICE_LIFE = 36e5;
 
-// dibs listen: how long it waits by default, and how often it looks in case a change to
-// messages.json slipped past fs.watch (a rename it didn't report, a volume that doesn't).
-const LISTEN_FOR = 60 * 6e4;
-const LISTEN_POLL = 5000;
-// Its exit code when the time runs out with nothing for it (DIBS_CODES in src/commands.mjs).
+// dibs listen: how often it looks in case a change to messages.json slipped past fs.watch
+// (a rename it didn't report, a volume that doesn't), and whether its session is still there.
+// It waits as long as that session lives: an hour's limit woke every idle agent each hour
+// for nothing, and left the ones that didn't start it again deaf (the owner, 2026-11-05).
+const LISTEN_POLL = Number(process.env.DIBS_LISTEN_POLL) || 5000;
+// Its exit code when a --for limit runs out with nothing for it (DIBS_CODES in src/commands.mjs).
 export const LISTEN_TIMEOUT = 3;
 
 const STOPS = new Set(['Stop', 'SubagentStop']);
@@ -415,12 +416,14 @@ export function noticesFor(who) {
   } catch { return ''; }
 }
 
-// dibs listen [--for 60m] [--json]: for an agent whose turn is over. The hook hands messages over
+// dibs listen [--for 30m] [--json]: for an agent whose turn is over. The hook hands messages over
 // only with a tool call or at a stop, so an idle agent never hears one; this waits until
 // something is queued for it (a message, an answer in words, a notice about its jobs), hands it
 // over under the lock exactly as the hook would, prints it and exits 0. Run with Claude Code's
 // run_in_background, its exit wakes the agent. One listener per thread: a newer one takes over
-// and the older one exits 0 saying so. No message in time: exit 3.
+// and the older one exits 0 saying so. It waits until something comes, or until the session
+// that started it is gone (then it exits 0 and says nothing: there's nobody to wake). With
+// --for, nothing in that time: exit 3.
 // listeners.json says who listens, for the board, dibs threads and the hook's reminder at a stop.
 const readListeners = () => { try { return JSON.parse(fs.readFileSync(LISTENERS, 'utf8')); } catch { return {}; } };
 function writeListeners(l) {
@@ -432,16 +435,20 @@ function writeListeners(l) {
 // agent at its next stop if it doesn't start again (src/guard.mjs rearm).
 const AGAIN = 'To keep listening, start dibs listen again with run_in_background.';
 export async function listen(args) {
-  const o = { for: LISTEN_FOR, json: false, words: [] };
+  const o = { for: Infinity, json: false, words: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--for') o.for = ms(args[++i] ?? die('--for needs a time: dibs listen --for 30m'));
     else if (a === '--json') o.json = true;
     else if (a === '--as') o.as = args[++i] ?? die('--as needs a value');
-    else die(`unknown ${a}. dibs listen [--for 60m] [--json]`);
+    else die(`unknown ${a}. dibs listen [--for 30m] [--json]`);
   }
   if (!(o.for > 0)) die('--for needs a time above zero: dibs listen --for 30m');
   const me = { pid: process.pid, pstart: pstart(process.pid), at: now() };
+  // Whose wake-up this is: the Claude Code process above it, or outside one whatever started it.
+  const who = identity(o);
+  const owner = who.spid ? { pid: who.spid, start: who.sstart } : { pid: process.ppid, start: pstart(process.ppid) };
+  const ownerUp = () => makeAlive([owner.pid])(owner.pid, owner.start);
   const th = locked(s => {
     const t = mine(s, 'listen', args, o);
     // The key the what's-new line knows this agent by (bin/dibs.mjs announce).
@@ -479,6 +486,7 @@ export async function listen(args) {
     // A look without the lock first, then the lock only when there's something to take.
     const check = () => {
       if (done) return;
+      if (!ownerUp()) return finish({ gone: true });
       if (!still()) return finish({ replaced: true });
       if (load().messages.some(ours)) {
         const got = locked(s2 => {
@@ -505,9 +513,11 @@ export async function listen(args) {
     };
     try { watcher = fs.watch(HOME, (ev, name) => { if (!name || name === 'messages.json' || name === 'listeners.json') check(); }); } catch {}
     const poll = setInterval(check, LISTEN_POLL);
-    const stop = setTimeout(check, o.for + 50);
+    const stop = Number.isFinite(o.for) ? setTimeout(check, o.for + 50) : null;
     check();
   });
+  // Its session ended: off the list, and quiet, since output would only wake a session that's gone.
+  if (r.gone) { leave(); process.exit(0); }
   if (r.replaced) {
     if (o.json) return console.log(JSON.stringify({ replaced: true, messages: [] }));
     return console.log('Another dibs listen for this agent took over, so this one stopped. Nothing was handed over here.');

@@ -5,9 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, env, sync, bg, until, board, HOOK } from './helpers.mjs';
+import { tmp, env, sync, bg, until, board, alive, HOOK, BIN } from './helpers.mjs';
 
 const owner = { env: { DIBS_OWNER: '1' } };
 
@@ -62,6 +62,38 @@ test('nothing in time: exit 3 with one line, and no listener left behind', async
   assert.equal(p.out.trim(), 'no messages in 1s; run it again to keep listening');
   assert.ok(!listening(w));
   assert.deepEqual(board(w.home, w.opts()).listening, []);
+});
+
+// The owner, 2026-11-05: "why does dibs listen stop after an hour". It has no limit now.
+test('a listener with no --for keeps waiting, poll after poll, until something comes', async t => {
+  const w = setup(t);
+  const p = bg(t, w.home, ['listen'], w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_LISTEN_POLL: '50' } }));
+  await until(() => listening(w));
+  // Sixty looks at its queue and its session: no deadline among them ends it.
+  await new Promise(r => setTimeout(r, 3000));
+  assert.equal(p.exitCode, null, `still listening: ${p.out}${p.err}`);
+  assert.ok(listening(w));
+  w.tell('still there?');
+  assert.equal(await p.done, 0, p.err);
+  assert.match(p.out, /still there\?/);
+});
+
+test('a listener whose session is gone leaves quietly: exit 0, no output, and off the list', async t => {
+  const w = setup(t);
+  // Outside a Claude Code session its owner is whatever started it: here a shell, killed outright.
+  const sh = spawn('sh', ['-c', `"${process.execPath}" "${BIN}" listen & wait`], { env: env(w.home, w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_LISTEN_POLL: '100' } })), stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  sh.stdout.on('data', d => (out += d));
+  sh.stderr.on('data', d => (out += d));
+  await until(() => listening(w));
+  const file = path.join(w.home, 'listeners.json');
+  const pid = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')))[0].pid;
+  t.after(() => { try { process.kill(pid, 'SIGKILL'); } catch {} });
+  sh.kill('SIGKILL');
+  await until(() => !alive(pid), 15e3);
+  assert.equal(out, '', 'nothing printed: there is nobody to wake');
+  assert.ok(!fs.existsSync(file) || !Object.values(JSON.parse(fs.readFileSync(file, 'utf8'))).some(x => x.pid === pid), 'its entry is gone');
+  assert.ok(!listening(w));
 });
 
 test('a second listener replaces the first, which exits 0 saying so; the message goes to the second only', async t => {

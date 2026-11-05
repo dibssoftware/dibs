@@ -49,7 +49,7 @@ dibs tell web-app "use the staging database"   # reaches the agent on its next t
 dibs tell desk "why is my build waiting?"      # the agent config.json names as "desk" answers you with dibs say --to person
 dibs alerts             # what's wrong and the one fix for each: long waits, memory holding work back (and what to close), stuck jobs, failed or lost jobs, dibs itself, a full disk
 dibs alerts dismiss <id>   # close one for a day; it comes back if its cause is still there
-dibs listen                                    # an agent waits for a message (run_in_background); exit 3 after 60m with none
+dibs listen                                    # an agent waits for a message (run_in_background), as long as its session lives
 dibs history            # the last 7 days: busy time, waits and who waited, by resource, agent and hour
 dibs stats              # waits against run times, today and the last 7 days: the share of jobs that waited longer than they ran
 dibs stats --me         # your own: jobs, run and wait time, failures by exit code, what held you back, top commands, ETAs met (--agent <name>, --since 30d, --json)
@@ -116,7 +116,7 @@ Agents branch on these, so they don't change.
 | 77 | lost the other machine after a remote job started. It may have run, or may still be running: check before running it again |
 | 127 | the command didn't start |
 | 2 | bad usage, a job asking more memory or cores than the machine ever hands out (it says the most it can ask), a resource name close to a real one (`simulator` for `sim`), an agent's high or urgent boost without `-m`, `--on` on a machine that isn't in a group, or a `dibs run` you already have waiting or running (wait for that one) |
-| 3 | `dibs listen` heard nothing in its time (`--for`, 60m by default). Run it again to keep listening |
+| 3 | `dibs listen --for <time>` heard nothing in that time (without `--for` it has no limit). Run it again to keep listening |
 | 1 | nothing matched: `mine` with nothing held (the clean result after a release), `release` with nothing to give back |
 | 70 | dibs itself crashed: a bug in dibs, not your command. Report it with `dibs ask "..."`. If your command already ran, you get its code instead |
 

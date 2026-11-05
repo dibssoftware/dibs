@@ -161,8 +161,9 @@ talk with your agents
   dibs tell <agent> "..."                  a message for that agent: it gets it with its next tool call, or as it
                                            finishes its turn (needs dibs guard install). From an agent, it says which agent sent it
   dibs tell desk "..."                     to the agent config.json names as "desk": it answers with dibs say --to person
-  dibs listen [--for 60m] [--json]         waits until a message, an answer or a notice is queued for you, prints all of it
-                                           and exits 0 (exit 3: none in time). Start it with run_in_background at the start of
+  dibs listen [--for 30m] [--json]         waits until a message, an answer or a notice is queued for you, prints all of it
+                                           and exits 0; no time limit unless --for (exit 3: none in time), and it ends quietly
+                                           with your session. Start it with run_in_background at the start of
                                            a session and again each time it exits: its exit wakes you even while idle
 
 several machines

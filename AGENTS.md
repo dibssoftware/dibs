@@ -72,6 +72,7 @@ Always run the suite through dibs: it spawns real processes and coordinators, an
 | `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, `CLAUDE_CODE_SIMPLE` | whether dibs thinks a Claude Code tool call is waiting (no limit). test/helpers.mjs clears them; set them per test |
 | `DIBS_PAIR_PORT` | the UDP port a coordinator answers pairing lookups on and `dibs join <code>` broadcasts to (default the coordinator's port, 7420), so a test's coordinator on a free port can be found |
 | `DIBS_TAILSCALE` | the Tailscale CLI `dibs join <code>` asks for peers; `none` for no Tailscale, so tests never reach a real tailnet |
+| `DIBS_LISTEN_POLL` | ms between `dibs listen`'s looks at its queue and its session (default 5000), so a test sees a listener notice its session is gone in a second |
 | `DIBS_SERVE_TIMING` | shorter coordinator timeouts (beatHold, workerLost, clientLost) |
 | `DIBS_CLAUDE_SETTINGS` | settings.json path for `dibs guard install` |
 | `DIBS_CLEAN`, `DIBS_DERIVED` | the caches src/diskwarn.mjs clears, as `{label: argv}`, and the DerivedData folder; without DIBS_CLEAN a test's DIBS_HOME clears nothing |
