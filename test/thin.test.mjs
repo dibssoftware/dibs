@@ -247,11 +247,12 @@ test('every second a thin waiter waited is named in its start event, across a br
   process.kill(old, 'SIGKILL');
   await until(() => { const b = state(home).broker; return b && b.pid !== old && alive(b.pid); });
   await until(() => entry(home, p.pid)?.heldRule === 'slot');
-  // As if it joined 20 minutes ago and nobody had looked for the last 10, under the state lock.
+  // As if it joined 16 minutes ago and nobody had looked for the last 8, under the state lock
+  // (ten without a look and the place leaves the line, src/state.mjs GHOST_AFTER).
   const lock = path.join(home, 'lock');
   await until(() => { try { fs.mkdirSync(lock); return true; } catch { return false; } });
   fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
-  const s = state(home), q = s.queue.find(x => x.pid === p.pid), back = 20 * 6e4;
+  const s = state(home), q = s.queue.find(x => x.pid === p.pid), back = 16 * 6e4;
   for (const k of ['enq', 'heldAt']) q[k] -= back;
   q.polledAt = Date.now() - back / 2;
   fs.writeFileSync(path.join(home, 'state.json.t'), JSON.stringify(s));
@@ -264,7 +265,7 @@ test('every second a thin waiter waited is named in its start event, across a br
   const named = Object.values(start.held).reduce((a, b) => a + b, 0);
   assert.ok(Math.abs(named - start.ms) < 50, `held ${JSON.stringify(start.held)} adds to ${named}, waited ${start.ms}`);
   assert.ok(start.held.slot > back / 2, `the slot held it through the restart: ${JSON.stringify(start.held)}`);
-  assert.ok(Math.abs(start.held.unpolled - back / 2) < 5e3, `nobody looked for 10 minutes: ${JSON.stringify(start.held)}`);
+  assert.ok(Math.abs(start.held.unpolled - back / 2) < 5e3, `nobody looked for 8 minutes: ${JSON.stringify(start.held)}`);
 });
 
 test('with the broker unable to start, a thin waiter waits in Node within seconds', async t => {

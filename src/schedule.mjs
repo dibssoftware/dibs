@@ -1,7 +1,7 @@
 // Who goes next. Pure functions of the state, config, history and clock, so
 // they can be tested without processes.
 import { resCfg, machine, hardware, RECENT, SWAP_WINDOW } from './config.mjs';
-import { bytes, ms, dur, gb, now, runsOf, indexed } from './util.mjs';
+import { bytes, ms, dur, gb, now, runsOf, indexed, unpolled } from './util.mjs';
 import { tag, isMine } from './proc.mjs';
 import { isFiles, overlap, short, clash, coversAgent, elsewhere } from './files.mjs';
 import { poolBlock } from './simpool.mjs';
@@ -851,8 +851,11 @@ function decide(s, me, cfg, hist, t) {
   const lightTurn = (me.mem || 0) <= LIGHT_MEM && me.res.every(r => cfg.resources[r]?.exclusive);
   const pastCeiling = pastsCeiling(me) || quick || lightTurn;
   // Over the ceiling, a waiter that passes it doesn't wait behind ones the ceiling holds back.
+  // Nor behind a place nobody is deciding for (its dibs stopped looking), or one the owner stopped:
+  // neither can start, so neither holds anyone back. Just after the machine wakes (graceUntil,
+  // src/state.mjs) every place is old, so none is taken for one nobody decides for.
   const ahead = s.queue
-    .filter(q => q.pid && q.id !== me.id && !(hot && pastCeiling && !pastsCeiling(q)))
+    .filter(q => q.pid && q.id !== me.id && !q.ownerStop && !(unpolled(q, t) && !(s.graceUntil > t)) && !(hot && pastCeiling && !pastsCeiling(q)))
     .filter(q => { const r = rank(q, hist, t); return r < myRank || (r === myRank && q.id < me.id); })
     .filter(q => reservesFor(s, q, me, cfg))
     .sort(byRank(hist, t));

@@ -9,9 +9,14 @@ import { settle, flush } from './preempt.mjs';
 import { reapPool } from './simpool.mjs';
 import { queueResets, startResets, reapResets } from './reset.mjs';
 import { logChanges, event } from './events.mjs';
-import { die, now, say, sleepSync, noSpace, fakeFull } from './util.mjs';
+import { die, now, say, sleepSync, noSpace, fakeFull, unpolled, GHOST_AFTER, POLLED_EVERY, UNPOLLED } from './util.mjs';
 
 export const KEEP_PLACE = 120e3;   // a waiter that gave up keeps its place this long
+// A waiter looks at its place every second or so, and a broker for its thin waiters as often:
+// a minute is plenty for one that's alive to see the owner stopped it.
+export const STOP_GRACE = POLLED_EVERY;
+const STOPPED_FOR = 10 * POLLED_EVERY;
+const QUIET_GRACE = 2 * POLLED_EVERY;   // two stamps' time, for every waiter to look in again
 
 export function withState(fn) {
   fs.mkdirSync(HOME, { recursive: true });
@@ -52,6 +57,12 @@ export function withState(fn) {
     const before = [...s.leases];
     const line = ids(s);
     const paused = new Map(before.map(l => [l.id, l.pausedAt]));
+    // A live waiter stamps its place once a minute, so a state file nobody wrote for longer
+    // than UNPOLLED means everyone went quiet at once (the machine slept): every place gets
+    // QUIET_GRACE to be looked at again before any counts as one nobody decides for.
+    let wrote = null;
+    try { wrote = fs.statSync(paths.state).mtimeMs; } catch {}
+    if (wrote != null && now() - wrote > UNPOLLED) s.graceUntil = now() + QUIET_GRACE;
     reap(s);
     const out = fn(s);
     settle(s, now(), history);   // resume work paused for a lease that has ended, and never leave every job paused
@@ -153,14 +164,36 @@ function reap(s) {
   // Node (src/broker.mjs keptFor), which only that process can pick up. A place
   // kept with no process on it (a wait that timed out, exit 75) stays KEEP_PLACE
   // for the same command to pick up.
+  // Two places under one process (pid and start time): it decides for one at most, the one it
+  // stamped last (the newer, on a tie). The other is left over and holds the line for nothing.
+  const latest = new Map();
+  for (const q of s.queue) {
+    if (!q.pid) continue;
+    const k = `${q.pid} ${q.pstart}`, o = latest.get(k);
+    if (!o || (q.polledAt ?? 0) > (o.polledAt ?? 0) || ((q.polledAt ?? 0) === (o.polledAt ?? 0) && q.id > o.id)) latest.set(k, q);
+  }
+  const twin = q => q.pid && latest.get(`${q.pid} ${q.pstart}`) !== q;
+  if (s.graceUntil && t >= s.graceUntil) delete s.graceUntil;
+  // A place whose process lives but no longer decides for it (its dibs stopped looking) goes after
+  // GHOST_AFTER, and one the owner stopped once its waiter has had STOP_GRACE to see that: both, left
+  // in, would sit in line for as long as the process lived.
   s.queue = s.queue.filter(q => {
     const owner = q.pid || (q.keptFor && !q.pid ? q.keptFor : null);
-    if (owner && !alive(owner, q.pstart)) {
-      vanished.push({ at: t, kind: 'left', id: q.id, res: q.res, who: q.who, prio: q.prio || 'normal', type: q.kind, ms: t - q.enq, why: 'gone' });
+    const why = owner && !alive(owner, q.pstart) ? 'gone'
+      : q.ownerStop && t - q.ownerStop > STOP_GRACE ? 'owner stop'
+      : unpolled(q, t, GHOST_AFTER) && !(s.graceUntil > t) ? 'unpolled'
+      : twin(q) ? 'duplicate' : null;
+    if (why) {
+      vanished.push({ at: t, kind: 'left', id: q.id, res: q.res, who: q.who, prio: q.prio || 'normal', type: q.kind, ms: t - q.enq, why });
       return false;
     }
     return q.pid || (q.keepUntil && t < q.keepUntil);
   });
+  // What the owner stopped, for a waiter that finds its place gone to say why.
+  if (s.stopped) {
+    for (const id of Object.keys(s.stopped)) if (t - s.stopped[id].at > STOPPED_FOR) delete s.stopped[id];
+    if (!Object.keys(s.stopped).length) delete s.stopped;
+  }
   reapPool(s);
   reapResets(s, alive);
 }

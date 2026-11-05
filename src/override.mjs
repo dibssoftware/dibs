@@ -23,7 +23,7 @@ import { ownerPause, pauseLabel } from './preempt.mjs';
 import { PRIORITIES, BACKGROUND, NEEDS_REASON, priority, byRank } from './schedule.mjs';
 import { actor } from './owner.mjs';
 import { event } from './events.mjs';
-import { die, now, say, sleepSync } from './util.mjs';
+import { die, now, say, sleepSync, unpolled } from './util.mjs';
 import { takeAgent, callKey } from './files.mjs';
 import { quoted } from './style.mjs';
 
@@ -296,6 +296,14 @@ export function stop(args) {
       x.ownerStop = now();
       if (who.agent || who.via) x.stopBy = who.name;
       if (reason) x.stopReason = reason;
+      if (c.kind === 'wait') {
+        // Recorded apart from the place, so its waiter can say why once the place is gone. A place
+        // its dibs is still deciding for stays until that dibs sees the stop (its waiter says so and
+        // leaves; src/state.mjs reap takes it after STOP_GRACE); one nothing decides for goes now.
+        // On 2026-11-04 "took #19783 out of line" left #19783 at the head of heavy, twice.
+        (s.stopped ||= {})[x.id] = { at: x.ownerStop, by: x.stopBy, reason: x.stopReason };
+        if (unpolled(x, now())) s.queue = s.queue.filter(q => q !== x);
+      }
       // SIGKILL ends stopped processes too, so a paused run needs no SIGCONT first.
       // The lock is still held, so the run's own dibs can't remove the lease
       // (and its group number can't be handed out again) in between.

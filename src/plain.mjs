@@ -417,7 +417,7 @@ export function lineParts(p) {
     let now = rows.length ? usingText(rows, named(p.cfg, l.res)) : 'free';
     if (notes.length) now += ` (${rows.length > 1 ? notes.map(([w, x]) => `${w} is ${lower(x)}`).join('; ') : lower(notes[0][1])})`;
     let next = '';
-    const names = l.waiting.map(id => p.names.get(id));
+    const names = l.waiting.map(id => `${p.names.get(id)} (#${id})`);   // the id, for dibs why, boost or stop
     if (names.length) {
       // Say why the next one waits only when it isn't simply its turn here:
       // stuck on the machine, or on another resource it needs too.

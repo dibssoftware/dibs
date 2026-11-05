@@ -182,3 +182,14 @@ export function indexed(hist) {
   INDEX.set(hist, x);
   return x;
 }
+
+// A waiter's dibs stamps polledAt on its place at most this often (src/acquire.mjs decide).
+export const POLLED_EVERY = 60e3;
+// Longer than this without a stamp, nobody is deciding for the place: it holds nobody back
+// (src/schedule.mjs), and the board says so.
+export const UNPOLLED = 3 * POLLED_EVERY;
+// Longer than this, it leaves the line (src/state.mjs reap). On 2026-11-04 a place its own
+// process had stopped deciding for sat at the head of heavy for 21 h.
+export const GHOST_AFTER = 10 * POLLED_EVERY;
+// A place without a stamp (made before dibs stamped them) isn't judged.
+export const unpolled = (q, t, after = UNPOLLED) => !!q.pid && q.polledAt != null && t - q.polledAt > after;

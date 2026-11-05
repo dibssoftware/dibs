@@ -537,7 +537,7 @@ export function who(o, cfg) {
     // A file lease is held by whoever holds any path overlapping it.
     // One holder with two overlapping file leases is still one holder.
     const held = s.leases.filter(l => l.res.some(x => clash(x, r))).filter((l, i, all) => all.findIndex(x => x.who === l.who) === i);
-    const next = order.filter(q => q.res.some(x => clash(x, r))).map(q => q.who);
+    const next = order.filter(q => q.res.some(x => clash(x, r))).map(q => `${q.who} (#${q.id})`);   // the id, for dibs why, boost or stop
     const n = named(cfg, r);
     const room = isFiles(r) ? 'nobody has these files or any that overlap them' : `${resCfg(cfg, r).slots - used(s, r)} of ${resCfg(cfg, r).slots} free`;
     const hold = isFiles(r) ? '' : machineHold(s, cfg);

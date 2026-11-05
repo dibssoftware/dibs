@@ -49,7 +49,7 @@ const SITUATIONS = [
     assert.equal(w.startsText, 'about 4 min');
     assert.equal(w.startsIn, 4 * MIN);
     assert.equal(w.waitingFor, "onboarding's snapshot tests to finish (about 4 min left)");
-    assert.equal(lineSentences(p)[0], 'Simulator: onboarding is using it, about 4 min left. Next: ios-checkout.');
+    assert.equal(lineSentences(p)[0], 'Simulator: onboarding is using it, about 4 min left. Next: ios-checkout (#2).');
     assert.equal(p.held.get(s.leases[0].id).headline, 'Using the simulator');
     assert.equal(p.held.get(s.leases[0].id).endsText, 'about 4 min left');
   }],
@@ -63,7 +63,7 @@ const SITUATIONS = [
     assert.equal(b.startsText, 'as soon as ios-checkout finishes');
     assert.equal(line(p, 'sim').summary, '1 in use, 2 waiting');
     assert.equal(line(p, 'sim').clearsIn, null);
-    assert.equal(lineSentences(p)[0], 'Simulator: onboarding is using it, time left unknown. Next: ios-checkout, then web-app.');
+    assert.equal(lineSentences(p)[0], 'Simulator: onboarding is using it, time left unknown. Next: ios-checkout (#4), then web-app (#5).');
   }],
   ['behind a waiter with a known run time: names the job running now, never a made-up number', () => {
     const hold = lease({ kind: 'hold', who: 'ios-checkout', expires: T + 14 * MIN });
@@ -89,7 +89,7 @@ const SITUATIONS = [
     const w = p.waiting.get(s.queue[0].id);
     assert.equal(w.waitingFor, 'more free disk (8.8 GB free, it needs 9.0 GB)');
     assert.equal(w.startsText, 'unknown');
-    assert.equal(lineSentences(p)[0], 'Simulator: free, but ios-checkout is waiting for more free disk (8.8 GB free, it needs 9.0 GB).');
+    assert.equal(lineSentences(p)[0], 'Simulator: free, but ios-checkout (#15) is waiting for more free disk (8.8 GB free, it needs 9.0 GB).');
   }],
   ['over the load ceiling: waiting for the machine to cool down', () => onMachine({ load: 11 }, () => {
     const s = st([lease({ res: ['test'] })], [q({ who: 'ios-checkout' })]);
@@ -114,7 +114,7 @@ const SITUATIONS = [
     assert.equal(w.waitingFor, 'alice to finish with the files in /repo/src/auth, which include /repo/src/auth/login.ts (up to 5 min left)');
     assert.equal(line(p, 'files:/repo/src/auth/**').label, 'Files in /repo/src/auth');
     assert.match(lineSentences(p)[0], /^Files in \/repo\/src\/auth: alice has reserved them, up to 5 min left\.$/);
-    assert.equal(lineSentences(p)[1], 'Files in /repo/src/auth/login.ts: free, but carol is waiting for alice to finish with the files in /repo/src/auth, which include /repo/src/auth/login.ts (up to 5 min left).');
+    assert.equal(lineSentences(p)[1], 'Files in /repo/src/auth/login.ts: free, but carol (#21) is waiting for alice to finish with the files in /repo/src/auth, which include /repo/src/auth/login.ts (up to 5 min left).');
   }],
   ['a quota: when it refills, worked out from the refill rate', () => st([], [q({ res: ['quota:asc'], who: 'uploader', cost: 5 })], { quotas: { asc: { tokens: 0, at: T } } }), (p, s) => {
     const w = p.waiting.get(s.queue[0].id);
@@ -157,8 +157,8 @@ const SITUATIONS = [
     const w = p.waiting.get(s.queue[0].id);
     assert.equal(w.headline, 'Next in the simulator queue');
     assert.equal(p.held.get(s.leases[0].id).headline, 'Using the simulator');
-    assert.equal(lineSentences(p)[0], 'Xcode builds: web-app and ios-checkout are building, time left unknown for both. Next: api-refactor, then onboarding.'
-      + " api-refactor also needs the simulator and is waiting for onboarding's simulator run to finish.");
+    assert.equal(lineSentences(p)[0], 'Xcode builds: web-app and ios-checkout are building, time left unknown for both. Next: api-refactor (#36), then onboarding (#37).'
+      + " api-refactor (#36) also needs the simulator and is waiting for onboarding's simulator run to finish.");
   }],
   ['a run on two resources has one headline', () => st([lease({ res: ['sim', 'xcode-build'] })]), (p, s) => {
     assert.equal(p.held.get(s.leases[0].id).headline, 'Using the simulator and building with Xcode');
@@ -227,7 +227,7 @@ test('plain dibs leads with the answer, then a column per line; --detail keeps t
   const lines = out.split('\n');
   assert.equal(lines[0], '1 running, 1 waiting. Next up: ios-checkout for the simulator, as soon as onboarding finishes.');
   assert.equal(lines[2], 'Simulator   onboarding is using it, time left unknown');
-  assert.equal(lines[3], '            Next: ios-checkout');
+  assert.equal(lines[3], '            Next: ios-checkout (#2)');
   assert.match(out, /^Free {8}Private simulators, Xcode builds/m);
   assert.ok(lines.every(l => l.length <= 100), 'nothing wider than 100 columns');
   assert.doesNotMatch(out, /HELD|QUEUE|\x1b\[/);

@@ -15,7 +15,7 @@ import { capWaiter } from './override.mjs';
 import { verdict, forecast, expected, remaining, byRank, holdingOf, PRIORITY_SHIFT, PRIORITIES, NEEDS_REASON, used, overBy, STALL, neverFits, explicitAsk, capToMachine, quickPass } from './schedule.mjs';
 import { event } from './events.mjs';
 import { startLine } from './overlap.mjs';
-import { dur, clock, die, say, sleep, now, ms, gb, SIGNALS, signalExit, KEY_SPLIT, noSpace, OFF_LIMITS, callerPid } from './util.mjs';
+import { dur, clock, die, say, sleep, now, ms, gb, SIGNALS, signalExit, KEY_SPLIT, noSpace, OFF_LIMITS, callerPid, POLLED_EVERY, UNPOLLED, GHOST_AFTER } from './util.mjs';
 import { plainBoard, startPhrase, askFirst, named, andList, lower, ordinal, moves, stuckFor, STUCK_AFTER } from './plain.mjs';
 import { quoted, wrap, width } from './style.mjs';
 import { noticeScan } from './notices.mjs';
@@ -288,9 +288,7 @@ async function saved(w, fn) {
 // Its size again from what its command has used, as dibs learns now: on
 // 2026-10-20 nine browser runs sized when one run had read 15 GB still waited,
 // two hours on, for the whole budget the new rule no longer planned.
-const POLLED_EVERY = 60e3;
-// Longer than this since a waiter's dibs last looked and nobody was deciding for it (src/board.mjs too).
-export const UNPOLLED = 3 * POLLED_EVERY;
+export { UNPOLLED };   // src/board.mjs reads it from here
 function resize(cur, w) {
   if (cur.sent) return;
   const base = { mem: cur.asked ?? cur.mem, cpu: cur.cpu, disk: cur.disk };
@@ -321,7 +319,10 @@ function heldFor(cur, rule, looked) {
 }
 export function decide(s, w) {
   const { me, cfg, hist, info } = w;
-  const cur = s.queue.find(x => x.id === me.id) || me;
+  const cur = s.queue.find(x => x.id === me.id);
+  // No place, no turn: one taken out of line (stopped, or left unlooked-at, src/state.mjs reap)
+  // stays out. Running on from this copy of it, a waiter would start with nobody's place.
+  if (!cur) { const x = s.stopped?.[me.id]; return x ? { stopped: true, by: x.by, reason: x.reason } : { gone: true }; }
   if (cur.ownerStop) { s.queue = s.queue.filter(x => x.id !== me.id); return { stopped: true, by: cur.stopBy, reason: cur.stopReason }; }
   // Kept current here, so it lapses when the hold ages out or ends.
   const holding = holdingOf(s, cur, cfg);
@@ -403,6 +404,11 @@ export function step(r, w) {
     left(w, 'owner stop');
     return out.die(`stopped by ${r.by || 'the owner (the person at this machine)'} on purpose (dibs stop)${r.reason ? `: "${r.reason}"` : ''}. This was taken out of line and your command did not run.`
       + `${r.reason ? '' : ' Find out why before trying again: dibs history, or ask whoever stopped it.'}`, signalExit('SIGTERM'));
+  }
+  if (r.gone) {
+    left(w, 'place gone');
+    return out.die(`#${me.id} is no longer in line: it was taken out, or nothing had looked at it for ${dur(GHOST_AFTER)}.`
+      + ` Your command did NOT run (exit 75). Run it again to get back in line:\n      ${w.info.again}`, 75);
   }
   if (r.never) {
     left(w, 'never fits');
@@ -639,8 +645,14 @@ export async function acquire(o, kind, cfg) {
   const hold = sig => { early ||= sig; if (w.full) process.exit(signalExit(sig)); };
   for (const sig of SIGNALS) process.on(sig, hold);
   w.me = await saved(w, s => {
-    // Only a place someone left behind can be picked up again, never a live waiter's.
-    let q = s.queue.find(x => x.ticket === ticket && !x.pid);
+    // Its own place first: this process, by pid and start time, getting in line again (a thin waiter's
+    // shell become Node keeps both). Then one kept for it, then one a timed-out wait left for this command.
+    // Never a live waiter's place, nor one kept for another process: on 2026-11-04 pid 97301 had #19783
+    // and #19784 for one command, and #19783, which nothing decided for any more, held heavy for 21 h.
+    const me = x => myStart && x.pid === pid && x.pstart === myStart;
+    let q = s.queue.find(x => x.ticket === ticket && me(x))
+      || s.queue.find(x => x.ticket === ticket && !x.pid && x.keptFor === pid)
+      || s.queue.find(x => x.ticket === ticket && !x.pid && !x.keptFor);
     if (q) { Object.assign(q, { pid, pstart: myStart, keepUntil: null }); delete q.wake; delete q.keptFor; }
     else {
       q = { id: ++s.seq, ticket, res, mem, cpu, disk, asked, askedCpu, usual, pid, pstart: myStart, enq: now(), polledAt: now(),
@@ -653,6 +665,8 @@ export async function acquire(o, kind, cfg) {
       if (sent) q.sent = true;   // placed here by the coordinator for its size (neverFits)
       s.queue.push(q);
     }
+    // A process waits for one thing: any other place under it was left behind, and only holds others back.
+    s.queue = s.queue.filter(x => x === q || !(me(x) || (!x.pid && x.keptFor === pid)));
     // Without -m, a wait for the rest of what a ship needs says what the ship is for.
     if (!q.purpose) q.purpose = holdingOf(s, q, cfg)?.purpose || '';
     if (o.prio && !q.owner) q.prio = o.prio;   // a place picked up again keeps the owner's word on it
