@@ -360,6 +360,15 @@ export function vmAvail(text) {
 // Memory pressure: 0 normal, 1 warning, 2 critical (swapping hard), or null
 // when the OS doesn't say. One sysctl on macOS; PSI on Linux, where a tenth of
 // the last 10s fully stalled on memory counts as critical. Windows: null.
+// When the machine last woke from sleep (dark wakes and Power Nap included), or null:
+// macOS's kern.waketime, which reads 0 until the first sleep after boot. DIBS_FAKE_WAKETIME
+// (ms since 1970) stands in for it in tests.
+export function wokeAt() {
+  if (process.env.DIBS_FAKE_WAKETIME) return Number(process.env.DIBS_FAKE_WAKETIME) || null;
+  if (OS !== 'macos') return null;
+  const m = run('sysctl', ['-n', 'kern.waketime']).match(/sec = (\d+), usec = (\d+)/);
+  return m && Number(m[1]) ? Number(m[1]) * 1000 + Math.floor(Number(m[2]) / 1000) : null;
+}
 export function memPressure() {
   if (OS === 'macos') return { 1: 0, 2: 1, 4: 2 }[Number(run('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']))] ?? null;
   if (OS !== 'linux') return null;

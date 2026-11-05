@@ -182,3 +182,42 @@ test('after the machine slept, nobody loses a place for not having looked at it:
   a.open();
   assert.equal(await w.done, 0, w.err);
 });
+
+test('a place left unlooked-at across a wake keeps its spot even when the state file looks fresh (a dark wake wrote it)', async t => {
+  const h = tmp(t);
+  // The machine woke just now, for every dibs here.
+  const woke = { DIBS_FAKE_WAKETIME: String(Date.now()) };
+  const gate = path.join(tmp(t, 'gate'), 'open');
+  bg(t, h, ['run', 't', '--', 'sh', '-c', `while [ ! -e '${gate}' ]; do sleep 0.05; done`], { agent: 'a', env: woke });
+  await until(() => board(h).held.length === 1);
+  const w = bg(t, h, ['run', 't', '--', 'true'], { agent: 'b', env: woke });
+  await until(() => queue(h).some(q => q.pid === w.pid));
+  // Stamped 11 minutes ago, in a state file written just now, under the state lock.
+  const lock = path.join(h, 'lock'), file = path.join(h, 'state.json');
+  await until(() => { try { fs.mkdirSync(lock); return true; } catch { return false; } });
+  fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
+  const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+  s.queue.find(x => x.pid === w.pid).polledAt = Date.now() - 11 * MIN;
+  fs.writeFileSync(file, JSON.stringify(s));
+  fs.rmSync(lock, { recursive: true });
+  await until(() => queue(h).find(x => x.pid === w.pid)?.polledAt > Date.now() - MIN);
+  fs.writeFileSync(gate, '');
+  assert.equal(await w.done, 0, w.err);
+});
+
+test('a kept place picked up by its process counts as looked-at from then, however old its last stamp', async t => {
+  const h = tmp(t), file = editor(t), ran = path.join(tmp(t, 'ran'), 'ran');
+  const a = await holder(t, h);
+  const p = track(t, spawn('sh', ['-c', `"${process.execPath}" "$1" $$ "$2" && exec "${process.execPath}" "${BIN}" run t -- touch '${ran}'`,
+    'sh', file, place('b', `touch ${ran}`, `pid: null, keptFor: PID, keepUntil: NOW + 120000, polledAt: NOW - 11 * ${MIN}`)],
+    { env: env(h, { agent: 'b' }), stdio: ['ignore', 'pipe', 'pipe'] }));
+  let err = '';
+  p.stderr.on('data', d => (err += d));
+  const done = new Promise(r => p.on('exit', r));
+  await until(() => events(h).some(e => e.kind === 'wait' && e.who === 'b'));
+  // Another dibs writes the state (and reaps) before this waiter looks again.
+  assert.equal(sync(h, ['run', 'u', '--', 'true'], { agent: 'c' }).code, 0);
+  a.open();
+  assert.equal(await done, 0, err);
+  assert.ok(fs.existsSync(ran));
+});

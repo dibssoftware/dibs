@@ -676,7 +676,8 @@ export async function acquire(o, kind, cfg) {
     let q = s.queue.find(x => x.ticket === ticket && me(x))
       || s.queue.find(x => x.ticket === ticket && !x.pid && x.keptFor === pid)
       || s.queue.find(x => x.ticket === ticket && !x.pid && !x.keptFor);
-    if (q) { Object.assign(q, { pid, pstart: myStart, keepUntil: null }); delete q.wake; delete q.keptFor; }
+    // Stamped as looked-at now: a place picked up is decided for again from here on.
+    if (q) { Object.assign(q, { pid, pstart: myStart, keepUntil: null, polledAt: now() }); delete q.wake; delete q.keptFor; }
     else {
       q = { id: ++s.seq, ticket, res, mem, cpu, disk, asked, askedCpu, usual, pid, pstart: myStart, enq: now(), polledAt: now(),
             who: id.who, agent: id.agent, label: id.label, spid: id.spid, purpose: o.purpose || '', cmd, key, kind,

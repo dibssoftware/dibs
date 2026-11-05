@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { paths, HOME } from './config.mjs';
 import { makeAlive } from './proc.mjs';
-import { stopTree, starts, liveGroups, OS } from './platform.mjs';
+import { stopTree, starts, liveGroups, wokeAt, OS } from './platform.mjs';
 import { settle, flush } from './preempt.mjs';
 import { reapPool } from './simpool.mjs';
 import { queueResets, startResets, reapResets } from './reset.mjs';
@@ -173,6 +173,12 @@ function reap(s) {
     if (!o || (q.polledAt ?? 0) > (o.polledAt ?? 0) || ((q.polledAt ?? 0) === (o.polledAt ?? 0) && q.id > o.id)) latest.set(k, q);
   }
   const twin = q => q.pid && latest.get(`${q.pid} ${q.pstart}`) !== q;
+  // The state file can look fresh across a sleep (a dark wake, Power Nap, a worker's write), so a
+  // recent wake grants the same grace. Asked only when a place has gone unlooked-at: it's a sysctl.
+  if (!(s.graceUntil > t) && s.queue.some(q => unpolled(q, t))) {
+    const woke = wokeAt();
+    if (woke && t - woke < QUIET_GRACE) s.graceUntil = woke + QUIET_GRACE;
+  }
   if (s.graceUntil && t >= s.graceUntil) delete s.graceUntil;
   // A place whose process lives but no longer decides for it (its dibs stopped looking) goes after
   // GHOST_AFTER, and one the owner stopped once its waiter has had STOP_GRACE to see that: both, left

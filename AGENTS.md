@@ -58,6 +58,7 @@ Always run the suite through dibs: it spawns real processes and coordinators, an
 | `DIBS_FAKE_SIMCTL` | JSON file that plays CoreSimulator for the simulator pool |
 | `DIBS_FAKE_FOOTPRINT` | JSON file of `{ pid: bytes }` read in place of real memory footprints; pids not in it read 0 |
 | `DIBS_FAKE_MEMORY` | JSON file of `{ pid: bytes }` read in place of top's MEM plus CMPRS for every process, for the memory alert's list of what to close (src/alerts.mjs) |
+| `DIBS_FAKE_WAKETIME` | when the machine last woke (ms since 1970), read in place of macOS's kern.waketime, for the grace every waiter gets after a sleep (src/state.mjs) |
 | `DIBS_SAMPLE_MS` | how often leases are measured (default 10s), so a test sees a measurement quickly |
 | `DIBS_SCRATCH` | where `dibs setup scratch --check` looks for the scratch volume |
 | `DIBS_FAKE_ENOSPC` | a file: while it exists, state writes fail as ENOSPC would. It lists the steps that fail (`lock`, `state`, `notes`), or none for all |
