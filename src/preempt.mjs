@@ -302,6 +302,32 @@ export function diskStep(track, m, cfg) {
   return null;
 }
 
+// The hard stop: under HARD_STOP free, a full disk is seconds away and fails every job on the
+// machine, so the dibs run writing fastest is paused whatever its priority or resource (a deploy
+// included, which pausing may time out: that's the lesser harm), one a pass, never the last one
+// running. They resume once
+// there's HARD_RESUME. Writing fastest: the biggest share of the disk's last fall (src/measure.mjs
+// ateLast), then of its fall per minute run.
+export const HARD_STOP = 1024 ** 3, HARD_RESUME = 2 * 1024 ** 3;
+const writing = (l, t) => [l.ateLast || 0, (l.ate || 0) / Math.max(1, t - l.start)];
+export function hardStop(s, t = now(), m = {}) {
+  if (m.diskFree == null || m.diskFree >= HARD_STOP || OS === 'windows') return null;
+  // Never the last one running: dibs doesn't pause every job (heal would resume one at once).
+  if (running(s).length < 2) return null;
+  const l = s.leases.filter(x => x.kind === 'run' && x.pgid && !x.pausedAt)
+    .sort((a, b) => { const [x, y] = [writing(a, t), writing(b, t)]; return y[0] - x[0] || y[1] - x[1]; })[0];
+  if (!l) return null;
+  (l.pauses ||= []).push({ watcher: process.pid, wstart: pstart(process.pid), at: t, disk: true, hard: true });
+  sync(l);
+  return { ...l };
+}
+export function hardResume(s, m = {}) {
+  if (m.diskFree == null || m.diskFree < HARD_RESUME) return [];
+  const ls = s.leases.filter(l => l.pauses?.some(p => p.hard));
+  for (const l of ls) { l.pauses = l.pauses.filter(p => !p.hard); sync(l); }
+  return ls.map(l => ({ ...l }));
+}
+
 // Pause the next lease while free disk is low and filling: one on top of a full
 // resource first, then idle, low and normal work, newest first (the newest is
 // likeliest to be the one growing). Urgent and high work, holds, and resources
@@ -379,7 +405,8 @@ export function pressurePause(s, cfg, t = now(), hist = []) {
 // memory. With all = true, every one (the watcher is stopping); 'memory', every
 // memory pause and no disk ones. Returns what it resumed.
 export function pressureResume(s, all = false, disk = false) {
-  const ours = p => p.watcher && (all === 'memory' ? !p.disk : all || !!p.disk === disk);
+  // A hard stop's pause lifts only at HARD_RESUME (hardResume), or when the watcher hands over.
+  const ours = p => p.watcher && !(p.hard && all !== true) && (all === 'memory' ? !p.disk : all || !!p.disk === disk);
   const ls = s.leases.filter(l => l.pauses?.some(ours)).sort((a, b) => !!a.alongside - !!b.alongside || (a.alongside ? a.start - b.start : 0)
     || (a.prio === 'idle') - (b.prio === 'idle') || a.mem - b.mem);
   const out = all ? ls : ls.slice(0, 1);

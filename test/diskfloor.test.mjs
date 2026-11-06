@@ -122,24 +122,34 @@ test('E: a command whose runs ate under 100 MB starts under minDisk, on any reso
   assert.equal(judge(s, me, cfg(), { diskFree: 4.7 * G }, [...grew, ...ate(key, 2)]).ok, true, 'and back down: the middle of its runs is still near 0');
   assert.equal(tinyDisk({ res: ['heavy'], key: 'heavy|new' }, ate('heavy|new', 900, 5), cfg()), false, 'under three runs, the most any ate counts');
   assert.equal(tinyDisk({ res: ['heavy'], key: 'heavy|new' }, ate('heavy|new', 900, 5, 5), cfg()), true, 'from three, the middle');
-  // With no runs, by resource: deploy, test and made-up locks write little; builds, simulators, browsers and heavy don't.
+  assert.equal(tinyDisk({ res: ['heavy'], key: 'heavy|new' }, ate('heavy|new', 5), cfg()), false, 'one small run is too few');
+  assert.equal(tinyDisk({ res: ['heavy'], key: 'heavy|new' }, ate('heavy|new', 5, 5), cfg()), true, 'two are enough');
+  // A run the watcher cleared caches under reads low, so it doesn't count.
+  const masked = ate('heavy|new', 5, 5).map(h => ({ ...h, cleaned: true }));
+  assert.equal(tinyDisk({ res: ['heavy'], key: 'heavy|new' }, masked, cfg()), false, 'runs under a cache clear');
+  // relayreview, 2026-11-05: a first npm ci or bundling deploy writes gigabytes. With no runs, no resource is small by its kind;
+  // only a --disk says so: under 100 MB anywhere, under 1 GB on one that declares no disk need.
   const by = r => tinyDisk({ res: [r], key: `${r}|first` }, [], cfg());
-  assert.deepEqual(['deploy', 'test', 'migrations', 'xcode-build', 'sim', 'sim-own', 'playwright', 'heavy'].map(by), [true, true, true, false, false, false, false, false]);
+  assert.deepEqual(['deploy', 'test', 'migrations', 'xcode-build', 'sim', 'heavy'].map(by), [false, false, false, false, false, false]);
+  const said = (r, d) => tinyDisk({ res: [r], key: `${r}|first`, disk: d, diskDeclared: true }, [], cfg());
+  assert.deepEqual([said('heavy', 50 * M), said('heavy', 200 * M), said('test', 200 * M), said('deploy', 900 * M), said('deploy', 2 * G)], [true, false, true, true, false]);
   const deploy = waiter({ res: ['deploy'], mem: 0.5 * G, key: 'deploy|upload.sh' });
-  assert.equal(judge({ leases: [lease()], queue: [deploy] }, deploy, cfg(), { diskFree: 4.4 * G }).ok, true, '2e\'s upload, 4.4 GB free');
+  assert.equal(judge({ leases: [lease()], queue: [deploy] }, deploy, cfg(), { diskFree: 4.4 * G }).rule, 'disk', 'a first deploy keeps the floor');
+  assert.equal(judge({ leases: [lease()], queue: [deploy] }, deploy, cfg(), { diskFree: 4.4 * G }, ate('deploy|upload.sh', 90, 80)).ok, true, '2e\'s upload, 100 MB a run, 4.4 GB free');
   const ship = ate('deploy|ship.sh', 1030, 4275);
   assert.equal(judge({ leases: [lease()], queue: [deploy] }, deploy, cfg(), { diskFree: 4.4 * G }, ship.map(h => ({ ...h, key: 'deploy|upload.sh' }))).rule, 'disk', 'a deploy whose runs eat gigabytes keeps the floor');
 });
 
 // 3b: a Shop ship (#18328, high) waited about a day while idle sessions' swap kept free disk under 9 GB.
-test('a job the person waits on (high, urgent or --by) skips the room kept for swap and may go down to the 3 GB hard floor', () => {
+test('a job the person waits on (high, urgent, or --by with -m) skips the room kept for swap and may go down to the 3 GB hard floor', () => {
   const ship = waiter({ res: ['deploy'], mem: 2 * G, disk: 8 * G, diskDeclared: true, key: 'deploy|ship.sh', prio: 'high', purpose: 'ship 142' });
   const s = { leases: [lease({ mem: 2 * G })], queue: [ship] };
   const swapping = { diskFree: 9.5 * G, swapUsed: 6 * G, swapGrowth: 1 * G, vmPressure: 0, maxSwap: null };
   const c = cfg({ maxSwap: null });
   assert.equal(judge(s, ship, c, swapping).ok, true, JSON.stringify(judge(s, ship, c, swapping)));
   assert.equal(judge(s, { ...ship, prio: 'normal' }, c, swapping).rule, 'swaproom', 'at normal it keeps the room for swap');
-  assert.equal(judge(s, { ...ship, prio: 'normal', by: T + 36e5 }, c, swapping).ok, true, 'a --by deadline counts as waited on');
+  assert.equal(judge(s, { ...ship, prio: 'normal', by: T + 36e5 }, c, swapping).ok, true, 'a --by deadline with its reason counts as waited on');
+  assert.equal(judge(s, { ...ship, prio: 'normal', by: T + 36e5, purpose: '' }, c, swapping).rule, 'swaproom', 'a bare --by does not');
   assert.equal(judge(s, ship, c, { ...swapping, diskFree: 7.5 * G }).rule, 'disk', 'its own 8 GB still has to be free');
   const build = waiter({ res: ['heavy'], disk: 1 * G, diskDeclared: true, key: 'heavy|make', prio: 'high', purpose: 'release' });
   assert.equal(judge({ leases: [lease()], queue: [build] }, build, cfg(), { diskFree: 3.5 * G }).ok, true, 'high: down to 3 GB');

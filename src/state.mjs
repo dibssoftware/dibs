@@ -155,7 +155,7 @@ function reap(s) {
     killLease(l);
     // Its dibs was killed, so nobody recorded what it measured. A job big enough
     // to get its dibs killed is the one the next run most needs to plan for.
-    if (l.peak?.mem) record(l.key, t - l.start - (l.pausedMs || 0), l.who, l.peak, true);
+    if (l.peak?.mem) record(l.key, t - l.start - (l.pausedMs || 0), l.who, peakOf(l), true);
     return false;
   });
   // A waiter whose process is gone leaves the line, however it went: a place
@@ -239,7 +239,9 @@ export function history() {
 // A failed run (nonzero exit, or its dibs killed) is recorded for its size
 // only: its time says nothing about a run's (schedule.mjs typical skips it).
 // Run times are worth less than the run: on a full disk this one goes unrecorded.
+// A lease's peak for its history line, marked when the watcher cleared caches during it.
+export const peakOf = l => (l.cleaned && l.peak ? { ...l.peak, cleaned: true } : l.peak);
 export function record(key, duration, who, peak, failed = false) {
-  try { fs.appendFileSync(paths.history, JSON.stringify({ key, dur: duration, who, at: now(), ...(peak ? { mem: peak.mem, cpu: peak.cpu, ...(peak.fit && { fit: true }), ...(peak.ate != null && { ate: Math.round(peak.ate) }) } : {}), ...(failed && { failed: true }) }) + '\n'); }
+  try { fs.appendFileSync(paths.history, JSON.stringify({ key, dur: duration, who, at: now(), ...(peak ? { mem: peak.mem, cpu: peak.cpu, ...(peak.fit && { fit: true }), ...(peak.ate != null && { ate: Math.round(peak.ate) }), ...(peak.cleaned && { cleaned: true }) } : {}), ...(failed && { failed: true }) }) + '\n'); }
   catch (e) { if (!noSpace(e)) throw e; }
 }

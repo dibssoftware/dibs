@@ -832,12 +832,13 @@ export function diskNeed(s, me, cfg, hist) {
 // A job alone still leaves this much free past what it eats: the system writes while it runs too.
 export const ALONE_ROOM = 1024 ** 3;
 
-// A job the person is waiting on (high, urgent, or a --by deadline) may take the headroom
+// A job the person is waiting on (high, urgent, or a --by deadline with its reason) may take the headroom
 // down to this, the same hard floor the watcher pauses jobs at (src/preempt.mjs DISK_FLOOR),
 // and isn't held for the room kept for swap. On 2026-11-02 and 03 a Shop ship
 // (#18328) waited about a day while idle sessions' swap kept free disk under 9 GB.
 const HARD_FLOOR = 3 * 1024 ** 3;
-export const waitedOn = q => q.prio === 'high' || q.prio === 'urgent' || q.by != null;
+// A --by deadline counts only with its reason (-m): a bare one costs nothing to type.
+export const waitedOn = q => q.prio === 'high' || q.prio === 'urgent' || (q.by != null && !!q.purpose);
 const floorFor = (q, cfg) => (waitedOn(q) ? Math.min(bytes(cfg.minDisk), HARD_FLOOR) : bytes(cfg.minDisk));
 
 // A job that eats less than this of the disk starts under minDisk: holding it back
@@ -845,22 +846,31 @@ const floorFor = (q, cfg) => (waitedOn(q) ? Math.min(bytes(cfg.minDisk), HARD_FL
 // a test suite that writes nothing (--disk 200M) and a later job that uploads a 100 MB
 // archive were all refused (exit 74) with 4.4 to 5 GB free, and a prod build went out unchecked.
 export const TINY_DISK = 100 * 1024 ** 2;
-// Whether a job is that small. Its own runs say first: the middle of its last ten good
-// runs (the most of them until there are DISK_RUNS) under TINY_DISK, and the last run,
-// failed or not, under it too: one that ate more takes the exemption away until it's
-// back down. A failed run alone, stopped early, says nothing about what a whole one eats.
-// With no good runs, its resources say: one that declares a disk need (simulators,
-// builds, browsers, heavy) is big, the rest (tests, deploys, locks) small, and an
-// honest --disk on those is taken at its word (diskNeed).
+// Whether a job is that small. Its own runs say first: at least TINY_RUNS good ones, the
+// middle of the last ten (the most of them until there are DISK_RUNS) under TINY_DISK, and
+// the last run, failed or not, under it too: one that ate more takes the exemption away
+// until it's back down. A failed run alone, stopped early, says nothing about what a whole
+// one eats. With too few runs, only a small --disk does (diskNeed takes it at its word).
 export function tinyDisk(me, hist, cfg) {
   // A --disk of minDisk or more says it isn't small, whatever its resource.
   if (me.diskDeclared && (me.disk || 0) >= bytes(cfg.minDisk)) return false;
-  const runs = runsOf(hist || [], me.key).filter(h => h.ate != null).slice(-10);
+  // A run the watcher cleared caches under reads low: the clean's room hid what it wrote (src/diskwarn.mjs clean).
+  const runs = runsOf(hist || [], me.key).filter(h => h.ate != null && !h.cleaned).slice(-10);
   if (runs.length && runs.at(-1).ate >= TINY_DISK) return false;
   const good = runs.filter(h => !h.failed).map(h => h.ate);
-  if (good.length) return (good.length < DISK_RUNS ? Math.max(...good) : mid(good)) < TINY_DISK;
-  return me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk);
+  if (good.length >= TINY_RUNS) return (good.length < DISK_RUNS ? Math.max(...good) : mid(good)) < TINY_DISK;
+  // Too few runs to go by: only its own word makes it small. A first npm ci or a bundling deploy
+  // writes gigabytes, so a resource's kind alone never does. Under CLAIM_MAX on a resource that
+  // declares no disk (tests, deploys, locks), or under TINY_DISK anywhere.
+  if (!me.diskDeclared) return false;
+  const claim = me.disk || 0;
+  return claim < TINY_DISK || (claim < CLAIM_MAX && me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk));
 }
+// Runs it takes to be small by history alone: one could be a run that happened to write little.
+const TINY_RUNS = 2;
+// The most a --disk alone can claim on a resource that declares no disk: on 2026-11-03 a test
+// suite that writes nothing said --disk 200M and was refused at 4.4 GB free.
+const CLAIM_MAX = 1024 ** 3;
 
 // The verdict, and for a job held by something else (its turn, memory, cores) a
 // word that free disk will hold it next, while there's still time to free some.

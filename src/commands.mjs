@@ -7,7 +7,7 @@ import { resCfg, machine, HOME, paths, PACES, PACE_OVERLAP, paced, paceKnobs, ha
 import { logChange } from './owner.mjs';
 import { identity, isMine, tag } from './proc.mjs';
 import { launch, stopTree, processes, descendants, which, starts, scoped, watchdog, OS } from './platform.mjs';
-import { withState, withStateIfRoom, history, record, KEEP_PLACE } from './state.mjs';
+import { withState, withStateIfRoom, history, record, peakOf, KEEP_PLACE } from './state.mjs';
 import { acquire, markIdle, idleFor, describeLease, commandKey, holdUntil, outerLease, defaultMaxWait, HOLD_CAP } from './acquire.mjs';
 import { rank, rankParts, byRank, forecast, verdict, remaining, used, sum, lent, pausedFor, overLoad, loadWhy, loadAhead, holdingOf, swapping, swapWhy, diskSqueeze, BACKGROUND, roomFor } from './schedule.mjs';
 import { noticeHandler } from './preempt.mjs';
@@ -153,7 +153,7 @@ export async function run(o, cfg) {
           + `${l.stopReason ? '' : ' Find out why before running it again: dibs history, or ask whoever stopped it.'}`);
         s.leases = s.leases.filter(x => x.id !== lease.id);
         // A failing run is often the one that ran out of memory: its size counts too.
-        if (l && (code === 0 || l.peak?.mem)) record(l.key, now() - l.start - pausedFor(l), l.who, l.peak, code !== 0);
+        if (l && (code === 0 || l.peak?.mem)) record(l.key, now() - l.start - pausedFor(l), l.who, peakOf(l), code !== 0);
         if (l?.quick) took = now() - l.start - pausedFor(l);
         tellOverAsk(l);
       });
@@ -223,7 +223,7 @@ function requeue(s, l, cfg) {
   const t = now();
   s.leases = s.leases.filter(x => x !== l);
   // What it really used goes into the history, so every later run of the command is planned at it too.
-  if (l.peak?.mem) record(l.key, t - l.start - pausedFor(l), l.who, l.peak, true);
+  if (l.peak?.mem) record(l.key, t - l.start - pausedFor(l), l.who, peakOf(l), true);
   const res = l.res;
   const front = Math.min(l.start - (l.waited || 0), ...s.queue.filter(q => q.res.some(r => res.includes(r))).map(q => q.enq)) - 1;
   // Booked at what it really used, up to all the memory dibs shares out (usual keeps the rest).

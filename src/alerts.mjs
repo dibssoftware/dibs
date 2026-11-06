@@ -330,6 +330,12 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
       fix: `Those tool calls ran without dibs's checks. Report it: dibs ask "hook: ${last.msg.slice(0, 60)}"` });
   }
 
+  // The hard stop (src/preempt.mjs hardStop): a job paused under 1 GB free, whatever it was.
+  for (const l of s.leases.filter(x => x.pauses?.some(p => p.hard)))
+    out.push({ id: `hardstop:#${l.id}`, cause: 'disk', level: 'urgent', job: l.id, who: l.who, at: l.pausedAt,
+      title: `Free disk fell under 1 GB, so dibs paused ${job(l)}, the job writing the most. It resumes once 2 GB is free`,
+      fix: diskFix() });
+
   // Disk under the floor: nothing new starts.
   const floor = bytes(cfg.minDisk || '0');
   if (floor && m.diskFree != null && m.diskFree < floor)

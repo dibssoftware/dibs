@@ -13,7 +13,7 @@ import { withState, history, peek } from './state.mjs';
 import { singleInstance } from './proc.mjs';
 import { processes, lower, memPressure, isDibs } from './platform.mjs';
 import { hogsOnce, hogHint } from './hogs.mjs';
-import { pressureStep, pressurePause, pressureResume, diskStep, diskPause, diskPausesPerPass, diskLine, diskCritical, adoptPauses, diskRequeue, measured } from './preempt.mjs';
+import { pressureStep, pressurePause, pressureResume, diskStep, diskPause, diskPausesPerPass, diskLine, diskCritical, adoptPauses, diskRequeue, measured, hardStop, hardResume, HARD_STOP, HARD_RESUME } from './preempt.mjs';
 import { swapGrowing } from './schedule.mjs';
 import { event } from './events.mjs';
 import { notify } from './talk.mjs';
@@ -73,6 +73,7 @@ export function pressureOnce(cfg, track, read = memPressure) {
 // again, resume one a minute.
 // Returns { act, leases } when it did something.
 export function diskOnce(cfg, track, m = machine()) {
+  const hard = hardOnce(m);
   const act = diskStep(track, m, cfg);
   if (!act) return null;
   // Swap still growing with jobs already paused: their memory is what's going to swap.
@@ -106,6 +107,27 @@ export function diskOnce(cfg, track, m = machine()) {
       + "Free what you can of your own: build output, scratch folders and merged worktrees your session made. Don't end the job or run it again.");
   }
   return ls.length ? { act, leases: ls } : null;
+}
+
+// The hard stop (src/preempt.mjs hardStop), said loudly: the board's alert for the person
+// (src/alerts.mjs), a line in the log, and a notice to the job's own session.
+function hardOnce(m) {
+  const r = withState(s => ({ resumed: hardResume(s, m), paused: hardStop(s, now(), m) }));
+  const free = gb(m.diskFree ?? 0).replace(/G$/, ' GB');
+  for (const l of r.resumed) {
+    fs.appendFileSync(LOG, `${new Date().toISOString()} disk back to ${free}: resumed ${l.who} ${l.res.join(',')} (${l.prio || 'normal'}): ${l.cmd.slice(0, 60)}\n`);
+    event({ kind: 'resume', id: l.id, res: l.res, who: l.who, why: 'hard stop over', diskFree: m.diskFree });
+    notify(l, `hardresume:#${l.id}:${now()}`, `your job #${l.id} (${l.cmd.slice(0, 60)}) is running again: free disk is back to ${free}.`);
+  }
+  const l = r.paused;
+  if (l) {
+    fs.appendFileSync(LOG, `${new Date().toISOString()} disk at ${free}, under ${gb(HARD_STOP)}: hard stop, paused ${l.who} ${l.res.join(',')} (${l.prio || 'normal'}), writing fastest: ${l.cmd.slice(0, 60)}\n`);
+    event({ kind: 'pause', id: l.id, res: l.res, who: l.who, prio: l.prio || 'normal', why: 'hard stop', diskFree: m.diskFree });
+    notify(l, `hardstop:#${l.id}:${l.pausedAt}`, `your job #${l.id} (${l.purpose ? `"${l.purpose}", ` : ''}${l.cmd.slice(0, 60)}) is paused: free disk is down to ${free}, `
+      + `under the ${gb(HARD_STOP).replace(/G$/, ' GB')} where every job on the machine is about to fail, and it was writing the most. It resumes once there's ${gb(HARD_RESUME).replace(/G$/, ' GB')}. `
+      + "Free what you can of your own now: build output, scratch folders and merged worktrees your session made. Don't end the job or run it again.");
+  }
+  return r;
 }
 
 export async function throttle(o, cfg) {

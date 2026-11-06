@@ -136,11 +136,47 @@ test("a job paused for the disk tells its agent through the hook at once, with w
   const run = o => ({ kind: 'run', res: ['test'], pid: process.pid, pstart: pstart(process.pid), pgid: 999999, pgstart: 'never', mem: G, cpu: 1, prio: 'normal', who: 'builder', cmd: 'npm test', ...o });
   withState(s => { s.leases = [run({ id: 1, start: T - 3 * MIN }), run({ id: 2, start: T - MIN, sessionId: 'sess-x', purpose: 'suite' })]; s.queue = []; });
   t.after(() => { withState(s => { s.leases = []; }); flush(false); fs.rmSync(path.join(HOME, 'messages.json'), { force: true }); });
-  const m = { ...MACHINE, diskFree: 0.5 * G, diskDrain: 4 * G, drainRecent: 4 * G, swapGrowth: 0 };
+  // Over the 1 GB hard stop, which pauses whatever writes most (the next test).
+  const m = { ...MACHINE, diskFree: 1.5 * G, diskDrain: 4 * G, drainRecent: 4 * G, swapGrowth: 0 };
   const r = diskOnce({ ...cfg, minDisk: '1G' }, { diskOk: 0, diskStill: 0 }, m);
   assert.equal(r?.act, 'pause', JSON.stringify(r));
   const n = JSON.parse(fs.readFileSync(path.join(HOME, 'messages.json'), 'utf8')).messages.filter(x => String(x.once).startsWith('diskpause:'));
   assert.equal(n.length, 1);
   assert.equal(n[0].session, 'sess-x');
-  assert.match(n[0].text, /^your job #2 \("suite", npm test\) is paused: free disk is low \(0\.5 GB\) and still falling.*Free what you can of your own/);
+  assert.match(n[0].text, /^your job #2 \("suite", npm test\) is paused: free disk is low \(1\.5 GB\) and still falling.*Free what you can of your own/);
+});
+
+// relayreview, 2026-11-05: nothing stopped a high or non-pausable job from writing the disk to 0.
+test('under 1 GB free the watcher pauses the job writing the most, a deploy included, says so to its session and the person, and resumes it at 2 GB', async t => {
+  const { diskOnce } = await import('../src/cool.mjs');
+  const { withState, peek } = await import('../src/state.mjs');
+  const { pstart } = await import('../src/proc.mjs');
+  const { detect } = await import('../src/alerts.mjs');
+  const run = o => ({ kind: 'run', pid: process.pid, pstart: pstart(process.pid), pgid: 999999, pgstart: 'never', mem: G, cpu: 1, start: T - 3 * MIN, cmd: 'npm test', ...o });
+  withState(s => {
+    s.leases = [run({ id: 1, res: ['test'], prio: 'low', who: 'tester', ateLast: 0 }), run({ id: 3, res: ['test'], prio: 'low', who: 'tester', ateLast: 0.1 * G }),
+      run({ id: 2, res: ['deploy'], prio: 'high', who: 'shipper', sessionId: 'sess-ship', cmd: './ship.sh', ateLast: 0.4 * G })];
+    s.queue = [];
+  });
+  t.after(() => { withState(s => { s.leases = []; }); flush(false); fs.rmSync(path.join(HOME, 'messages.json'), { force: true }); });
+  const still = { ...MACHINE, diskDrain: 0, drainRecent: 0, swapGrowth: 0 };
+  const track = { diskOk: 0, diskStill: 0 };
+  diskOnce(cfg, track, { ...still, diskFree: 0.8 * G });
+  const paused = () => peek().leases.filter(l => l.pauses?.some(p => p.hard)).map(l => l.id).sort();
+  assert.deepEqual(paused(), [2], 'the deploy, high and not pausable, writes the most');
+  const n = JSON.parse(fs.readFileSync(path.join(HOME, 'messages.json'), 'utf8')).messages.filter(x => String(x.once).startsWith('hardstop:'));
+  assert.equal(n.length, 1);
+  assert.equal(n[0].session, 'sess-ship');
+  assert.match(n[0].text, /^your job #2 \(\.\/ship\.sh\) is paused: free disk is down to 0\.8 GB, under the 1\.0 GB .* It resumes once there's 2\.0 GB/);
+  const alerts = detect({ s: peek(), cfg, hist: [], m: { ...still, diskFree: 0.8 * G }, t: T, st: { seen: {}, open: {}, resolved: [], dismissed: {}, waits: {}, ended: [], svc: {}, restarts: [], hook: [] }, users: null });
+  assert.match(alerts.find(a => a.id === 'hardstop:#2')?.title || '', /Free disk fell under 1 GB, so dibs paused shipper's #2/);
+  diskOnce(cfg, track, { ...still, diskFree: 0.9 * G });
+  assert.deepEqual(paused(), [2, 3], 'still under: the next one, one a pass');
+  diskOnce(cfg, track, { ...still, diskFree: 0.9 * G });
+  assert.deepEqual(paused(), [2, 3], 'never the last one running: dibs doesn\'t pause every job');
+  // Twenty quiet passes would resume an ordinary disk pause (diskStep's 3 minutes still).
+  for (let i = 0; i < 20; i++) diskOnce(cfg, track, { ...still, diskFree: 1.5 * G });
+  assert.deepEqual(paused(), [2, 3], 'held at 1.5 GB: the hard stop keeps them');
+  diskOnce(cfg, track, { ...still, diskFree: 2.1 * G });
+  assert.deepEqual(paused(), [], 'resumed at 2 GB');
 });

@@ -163,7 +163,7 @@ test('a thin waiter short of disk waits, and at its wait limit exits 74', async 
   const p = thin(t, home, ['run', 'deploy', '--disk', '2G', '--max-wait', '15s', '--', 'true'], low);
   await inLine(home, p);
   assert.equal(await p.done, 74);
-  assert.match(flat(p.err), /gave up after .* not enough free disk: 1\.0 GB free, it needs 3\.0 GB\. .*did NOT run \(exit 74\)/);
+  assert.match(flat(p.err), /gave up after .* not enough free disk: 1\.0 GB free, it needs 5\.0 GB\. .*did NOT run \(exit 74\)/);
 });
 
 test('the owner stopping a thin waiter ends it with 143', async t => {

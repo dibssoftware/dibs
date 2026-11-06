@@ -111,7 +111,7 @@ function shareDisk(s, got, m, t) {
   const last = s.diskSample;
   s.diskSample = { free: m.diskFree ?? null, swap: m.swapUsed ?? null, ...(m.swapFiles != null && { files: m.swapFiles }), at: t };
   const runs = s.leases.filter(l => got.has(l.id) && !l.pausedAt);
-  for (const l of runs) l.ate ??= 0;
+  for (const l of runs) { l.ate ??= 0; l.ateLast = 0; }
   if (!last || last.free == null || m.diskFree == null || t - last.at > 3 * SAMPLE_EVERY) return;
   const swapGrew = Math.max(0, last.swap != null && m.swapUsed != null ? m.swapUsed - last.swap : 0,
     last.files != null && m.swapFiles != null ? m.swapFiles - last.files : 0);
@@ -119,7 +119,8 @@ function shareDisk(s, got, m, t) {
   if (!fell || !runs.length) return;
   const w = l => Math.max(l.disk || 0, DISK_WEIGHT);
   const all = runs.reduce((a, l) => a + w(l), 0);
-  for (const l of runs) l.ate += fell * w(l) / all;
+  // ateLast, this reading's share alone: which run is writing now, for the hard stop (src/preempt.mjs).
+  for (const l of runs) { l.ateLast = fell * w(l) / all; l.ate += l.ateLast; }
 }
 
 // Measure every run lease on the machine, if this process won the slot.

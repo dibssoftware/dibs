@@ -16,6 +16,7 @@ import { freeDisk, OS } from './platform.mjs';
 import { event } from './events.mjs';
 import { gb, bytes, now } from './util.mjs';
 import { makeAlive } from './proc.mjs';
+import { withState } from './state.mjs';
 
 const GB = b => gb(b).replace(/G$/, ' GB');
 const SAY_FREED = 0.1 * 1024 ** 3;   // less than shows as 0.0 GB: not worth a line
@@ -84,6 +85,9 @@ export async function clean(t = now(), where = HOME) {
     done.push({ label: st.label, freed: Math.max(0, by) });
   }
   const freed = done.reduce((a, d) => a + d.freed, 0);
+  // The room this freed hides what running jobs wrote meanwhile, so their runs don't count
+  // toward being small (src/schedule.mjs tinyDisk).
+  try { withState(s => { for (const l of s.leases) if (l.kind === 'run') l.cleaned = true; }); } catch {}
   try {
     fs.appendFileSync(LOG, `${new Date(t).toISOString()} disk low: dibs cleared ${done.map(d => d.label).join(', ')}, freeing ${GB(freed)}\n`);
     event({ kind: 'clean', freed, steps: done });

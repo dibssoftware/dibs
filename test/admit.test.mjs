@@ -334,7 +334,8 @@ test('swap over maxSwap that holds still, with memory pressure normal, is left o
   assert.equal(judge(s, me, cfg(), { ...stale, swapGrowth: 1 * G }).rule, 'swap', 'still growing over maxSwap: the swap gate holds');
   assert.equal(judge(s, me, cfg(), { ...stale, swapUsed: 3 * G, swapGrowth: 1 * G }).rule, 'swaproom', 'growing under maxSwap: the room for it holds');
   assert.equal(judge(s, me, cfg(), { ...stale, vmPressure: 1 }).rule, 'pressure', 'pressure above normal holds');
-  assert.equal(judge(s, me, cfg(), { ...stale, diskFree: 4.5 * G }).ok, true, 'a test run writes next to nothing: under minDisk it goes');
+  const quiet = [1, 2].map(i => ({ key: 'test|npm test', dur: 6e4, who: 'x', at: T - i * 36e5, ate: 0 }));
+  assert.equal(judge(s, me, cfg(), { ...stale, diskFree: 4.5 * G }, quiet).ok, true, 'a test run whose runs write nothing: under minDisk it goes');
   assert.equal(judge(s, waiter({ res: ['heavy'] }), cfg(), { ...stale, diskFree: 4.5 * G }).rule, 'disk', 'and minDisk itself still holds the rest');
 });
 
