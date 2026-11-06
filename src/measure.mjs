@@ -149,9 +149,13 @@ export function sample(t = now()) {
       l.use = { ...u, at: t };
       // When its memory last rose past what it had reached: a job let in by the
       // stall breaker counts as settled once this is a while ago (schedule.mjs).
-      if (!(u.mem <= (l.peak?.mem ?? -1) * 1.05)) l.peakAt = t;
+      // How far into the run that was goes into history, so a later run of the same
+      // command that has run past it is known to be done growing (schedule.mjs pastPeak).
+      const rose = !(u.mem <= (l.peak?.mem ?? -1) * 1.05);
+      if (rose) l.peakAt = t;
+      const at = rose ? t - l.start : l.peak?.in;
       l.peak = { mem: Math.max(l.peak?.mem || 0, u.mem), cpu: Math.max(l.peak?.cpu || 0, u.cpu), fit: true,
-        ...(l.ate != null && { ate: l.ate }) };
+        ...(at != null && { in: at }), ...(l.ate != null && { ate: l.ate }) };
       const x = overAsk(l);
       if (!x) continue;
       if (!l.overAsk) {

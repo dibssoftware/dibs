@@ -242,6 +242,6 @@ export function history() {
 // A lease's peak for its history line, marked when the watcher cleared caches during it.
 export const peakOf = l => (l.cleaned && l.peak ? { ...l.peak, cleaned: true } : l.peak);
 export function record(key, duration, who, peak, failed = false) {
-  try { fs.appendFileSync(paths.history, JSON.stringify({ key, dur: duration, who, at: now(), ...(peak ? { mem: peak.mem, cpu: peak.cpu, ...(peak.fit && { fit: true }), ...(peak.ate != null && { ate: Math.round(peak.ate) }), ...(peak.cleaned && { cleaned: true }) } : {}), ...(failed && { failed: true }) }) + '\n'); }
+  try { fs.appendFileSync(paths.history, JSON.stringify({ key, dur: duration, who, at: now(), ...(peak ? { mem: peak.mem, cpu: peak.cpu, ...(peak.fit && { fit: true }), ...(peak.in != null && { peakIn: Math.round(peak.in) }), ...(peak.ate != null && { ate: Math.round(peak.ate) }), ...(peak.cleaned && { cleaned: true }) } : {}), ...(failed && { failed: true }) }) + '\n'); }
   catch (e) { if (!noSpace(e)) throw e; }
 }

@@ -565,6 +565,24 @@ test('a run measured for a few minutes books its peak plus a margin, not its ask
   assert.equal(judge({ leases: [young], queue: [me] }, me, cfg(), busy).ok, true, 'unless what it uses now leaves the room, and the machine shows it');
 });
 
+// 2e on 2026-11-03: an Xcode job booked at 11G, measured at 0.1 GB, held a 6G deploy on "the machine doesn't have the room".
+test("a run past where its command's own runs peak books what it uses, not its ask; one that peaks later keeps its ask until then", () => {
+  const MIN = 6e4;
+  const xcode = lease({ res: ['xcode-build'], key: 'xcode-build|xcodebuild App', mem: 11 * G, start: T - 30 * MIN, use: { mem: 0.1 * G, cpu: 0.1 }, peak: { mem: 0.1 * G }, peakAt: T - 25 * MIN });
+  const deploy = waiter({ res: ['deploy'], mem: 6 * G, key: 'deploy|wrangler deploy' });
+  const s = { leases: [xcode], queue: [deploy] };
+  const tight = { load: 9, memFree: 40 };   // 6.4 GB free: short of 6G plus the reserve
+  const runs = peakIn => Array.from({ length: 3 }, (_, i) => ({ key: xcode.key, dur: 40 * MIN, at: T - (i + 1) * 36e5, mem: 12 * G, fit: true, ...(peakIn != null && { peakIn }) }));
+  assert.equal(judge(s, deploy, cfg(), tight, runs(5 * MIN)).ok, true, 'its runs peak 5 minutes in, and it has run 30');
+  const late = judge(s, deploy, cfg(), tight, runs(28 * MIN));
+  assert.equal(late.rule, 'memory', 'its runs peak 28 minutes in: it may still ramp up');
+  assert.match(late.why, /running jobs ask for more than they use/);
+  assert.equal(judge(s, deploy, cfg(), tight, runs(null)).rule, 'memory', 'runs that never said when they peak: the ask stands');
+  assert.equal(judge(s, deploy, cfg(), tight).rule, 'memory', 'no history at all: the ask stands');
+  const paused = lease({ ...xcode, pausedMs: 25 * MIN });
+  assert.equal(judge({ leases: [paused], queue: [deploy] }, deploy, cfg(), tight, runs(5 * MIN)).rule, 'memory', 'time paused is not time run');
+});
+
 test('high work never waits behind a lower-priority job reserving memory, and a job that needs most of the budget reserves it only once it could start soon', () => {
   const MIN = 6e4;
   const c = cfg({ budget: '8G', starveAfter: '3m' });

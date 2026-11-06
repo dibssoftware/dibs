@@ -10,6 +10,7 @@ Each version's notes are shown once to every Claude session the first time it ru
 - Under 1 GB free, the watcher pauses the dibs job writing the most, whatever its priority (a deploy included), and resumes it at 2 GB. Its session gets a notice and the person an alert. Don't end it or run it again: free your own build output and scratch folders.
 - A quick command booked small (its runs used under 512 MB) no longer waits on the memory budget: a one-second test waited 29 minutes for it.
 - A command whose last runs all used 512 MB or less is judged by that, not by its `--mem`: it starts under high (not critical) memory pressure, and other jobs' bookings they don't use no longer hold it. Memory waits name the jobs using the most memory, not the ones booking the most.
+- A running job that has gone well past where its command's own runs reach their peak memory counts at what it uses (plus 1 GB), not its `--mem`, so it no longer holds others on "the machine doesn't have the room". A command that peaks late keeps its booking until then. Runs from before this release don't say when they peaked, so this starts after a command's next few runs.
 
 ## 0.0.179
 - Alerts are only for what the person should know: deploys, high, urgent or `--by` jobs, the same command failing 3 times in a row, lost jobs and crashes. Everything else is in `dibs alerts --all`. Times from another day say which day. Nothing for you to do; don't dismiss alerts the person should see.

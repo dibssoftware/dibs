@@ -374,6 +374,27 @@ export const memOf = (l, t = now()) => {
   return Math.min(peak + BUSY_MARGIN, Math.max(planned, peak));
 };
 
+// How far into a run this command reaches its peak, the latest of its last
+// PEAK_RUNS measured runs, or null when one of them didn't say (recorded before
+// 0.0.180) or none was measured.
+const PEAK_RUNS = 5;
+function peaksBy(hist, key) {
+  const runs = runsOf(hist || [], key).filter(h => h.mem > 0).slice(-PEAK_RUNS);
+  return runs.length && runs.every(h => h.peakIn != null) ? Math.max(...runs.map(h => h.peakIn)) : null;
+}
+// A measured run that has gone well past where its command's runs peak is done
+// growing into its ask: it books what memOf says, not the ask. On 2026-11-03 an
+// Xcode job booked at 11G, measured at 0.1 GB, held a 6G deploy on "the machine
+// doesn't have the room" for as long as it ran. A command that peaks late (a
+// link, an archive) keeps its ask until then, so its ramp has the room.
+const PEAK_SLACK = 2 * MIN;
+const pastPeak = (l, hist, t) => {
+  if (l.kind !== 'run' || l.use?.mem == null || !l.key || !hist) return false;
+  const p = peaksBy(hist, l.key);
+  return p != null && t - l.start - pausedFor(l, t) > p * 1.25 + PEAK_SLACK;
+};
+export const growTo = (hist, t = now()) => l => (pastPeak(l, hist, t) ? memOf(l, t) : plannedOf(l));
+
 // The lease a run sits inside, when its own hold or outer dibs run covers all
 // it asked for, or null.
 const coverOf = (s, l) => (l.covered && l.res.every(r => coveredNow(s, l, r)) ? s.leases.find(h => h !== l && covers(h, l)) || null : null);
@@ -481,7 +502,8 @@ export const cpuUsed = s => Math.round(sum(s.leases.filter(l => !lent(l) && !l.p
 const YOUNG = 3 * MIN, REAL_WAIT = 2 * MIN;
 export const swapTaken = m => (swapGrowing(m) ? m.swapGrowth : 0);
 // noSwap: swap growth doesn't count (the stall breaker let it by).
-function overBudget(s, q, cfg, strict = false, noSwap = false, t = now()) {
+// hist: what the running jobs' own runs say about when they peak (growTo); without it, asks stand.
+function overBudget(s, q, cfg, strict = false, noSwap = false, t = now(), hist = null) {
   // A job as big as the whole budget runs when nothing else is.
   if (!othersOf(s, q).length) return null;
   const m = machine();
@@ -506,7 +528,8 @@ function overBudget(s, q, cfg, strict = false, noSwap = false, t = now()) {
   // what they asked for. One of them may still grow into its ask, so the room
   // must be real: memory pressure normal, swap still, and the job plus a
   // reserve free on the machine.
-  if (memUsed(s, plannedOf) + swap + q.mem > budget && !room())
+  // A running job past where its command's runs peak counts at what it books (growTo), not its ask.
+  if (memUsed(s, growTo(hist, t)) + swap + q.mem > budget && !room())
     return { rule: 'memory', used: mem, of: budget, need: q.mem, pressure: true, free: realFree(m), reserve: ROOM_RESERVE, high: m.vmPressure >= 1, growing: swapGrowing(m),
              why: `memory: running jobs ask for more than they use, but the machine doesn't have the room to show for it (${realFree(m) == null ? 'free memory unknown' : `${gb(realFree(m))} free`}${m.vmPressure >= 1 ? ', memory pressure high' : ''}${swapGrowing(m) ? ', swap growing' : ''}), you need ${gb(q.mem)} plus ${gb(ROOM_RESERVE)} to spare` };
   // Within the budget, the machine must still have it: what's really available
@@ -602,7 +625,7 @@ function soonestStart(s, q, cfg, hist, t = now()) {
       at = Math.max(at, Math.min(...s.leases.filter(l => l.res.includes(r) && !lent(l, r) && !onTop(l, r) && (across || !byRepo(cfg, r) || laneOf(l) === laneOf(q))).map(l => slotEnd(s, l, hist, t, r))));
     }
   }
-  if (overBudget(s, q, cfg)) at = Math.max(at, budgetFrees(s, q, cfg, hist, t));
+  if (overBudget(s, q, cfg, false, false, t, hist)) at = Math.max(at, budgetFrees(s, q, cfg, hist, t));
   return at;
 }
 // Whether q's turn at the budget rests only on jobs whose run time dibs knows
@@ -925,7 +948,7 @@ function decide(s, me, cfg, hist, t) {
   const blocks = q => {
     if (leavesRoom && diskStuck(q)) return false;
     // A waiter held for memory blocks a job of known length only when its own start is known, and comes first.
-    if (known(me, hist) && overBudget(s, q, cfg) && !budgetSure(s, q, cfg, hist, t)) return false;
+    if (known(me, hist) && overBudget(s, q, cfg, false, false, t, hist) && !budgetSure(s, q, cfg, hist, t)) return false;
     const at = soonestStart(s, q, cfg, hist, t);
     if (q.mem >= BIG_SHARE * bytes(cfg.budget) && at - t > RESERVE_SOON) return false;
     return at < myEnd;
@@ -1002,15 +1025,15 @@ function decide(s, me, cfg, hist, t) {
   // A light job may pass one stuck on the budget, but not once that one has
   // waited long, unless it'll be done before that one could start. Waiters
   // stuck on something else (machine memory, disk) don't hold anyone up.
-  const head = ahead.find(q => q.res.every(r => roomFor(s, q, r, cfg).open > 0) && !neverFits(cfg, q) && overBudget(s, q, cfg));
+  const head = ahead.find(q => q.res.every(r => roomFor(s, q, r, cfg).open > 0) && !neverFits(cfg, q) && overBudget(s, q, cfg, false, false, t, hist));
   if (!quick && head && t - head.enq > ms(cfg.starveAfter) && blocks(head))
     return { ok: false, rule: 'ahead', why: `${tag(head)} has waited ${dur(t - head.enq)}, so it goes first`, ahead: head, starved: true };
-  let budget = overBudget(s, me, cfg, side.length > 0, breaker, t);
+  let budget = overBudget(s, me, cfg, side.length > 0, breaker, t, hist);
   // Nothing starts past the memory budget (0.0.125). Jobs book what they're
   // measured using once they've run a few minutes (memOf), so the gap between
   // asks and use goes to waiters that way, with the machine's pressure as the guard.
   // Held only by swap growth, the budget is a machine gate like swap itself: the stall breaker may pass it.
-  const swapOnly = budget?.swap && !overBudget(s, me, cfg, side.length > 0, true);
+  const swapOnly = budget?.swap && !overBudget(s, me, cfg, side.length > 0, true, t, hist);
   if (swapOnly && breaksStall(s, me, cfg, hist, t, m)) { budget = null; breaker = true; }
   // A quick job booked as a featherweight is done before the budget it would pass means
   // anything; the machine's own pressure still holds it at critical. On 2026-11-03 a

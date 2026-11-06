@@ -44,6 +44,8 @@ test('a job using more than it asked for is flagged on the board, and its next r
   assert.equal(await job.done, 0);
   const last = fs.readFileSync(path.join(h, 'history.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l)).at(-1);
   assert.equal(last.mem, 6 * G);
+  // How far into the run it reached that, so a later run past it is known to be done growing (schedule.mjs pastPeak).
+  assert.ok(last.peakIn > 0 && last.peakIn <= last.dur, JSON.stringify(last));
 
   const when = sync(h, ['when', 't', '--', ...JOB], opts);
   assert.match(flat(when.out), /used up to 6\.0 GB of memory \(it asks for 0\.1 GB\) in recent runs, so dibs plans for that/);
