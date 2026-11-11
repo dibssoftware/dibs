@@ -216,7 +216,7 @@ enum Reach: String, Sendable {
         case .working: "Working. It gets messages at its next step."
         case .idle: "Idle and not listening. It won't see messages until it works again."
         case .ended: "Not running. Messages wait in case it comes back."
-        case .command: "Not a Claude Code session. It gets messages the next time it runs dibs say."
+        case .command: "Not a Claude Code session. It gets messages with its next dibs command."
         }
     }
 
@@ -237,7 +237,7 @@ enum Reach: String, Sendable {
         case .working: "Waiting for its next step."
         case .idle: "Not delivered: it's idle and not listening."
         case .ended: "Not delivered: it isn't running."
-        case .command: "Waiting for its next dibs say."
+        case .command: "Waiting for its next dibs command."
         }
     }
 
@@ -262,7 +262,12 @@ struct StreamItem: Decodable, Sendable, Identifiable, Hashable {
     var at: Double
     // The sending agent (between agents); nil for dibs.
     var from: String?
-    var to: String
+    // nil for a note an agent signed to another with plain dibs say, when no agent had written to it.
+    var to: String?
+    // That note: written with plain dibs say, so it reached the person, not the agent.
+    var viaSay: Bool?
+    // A sender's name that reaches no agent now (signed before senders used their thread's name).
+    var fromGone: Bool?
     // notice or note (from dibs).
     var kind: String?
     var text: String

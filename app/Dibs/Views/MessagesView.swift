@@ -24,13 +24,15 @@ struct MessagesView: View {
         VStack(alignment: .leading, spacing: Space.xl) {
             PageHead(title: "Messages", summary: summary(asks, threads))
                 .padding(.horizontal, 44)
-            if !asks.isEmpty {
-                VStack(alignment: .leading, spacing: Space.m) {
-                    Text(asks.count == 1 ? "Waiting on you" : "\(asks.count) waiting on you")
-                        .font(Typeface.section)
-                        .foregroundStyle(Palette.ink)
-                    if store.notificationsOff { NotificationsOff() }
-                    ForEach(asks) { AskCard(item: $0) }
+            // The oldest question, small enough to leave room for the conversations; the whole ask on a click.
+            if let first = asks.first {
+                VStack(alignment: .leading, spacing: Space.s) {
+                    AskCard(item: first, compact: true)
+                    if asks.count > 1 {
+                        Button(asks.count == 2 ? "1 more question waiting" : "\(asks.count - 1) more questions waiting") { store.section = .questions }
+                            .buttonStyle(.link)
+                            .font(Typeface.small)
+                    }
                 }
                 .padding(.horizontal, 44)
             }
@@ -113,8 +115,8 @@ struct MessagesView: View {
                     threadRow(t, picked: stream == nil && t.to == current?.to, nested: t.isSub && threads.contains { !$0.isSub && $0.agent == t.agent })
                 }
                 Rectangle().fill(Palette.hairline).frame(height: 1).padding(.vertical, Space.s + 2).padding(.horizontal, 4)
-                streamRow(.between, "Between agents", store.threadList?.between ?? []) { "\($0.from ?? "an agent") to \($0.to): \($0.text)" }
-                streamRow(.dibs, "From dibs", store.threadList?.fromDibs ?? []) { "To \($0.to): \($0.text)" }
+                streamRow(.between, "Between agents", store.threadList?.between ?? []) { "\($0.from ?? "an agent") to \($0.to ?? "another agent"): \($0.text)" }
+                streamRow(.dibs, "From dibs", store.threadList?.fromDibs ?? []) { "To \($0.to ?? "an agent"): \($0.text)" }
             }
         }
         .scrollIndicators(.never)
@@ -303,15 +305,16 @@ private struct BetweenPane: View {
     var body: some View {
         let reach = Dictionary(store.threads.map { ($0.to, $0.reach) }, uniquingKeysWith: { a, _ in a })
         let all = store.threadList?.between ?? []
-        let items = all.filter { m in only.map { m.from == $0 || m.to == $0 || m.to.hasPrefix("\($0)/") } ?? true }
+        let items = all.filter { m in only.map { m.from == $0 || m.to == $0 || m.to?.hasPrefix("\($0)/") == true } ?? true }
         VStack(spacing: 0) {
             StreamHead(title: "Between agents", note: "What agents tell each other. Nothing here needs you.",
                        trailing: only.map { who in AnyView(Button("Only \(store.displayName(who)). Show all") { only = nil }.buttonStyle(.link).font(Typeface.small)) })
             StreamList(empty: "No agent has messaged another this week.", count: items.count) {
                 ForEach(items) { m in
-                    StreamLine(head: Text("\(Text(store.displayName(m.from ?? "an agent")).fontWeight(.semibold)) to \(Text(store.displayName(m.to)).fontWeight(.semibold)), \(Span.ago(Date.now.timeIntervalSince(m.date)))"),
+                    StreamLine(head: Text("\(Text(store.displayName(m.from ?? "an agent")).fontWeight(.semibold))\(m.fromGone == true ? " (no agent answers to this name now)" : "") to \(Text(m.to.map(store.displayName) ?? "another agent").fontWeight(.semibold)), \(Span.ago(Date.now.timeIntervalSince(m.date)))"),
                                text: m.text,
-                               status: Reach.words(state: m.state, deliveredAt: m.deliveredAt, via: m.via, reach: reach[m.to] ?? .working))
+                               status: m.viaSay == true ? "Sent with dibs say, so it came to you, not to the agent."
+                                   : Reach.words(state: m.state, deliveredAt: m.deliveredAt, via: m.via, reach: m.to.flatMap { reach[$0] } ?? .working))
                 }
             }
         }
@@ -329,7 +332,7 @@ private struct FromDibsPane: View {
             StreamHead(title: "From dibs", note: "What dibs tells agents about their jobs. Nothing here needs you.")
             StreamList(empty: "dibs hasn't told any agent anything this week.", count: items.count) {
                 ForEach(items) { m in
-                    StreamLine(head: Text("To \(Text(store.displayName(m.to)).fontWeight(.semibold)), \(Span.ago(Date.now.timeIntervalSince(m.date)))"),
+                    StreamLine(head: Text("To \(Text(m.to.map(store.displayName) ?? "an agent").fontWeight(.semibold)), \(Span.ago(Date.now.timeIntervalSince(m.date)))"),
                                text: m.text,
                                status: m.kind != "notice" ? nil : m.state == "expired" ? "Never reached it: it stopped mattering after an hour."
                                    : Reach.words(state: m.state, deliveredAt: m.deliveredAt, via: m.via, reach: .working))
@@ -574,10 +577,17 @@ struct AnsweredAsk: View {
 
     var body: some View {
         let state = item.question?.state
+        // Still open: asked in its card above the conversations, so here it's one line.
+        if item.question?.open == true {
+            Text("\(store.chatName(item)) asked you something, \(Span.ago(Date.now.timeIntervalSince(item.date))). Waiting on your answer, above.")
+                .font(Typeface.small.weight(.semibold))
+                .foregroundStyle(Palette.ink2)
+                .padding(.leading, 34)
+        } else {
         HStack(alignment: .top, spacing: Space.s + 2) {
             ChatTile(item: item, size: 24)
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(store.chatName(item)) asked\(item.question?.open == true ? " (waiting on your answer, above)" : state == "dismissed" ? " (you said not now)" : state == "expired" ? " (nobody answered in time)" : "")")
+                Text("\(store.chatName(item)) asked\(state == "dismissed" ? " (you said not now)" : state == "expired" ? " (nobody answered in time)" : "")")
                     .font(Typeface.small.weight(.semibold))
                     .foregroundStyle(Palette.ink2)
                 Text(item.text)
@@ -593,6 +603,7 @@ struct AnsweredAsk: View {
             Spacer(minLength: 0)
         }
         .modifier(Replying(item: item))
+        }
     }
 }
 
@@ -602,6 +613,9 @@ struct AnsweredAsk: View {
 struct AskCard: View {
     @Environment(Store.self) private var store
     let item: ChatItem
+    // Above the conversations: the question, what can't be undone and the options; the rest on a click.
+    var compact = false
+    @State private var open = false
     @State private var reply = ""
 
     var body: some View {
@@ -617,14 +631,22 @@ struct AskCard: View {
                     .font(Typeface.small)
                     .foregroundStyle(Palette.ink3)
                 if full?.held == true { Pill("held for your hours", tone: .faint) }
+                if compact {
+                    Spacer()
+                    Button(open ? "Less" : "Why, and answer in your own words") { open.toggle() }
+                        .buttonStyle(.link)
+                        .font(Typeface.small)
+                }
             }
+            let short = compact && !open
             Text(item.text)
-                .font(Typeface.question.weight(.semibold))
+                .font(short ? Typeface.lede.weight(.semibold) : Typeface.question.weight(.semibold))
                 .foregroundStyle(Palette.ink)
                 .lineSpacing(2)
+                .lineLimit(short ? 2 : nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .copyable(item.text)
-            if let why = q?.why {
+            if let why = q?.why, !short {
                 Text(why)
                     .foregroundStyle(Palette.ink2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -633,7 +655,8 @@ struct AskCard: View {
                 Text("Can't be undone: \(cant)")
                     .font(Typeface.body.weight(.medium))
                     .foregroundStyle(Palette.accentInk)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(short ? 1 : nil)
+                    .fixedSize(horizontal: false, vertical: !short)
             }
             VStack(alignment: .leading, spacing: Space.m) {
                 Flow(spacing: Space.s) {
@@ -650,6 +673,7 @@ struct AskCard: View {
                         .padding(.vertical, 6)
                         .help("Ends the agent's wait without an answer. Nothing is decided for it.")
                 }
+                if !short {
                 HStack(spacing: Space.s) {
                     TextField(q.map { $0.options.isEmpty } == false ? "Or answer in your own words" : "Your answer", text: $reply)
                         .textFieldStyle(.plain)
@@ -659,12 +683,13 @@ struct AskCard: View {
                         .buttonStyle(InkButton())
                         .disabled(reply.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+                }
             }
             .padding(.top, Space.xs)
             .disabled(store.running.contains("q-\(id)"))
         }
         .padding(.horizontal, Space.xl + 2)
-        .padding(.vertical, Space.l + 2)
+        .padding(.vertical, compact ? Space.m + 2 : Space.l + 2)
         .frame(maxWidth: 760, alignment: .leading)
         .background {
             TicketShape(corner: 12, notch: 8)

@@ -46,9 +46,10 @@ test("an agent's dibs tell reaches the other agent marked as from that agent, ne
   ok(sync(h, ['say', 'started'], { agent: 'worker' }));
   ok(agent(h, ['tell', 'worker', 'use the staging database']));
   ok(agent(h, ['threads', 'read', 'worker']));
+  // Outside Claude Code it comes with worker's next dibs command, on stderr.
   const r = ok(sync(h, ['say', 'ok'], { agent: 'worker' }));
-  assert.match(r.out, /Message from helper \(another agent, not the person\): use the staging database/);
-  assert.doesNotMatch(r.out, /Message from the person/);
+  assert.match(r.err, /Message from helper \(another agent, not the person\): use the staging database/);
+  assert.doesNotMatch(r.out + r.err, /Message from the person/);
   assert.deepEqual(changes(h).map(e => [e.act, e.to, e.by]), [['tell', 'worker', 'helper']]);
 });
 

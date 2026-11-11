@@ -538,7 +538,7 @@ button.lrow:hover { background: var(--hover); }
 .say input:focus, .say textarea:focus { outline: 2px solid var(--yellow); outline-offset: 1px; }
 
 /* Messages: threads on the left, the conversation filling the rest. */
-.talk { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 18px; min-height: 460px; height: calc(100vh - 230px); }
+.talk { display: grid; grid-template-columns: 270px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 18px; min-height: 460px; height: calc(100vh - 230px); }
 .threads { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; padding-right: 4px; }
 .thread { display: flex; flex-direction: column; gap: 3px; border: 0; background: none; text-align: left; border-radius: 10px; padding: 9px 11px; color: var(--ink-2); font: inherit; }
 .thread:hover { background: var(--hover); }
@@ -571,8 +571,15 @@ button.lrow:hover { background: var(--hover); }
 .msg-meta.late { color: var(--ink-2); font-weight: 600; }
 
 /* Questions waiting on the person sit above the conversations. */
-.waiting-on-you { margin-bottom: 26px; }
-.waiting-on-you .sec-title { font-size: 17px; font-weight: 650; margin: 0 0 10px; }
+.waiting-on-you { margin-bottom: 22px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.waiting-on-you .ask-wrap { width: 100%; margin-bottom: 0; }
+.ask-wrap.compact .ask { padding: 14px 20px; margin-bottom: 0; }
+.ask-wrap.compact .ask-head .linkish { margin-left: auto; }
+.ask-wrap.compact .ask-text { font-size: 17px; margin: 6px 0 4px; }
+.ask-wrap.compact:not(.open) .ask-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ask-wrap.compact:not(.open) .ask-undo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ask-wrap.compact:not(.open) .ask-why, .ask-wrap.compact:not(.open) form.say { display: none; }
+.ask-wrap.compact .ask-opts { margin-top: 8px; }
 .thread.new { flex-direction: row; justify-content: center; font-weight: 620; color: var(--ink); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--sunken-edge); margin-bottom: 8px; }
 .thread.new:hover, .thread.new[aria-current="true"] { background: var(--press); }
 .thread.sub { margin-left: 18px; padding-top: 6px; padding-bottom: 6px; }
