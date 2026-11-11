@@ -471,8 +471,8 @@ export function step(r, w) {
     leave(w, w.maxWait > 0);
     // Outside Claude Code the wait has a limit; ended by the disk, it says so (exit 74).
     if (r.v.disk)
-      return out.die(`${w.maxWait ? `gave up after ${dur(now() - w.started)} in the queue: ` : ''}not enough free disk: ${GB(r.v.free)} free, it needs ${GB(r.v.need)}.`
-        + ` Your command did NOT run (exit 74). Free some space, or pass --disk with what this job really needs if that's less, then run it again${w.maxWait ? `, or add --wait to wait until there's room` : ''}:\n      ${w.info.again}\n      ${OFF_LIMITS}`, 74);
+      return out.die(`${w.maxWait ? `gave up after ${dur(now() - w.started)} in the queue: ` : ''}not enough free disk: ${GB(r.v.free)} free, it needs ${GB(r.v.need)}${r.v.floorWhy ? `: ${r.v.floorWhy}` : ''}.`
+        + ` Your command did NOT run (exit 74). Free some space${r.v.floorWhy ? '' : ", or pass --disk with what this job really needs if that's less"}, then run it again${w.maxWait ? `, or add --wait to wait until there's room` : ''}:\n      ${w.info.again}\n      ${OFF_LIMITS}`, 74);
     if (!w.maxWait)
       return out.die(`not free yet. ${r.line.why} --no-wait doesn't wait, so your command did NOT run (exit 75).`
         + ` See when it frees up: dibs when ${shellRes(me.res.map(x => short(x)))}`, 75);

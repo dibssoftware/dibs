@@ -66,6 +66,24 @@ test('A: exit 74 only for a run bigger than the whole disk, or at the wait limit
   assert.match(flat(limit.err), /gave up after \d+s in the queue: not enough free disk: 1\.0 GB free, it needs 10 GB\. Your command did NOT run \(exit 74\)\. .*or add --wait to wait until there's room: dibs run heavy --max-wait 2s -- echo ran/);
 });
 
+// 2026-11-10: `dibs run deploy --mem 7G --disk 1G -- scripts/deploy.sh` exited 74 twice at 2.6 GB free, and
+// its agent read --disk 1G as lowering the 5 GB floor. The wait and the exit say what the floor is and why --disk didn't move it.
+test('a job held at the disk floor is told the floor and that its --disk does not lower it, waiting and at exit 74', async t => {
+  const h = tmp(t), d = disk(t, 2.6 * G);
+  const r = sync(h, ['run', 'deploy', '--disk', '1G', '--max-wait', '2s', '-m', 'deploy', '--', 'echo', 'ran'], { env: d.env });
+  assert.equal(r.code, 74, r.err);
+  assert.equal(r.out, '');
+  const said = flat(r.err);
+  assert.match(said, /Waiting for more free disk \(2\.6 GB free, it needs 5\.0 GB: the 5\.0 GB dibs keeps free; --disk 1\.0 GB doesn't lower that: only a --disk under 1 GB starts a job below it, or two runs of the same command that each wrote under 100 MB\)/);
+  assert.match(said, /not enough free disk: 2\.6 GB free, it needs 5\.0 GB: the 5\.0 GB dibs keeps free; --disk 1\.0 GB doesn't lower that.*\. Your command did NOT run \(exit 74\)\. Free some space, then run it again/);
+  assert.doesNotMatch(said, /pass --disk with what this job really needs/, 'no advice to pass the --disk it already passed');
+  // A build declares disk, so only a --disk under 100 MB would lower its floor; a job a person waits on has a 3 GB one.
+  const build = waiter({ res: ['heavy'], disk: 1 * G, diskDeclared: true, key: 'heavy|make' });
+  assert.match(judge({ leases: [lease()], queue: [build] }, build, cfg(), { diskFree: 2.6 * G }).why, /you need 5\.0G \(the 5\.0 GB dibs keeps free; --disk 1\.0 GB doesn't lower that: only a --disk under 100 MB starts/);
+  const high = { ...build, prio: 'high', purpose: 'release' };
+  assert.match(judge({ leases: [lease()], queue: [high] }, high, cfg(), { diskFree: 2.6 * G }).why, /you need 3\.0G \(the 3\.0 GB dibs keeps free for a job a person waits on; --disk 1\.0 GB/);
+});
+
 // C. #17727 got in line at 9 GB free, waited 1h23m while swap grew, and started at 6.8 GB.
 test('C: free disk is read again right up to the start: a waiter let in with room waits once the disk falls under its need', async t => {
   const h = tmp(t), d = disk(t, 20 * G);

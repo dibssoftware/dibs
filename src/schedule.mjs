@@ -889,6 +889,18 @@ export function tinyDisk(me, hist, cfg) {
   const claim = me.disk || 0;
   return claim < TINY_DISK || (claim < CLAIM_MAX && me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk));
 }
+// Why a job held at the floor is held there, and, when its --disk is smaller, why that didn't
+// lower it: agents read --disk 1G as the floor's size, and a deploy hit exit 74 twice at 2.6 GB
+// free on 2026-11-10 with --disk 1G.
+const GBs = b => gb(b).replace(/G$/, ' GB');
+export function floorWhy(me, cfg) {
+  const floor = floorFor(me, cfg);
+  const base = `the ${GBs(floor)} dibs keeps free${waitedOn(me) && floor < bytes(cfg.minDisk) ? ' for a job a person waits on' : ''}`;
+  if (!me.diskDeclared || (me.disk || 0) >= floor) return base;
+  const little = me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk);
+  return `${base}; --disk ${GBs(me.disk || 0)} doesn't lower that: only a --disk under ${little ? '1 GB' : '100 MB'}`
+    + ` starts a job below it, or two runs of the same command that each wrote under 100 MB`;
+}
 // Runs it takes to be small by history alone: one could be a run that happened to write little.
 const TINY_RUNS = 2;
 // The most a --disk alone can claim on a resource that declares no disk: on 2026-11-03 a test
@@ -998,8 +1010,11 @@ function decide(s, me, cfg, hist, t) {
   // The floor plus what it usually eats (diskNeed).
   const { need: needDisk, ate, others: crowded, tiny } = diskNeed(s, me, cfg, hist);
   // An unreadable disk (null) doesn't stop work; the board and dibs run say it's unknown.
-  if (m.diskFree != null && m.diskFree < needDisk)
+  if (m.diskFree != null && m.diskFree < needDisk) {
+    const floored = !tiny && needDisk === floorFor(me, cfg) && floorWhy(me, cfg);
+    if (floored) return { ok: false, rule: 'disk', why: `disk: ${gb(m.diskFree)} free, you need ${gb(needDisk)} (${floored})`, disk: true, free: m.diskFree, need: needDisk, floorWhy: floored };
     return { ok: false, rule: 'disk', why: `disk: ${gb(m.diskFree)} free, you need ${gb(needDisk)}${tiny ? (me.diskDeclared ? ` (the ${gb(me.disk || 0)} its --disk says, and ${gb(ALONE_ROOM)} kept free)` : ` (a job that writes next to nothing still leaves ${gb(ALONE_ROOM)} free)`) : ate != null && ate + (crowded ? floorFor(me, cfg) : ALONE_ROOM) >= needDisk ? ` (${crowded ? `the ${gb(floorFor(me, cfg))} dibs keeps free` : `${gb(ALONE_ROOM)} to spare`}, plus the ${gb(ate)} this usually takes; --disk <size> says this run needs less)` : ''}`, disk: true, free: m.diskFree, need: needDisk, ...(ate != null && { usual: ate }) };
+  }
   // While the machine swaps, only urgent work starts on top of what's running.
   // With nothing else working, one job may start: waiting can't make the swap
   // go down then, and swap the OS hasn't reclaimed yet mustn't stop dibs for good.

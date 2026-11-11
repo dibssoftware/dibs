@@ -219,7 +219,7 @@ function waitingFor(s, q, v, cfg, hist, t, m, f) {
         + `${v.high ? ' with memory pressure high' : ''}${v.growing ? ' and swap growing' : ''}, and it needs ${GB(v.need)} plus ${GB(v.reserve)} to spare`;
       return `room in memory: ${memoryPicture(s, cfg, m, v.need, t)}`;
     case 'cpu': return `free processor cores (jobs running now are using ${v.used} of the ${v.of} cores dibs shares out, and it needs ${v.need})`;
-    case 'disk': return `more free disk (${GB(v.free)} free, it needs ${GB(v.need)})${hogHint()}`;
+    case 'disk': return `more free disk (${GB(v.free)} free, it needs ${GB(v.need)}${v.floorWhy ? `: ${v.floorWhy}` : ''})${hogHint()}`;
     case 'pressure': return `memory pressure to ease (the OS says it's high, so dibs starts nothing new until it eases): ${memoryPicture(s, cfg, m, q.mem, t)}`;
     case 'swaproom': return `more free disk for swap to grow into (${GB(v.free)} free; while this machine swaps, dibs starts nothing new until ${GB(v.need)} is free or nothing else is running)${hogHint()}`;
     case 'drain': return `free disk to stop falling (it fell ${GB(v.fell)} in 5 min to ${GB(v.free)}; dibs starts nothing new while it falls this fast and anything else is running)${hogHint()}`;
