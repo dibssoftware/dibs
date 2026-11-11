@@ -16,6 +16,8 @@ import { clock } from '../src/util.mjs';
 
 const WIN = process.platform === 'win32';
 const CONFIG_MJS = fileURLToPath(new URL('../src/config.mjs', import.meta.url));
+const STATE_MJS = fileURLToPath(new URL('../src/state.mjs', import.meta.url));
+const STATS_MJS = fileURLToPath(new URL('../src/stats.mjs', import.meta.url));
 const CONFIG = { resources: { t: { slots: 1, mem: '0.1G', cpu: 1 } } };
 
 // ps, sysctl and vm_stat stand-ins that note each call, and whether the dibs
@@ -116,4 +118,26 @@ test('the run history: the newest 1000 runs from the end of a big file, the same
 test('clock reads the same as toLocaleTimeString', () => {
   for (const t of [Date.now(), 0, 1e12, Date.UTC(2026, 0, 1, 23, 59)]) assert.equal(clock(t), new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   assert.equal(clock(NaN), 'Invalid Date');
+});
+
+test('history.jsonl past 2 MB moves aside when a run ends, and learned sizes still see the newest 1000 runs across both files', async t => {
+  const h = tmp(t);
+  fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify(CONFIG));
+  const line = i => JSON.stringify({ key: `t|npm run case ${'y'.repeat(200)}`, dur: 1000 + i, who: 'a', at: i + 1 });
+  const big = Array.from({ length: 9000 }, (_, i) => line(i)).join('\n') + '\n';
+  assert.ok(big.length > 2 * 1024 ** 2);
+  fs.writeFileSync(path.join(h, 'history.jsonl'), big);
+  assert.equal(sync(h, ['run', 't', '-m', 'rotate', '--', 'true']).code, 0);
+  assert.equal(fs.readFileSync(path.join(h, 'history.1.jsonl'), 'utf8'), big, 'the full file moved aside whole');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const { history } = await import(${JSON.stringify(STATE_MJS)}); const { readRuns } = await import(${JSON.stringify(STATS_MJS)});`
+    + ` const x = history(); console.log(JSON.stringify({ n: x.length, first: x[0].dur, last: x.at(-1).key, runs: readRuns(0).length }));`],
+  { env: { ...process.env, DIBS_HOME: h }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const got = JSON.parse(r.stdout);
+  // The newest run is in the new file; the other 999 come from the end of the old one.
+  assert.equal(got.n, 1000);
+  assert.equal(got.first, 1000 + 9000 - 999);
+  assert.match(got.last, /^t\|/);
+  assert.equal(got.runs, 9001, 'dibs stats reads both files');
 });

@@ -40,10 +40,11 @@ const bump = (m, k, ms = 0) => { const x = m.get(k) || { n: 0, ms: 0 }; x.n++; x
 const resOf = rs => [...new Set((rs || []).map(r => (r.startsWith('files:') ? 'files' : r)))];
 const cmdOf = key => masked(String(key || '').split('|').slice(1).join('|').split(' / ')[0].replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()) || null;
 
-// Every history.jsonl line since `since`. history() in state.mjs keeps only the newest 1000.
+// Every run time since `since`, from history.jsonl and the one rotated out before it.
+// history() in state.mjs keeps only the newest 1000.
 export function readRuns(since) {
   let text = '';
-  try { text = fs.readFileSync(paths.history, 'utf8'); } catch {}
+  for (const f of [paths.historyOlder, paths.history]) try { text += fs.readFileSync(f, 'utf8') + '\n'; } catch {}
   const out = [];
   for (const l of text.split('\n')) {
     if (!l) continue;

@@ -7,7 +7,7 @@
 // run: an error is written once per process to dibs.log and dropped.
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOME } from './config.mjs';
+import { HOME, paths } from './config.mjs';
 import { now } from './util.mjs';
 
 export const EVENTS = path.join(HOME, 'events.jsonl');
@@ -33,7 +33,16 @@ export function event(e) {
 
 // Move the current file aside once it's past half of either limit. Called
 // under the state lock, so two processes never rotate at once.
+// Run times (src/state.mjs record) rotate the same way, at RUNS_ROTATE: about 15,000
+// runs, a month here. Learned sizes need only the newest 1000, read across both files.
+const RUNS_ROTATE = 2 * 1024 ** 2;
+function rotateRuns() {
+  try { if (fs.statSync(paths.history).size >= RUNS_ROTATE) fs.renameSync(paths.history, paths.historyOlder); }
+  catch (e) { if (e.code !== 'ENOENT') complain(e); }
+}
+
 export function rotate(t = now()) {
+  rotateRuns();
   try {
     const st = fs.statSync(EVENTS);
     if (st.size < KEEP_BYTES / 2 && t - firstAt() < KEEP_MS / 2) return;

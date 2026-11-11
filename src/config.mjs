@@ -11,6 +11,7 @@ export const paths = {
   state: path.join(HOME, 'state.json'),
   lock: path.join(HOME, 'lock'),
   history: path.join(HOME, 'history.jsonl'),
+  historyOlder: path.join(HOME, 'history.1.jsonl'),   // the one before, kept by rotate() in src/events.mjs
   config: path.join(HOME, 'config.json'),
   seen: path.join(HOME, 'seen.json'),
   ctl: path.join(HOME, 'ctl'),   // the broker's control FIFO (src/broker.mjs)
