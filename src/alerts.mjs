@@ -7,13 +7,15 @@
 // list; the app turns a new one into a notification, at most one per cause
 // every 30 minutes.
 //
-// Six causes:
+// Seven causes:
 //   wait      a job waiting far longer than usual, worst when a person waits on it
 //   memory    memory pressure or swap holding new jobs back, with what to close
 //   idle      a slot held by a job that has done nothing for a long time
 //   ended     jobs that failed, were stopped, or were lost on another machine
 //   dibs      dibs itself: a service down or restarting, a crash, the hook failing
 //   disk      free disk under the floor
+//   machine   what only the person can fix on the machine: cores that stopped taking
+//             work, processes left running with their script gone (src/cool.mjs)
 //
 // alerts.json keeps the open ones, the resolved ones for a day, and what the
 // scan needs between runs: how far into the event log and the hook's log it
@@ -22,25 +24,31 @@
 // throttle watcher, so alerts keep up even when nobody looks.
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOME, machine } from './config.mjs';
+import { HOME, paths, machine } from './config.mjs';
 import { verdict } from './schedule.mjs';
 import { stuckFor, minutes, andList } from './plain.mjs';
 import { processesNow, memoryUse } from './platform.mjs';
 import { treeOf } from './measure.mjs';
 import { withState, history } from './state.mjs';
-import { markIdle } from './acquire.mjs';
+import { markIdle, tableFirst } from './acquire.mjs';
 import { sessionFiles } from './proc.mjs';
 import { EVENTS } from './events.mjs';
 import { serviceHealth } from './service.mjs';
 import { hogHint } from './hogs.mjs';
-import { underLock } from './lock.mjs';
+import { underLock, heldBy } from './lock.mjs';
 import { now, bytes, clock, gb, die } from './util.mjs';
 import { dim, red, amber, wrap } from './style.mjs';
 
 export const FILE = path.join(HOME, 'alerts.json');
+// The throttle watcher's notes on the machine (src/cool.mjs noteCpu).
+export const CPU_FILE = path.join(HOME, 'cpu.json');
+// Notes older than this are from a watcher that stopped: three of its passes.
+const CPU_FRESH = 30e3;
 const LOCK = path.join(HOME, 'alerts.lock');
 const GUARD_LOG = path.join(HOME, 'guard.log');
 const MIN = 6e4, HOUR = 36e5, DAY = 864e5;
+// Stuck cores for this long, not a passing spike, before the person is told to restart.
+const STUCK_AFTER = 5 * MIN;
 
 // Reads are cheap but not free (a verdict per waiter, the tail of two logs);
 // the app polls every 2 s, so a scan stands for this long.
@@ -150,7 +158,8 @@ function readEvents(st, t) {
       const x = { at: e.at, id: e.id, who: e.who, res: e.res, cmd: e.cmd, purpose: e.purpose, key: e.key, code: e.code, prio: e.prio, due: e.due };
       if (by || STOPPED.has(e.code)) st.ended.push({ kind: 'stopped', ...x, by: by || null });
       else if (e.code != null && e.code !== 0) st.ended.push({ kind: 'failed', ...x });
-    } else if (e.kind === 'lost' || e.kind === 'crash') st.ended.push({ kind: e.kind, at: e.at, who: e.who, cmd: e.cmd, code: e.code, why: e.why, verb: e.verb });
+    } else if (e.kind === 'lockstuck') st.ended.push({ kind: e.kind, at: e.at, key: e.key, pid: e.pid, cmd: e.cmd, held: e.held });
+    else if (e.kind === 'lost' || e.kind === 'crash') st.ended.push({ kind: e.kind, at: e.at, who: e.who, cmd: e.cmd, code: e.code, why: e.why, verb: e.verb });
   }
   st.ended = st.ended.filter(x => t - x.at < EVENT_KEEP);
 }
@@ -296,6 +305,13 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
       out.push({ id: `lost:${x.at}`, cause: 'ended', level: 'urgent', at: x.at, who: x.who,
         title: `${x.who}'s job was lost${x.code === 77 ? ' after it started' : ' before it started'} at ${stamp(x.at, t)}: ${x.why || x.cmd}`,
         fix: x.code === 77 ? 'It may have run. Check what it changed before running it again.' : 'It never ran, so it\'s safe to run again.' });
+    } else if (x.kind === 'lockstuck') {
+      // Open while that same holder still has the lock; it closes the moment it lets go.
+      const now = heldBy(paths.lock);
+      if (now?.key !== x.key) continue;
+      out.push({ id: `lockstuck:${x.key}`, cause: 'dibs', level: 'urgent', at: x.at - x.held,
+        title: `dibs is stuck behind pid ${x.pid}${x.cmd ? ` (${x.cmd.slice(0, 80)})` : ''}: it has held the state lock for ${minutes(now.held)}, and every dibs command waits for it`,
+        fix: `If pid ${x.pid} is hung, end it and everyone goes on at once: kill ${x.pid}` });
     } else if (x.kind === 'crash') {
       out.push({ id: `crash:${x.at}`, cause: 'dibs', level: 'urgent', at: x.at, who: x.who,
         title: `dibs crashed at ${stamp(x.at, t)} running dibs ${x.verb || ''} for ${x.who}`,
@@ -334,6 +350,20 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
     out.push({ id: `hardstop:#${l.id}`, cause: 'disk', level: 'urgent', job: l.id, who: l.who, at: l.pausedAt,
       title: `Free disk fell under 1 GB, so dibs paused ${job(l)}, the job writing the most. It resumes once 2 GB is free`,
       fix: diskFix() });
+
+  // The machine itself, from the throttle watcher.
+  let cpu = null;
+  try { cpu = JSON.parse(fs.readFileSync(CPU_FILE, 'utf8')); } catch {}
+  if (cpu && t - cpu.at < CPU_FRESH) {
+    if (cpu.stuckSince && !cpu.swapping)
+      out.push({ id: 'cores', cause: 'machine', level: 'urgent', after: STUCK_AFTER, at: cpu.stuckSince,
+        title: `The load is ${cpu.load} on ${cpu.cores} cores while ${cpu.idle}% of the CPU sits idle: work is ready to run and some cores have stopped taking it`,
+        fix: 'Restart the Mac. On 2026-11-10 nothing else brought its cores back. Until then dibs moves nothing to background priority.' });
+    for (const o of cpu.orphans || [])
+      out.push({ id: `orphan:${o.pid}`, cause: 'machine', level: 'warn',
+        title: `${o.name} ${o.pid} has run ${Math.round(o.age / HOUR)} hours outside dibs, using ${Math.round(o.cpu / HOUR)} CPU-hours, and its script ${o.script} is gone`,
+        fix: `Likely left behind by a session that ended. dibs leaves it running; if nobody needs it, end it: kill ${o.pid}` });
+  }
 
   // Disk under the floor: nothing new starts.
   const floor = bytes(cfg.minDisk || '0');
@@ -492,6 +522,7 @@ export function alerts(args, cfg) {
       : `No open alert matches ${which}. dibs alerts lists them.`);
   }
   const t = now();
+  tableFirst();
   const s = withState(s => { markIdle(s); return s; });
   let list = scan({ s, cfg, hist: history(), t, force: true });
   if (args.includes('--all')) list = shown(load(), t, true);

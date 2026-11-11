@@ -140,6 +140,18 @@ export function place(workers, need, t = now()) {
 // The Tailscale address of this machine. Ask Tailscale itself when its CLI is
 // around; otherwise a 100.64.0.0/10 address on a tunnel interface. That range
 // alone isn't enough: carrier-grade NAT and some hotspots use it too.
+// A log line said once for as long as it stays the same, per key: the Tailscale
+// address is tried every 30 s, and on 2026-11-10 failed all day (EADDRNOTAVAIL),
+// one line each time. null clears the key, so the next failure is said again.
+export function oncePerChange(log) {
+  const last = new Map();
+  return (key, line) => {
+    if (line == null) return last.delete(key);
+    if (last.get(key) !== line) log(line);
+    last.set(key, line);
+  };
+}
+
 function tailscaleIp() {
   for (const cli of TS_CLI) {
     try {
@@ -692,14 +704,15 @@ export async function serve(o) {
   const addrs = () => [...listening.keys()].filter(h => h !== '127.0.0.1').map(h => `http://${h}:${port}`);
   try { made = makeServer({ token: rc.token, log, self: rc.name, joinUrl, port, addrs }); } catch (e) { die(e.message); }
   const { server } = made;
+  const first = o.bind || '127.0.0.1';
+  const failed = oncePerChange(log);
   const listen = host => new Promise(resolve => {
     if (listening.has(host)) return resolve(true);
     const s = server();
-    s.once('error', e => { log(`can't listen on ${host}:${port}: ${e.message}`); resolve(false); });
-    s.listen(port, host, () => { listening.set(host, s); resolve(true); });
+    s.once('error', e => { failed(host, `can't listen on ${host}:${port}: ${e.message}${host === first ? '' : '. Trying again every 30 s, quietly'}`); resolve(false); });
+    s.listen(port, host, () => { failed(host, null); listening.set(host, s); resolve(true); });
   });
   const up = host => log(`listening on http://${host}:${port}`);
-  const first = o.bind || '127.0.0.1';
   if (!await listen(first)) die(o.bind ? `can't listen on ${o.bind}:${port}` : `port ${port} is taken. Is a coordinator already running? (dibs machines)`);
   // "listening" comes after remote.json is saved: whatever waits for the line
   // and then reads the file (a test on 2026-10-16) found it missing.
