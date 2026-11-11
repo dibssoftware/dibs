@@ -17,6 +17,6 @@ test("notify({ who }, once, text) and noteAs({ who, label }, text) work as the b
   noteAs({ who: 'boat-checker', label: 'boat checker' }, 'stopped bx_1 (idle 3 min)');
   const s = JSON.parse(fs.readFileSync(path.join(HOME, 'messages.json'), 'utf8'));
   assert.ok(s.messages.some(m => m.kind === 'notice' && m.to === 'alex-zz' && /bx_1 was stopped/.test(m.text)));
-  assert.ok(s.messages.some(m => m.kind === 'note' && /stopped bx_1/.test(m.text)));
+  assert.ok(s.messages.some(m => m.kind === 'note' && m.auto && /stopped bx_1/.test(m.text)), "dibs's note, not the agent's own words");
   assert.ok(s.threads.some(th => th.who === 'boat-checker' && th.label === 'boat checker'));
 });

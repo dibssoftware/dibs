@@ -712,19 +712,36 @@ final class Store {
         return true
     }
 
-    // The chat's box: to the agent the person picked, or to the desk.
-    func say(_ text: String) async -> Bool {
+    // The chat's box: to the agent the person picked, or to the desk. The subtitle
+    // says how it reaches the agent, idle and not listening included.
+    func say(_ text: String, reach: Reach? = nil) async -> Bool {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
         let to = replyTo ?? Chat.desk
         let name = replyTo.map { t in threads.first { $0.to == t }.map(threadName) ?? displayName(t) } ?? "dibs"
-        let result = await act(["tell", to, text], key: "tell-\(to)", done: "Sent to \(name).")
+        let result = await act(["tell", to, text], key: "tell-\(to)", done: "Sent to \(name).\(reach.map { " \($0.waiting)" } ?? "")")
         if case .failed(let e) = result {
             actionError = e.kind == .unsupported ? "This dibs (\(version ?? "unknown version")) can't send messages to agents yet. Update dibs to 0.0.80 or newer."
                 : plain(e, who: name)
             return false
         }
         return true
+    }
+
+    // One message to several agents, each its own dibs tell. Says which got
+    // it and how each gets it; any that failed stay picked.
+    func tell(_ names: [String], _ text: String) async -> Bool {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !names.isEmpty else { return false }
+        var sent: [String] = [], failed: [String] = []
+        for n in names {
+            let reach = threads.first { $0.to == n }?.reach ?? .working
+            if case .failed(let e) = await act(["tell", n, text], key: "tell-new", done: "") { failed.append(plain(e, who: displayName(n))) }
+            else { sent.append("\(displayName(n)): \(reach.waiting)") }
+        }
+        lastAction = sent.isEmpty ? nil : "Sent. " + sent.joined(separator: " ")
+        if !failed.isEmpty { actionError = "Not sent: " + failed.joined(separator: " ") }
+        return failed.isEmpty
     }
 
     // Reading the chat reads every thread in it.

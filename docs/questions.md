@@ -38,7 +38,9 @@ An agent may answer another agent's question with `dibs answer <id> <text>` when
 
 ## The person's threads, and the desk
 
-`dibs threads` holds what's for the person: one-way questions, and agents' `dibs say` notes, marked FYI. dibs's own notices to an agent about its jobs (bookings, stuck-job advice, "pass --mem 7G") go only to that agent through the hook, never into the person's threads.
+`dibs threads` holds what's for the person: one-way questions, and agents' `dibs say` notes, marked FYI. dibs's own notices to an agent about its jobs (bookings, stuck-job advice, "pass --mem 7G") go only to that agent through the hook, never into the person's threads. Neither do the notes dibs writes in an agent's name (how a `dibs later` run ended), or one agent's `dibs tell` to another.
+
+`dibs threads --json` keeps those apart for the page and the Mac app: `between` lists what agents told each other (`from`, `to`, delivery state), and `fromDibs` lists dibs's notices and notes to agents. Each thread's `reach` says how a message sent now would get to its agent: `listening` (within seconds), `working` (its next tool call), `idle` (not until it works again), `ended`, or `command` (not a Claude Code session). A message the person sent carries `deliveredAt` and `via` (`tool`, `stop`, `listen`, `say`, `command`) once it's handed over.
 
 Set `"desk": "<agent name>"` in `~/.dibs/config.json` to give the person one agent to talk to. `dibs tell desk "..."` (and the Mac app's chat) reaches that agent through the hook, and it answers with `dibs say --to person "..."`. `dibs threads --json` names it (`desk`), marks its thread `desk: true`, and its answers `reply: true`.
 

@@ -567,6 +567,39 @@ button.lrow:hover { background: var(--hover); }
 .msg.me .msg-text { background: var(--yellow-wash); }
 .msg.sys .msg-text { background: transparent; color: var(--ink-3); font-size: 13px; padding: 2px 0; }
 .msg .ask-opts { margin-top: 6px; }
+.msg-meta.after { margin: 4px 2px 0; }
+.msg-meta.late { color: var(--ink-2); font-weight: 600; }
+
+/* Questions waiting on the person sit above the conversations. */
+.waiting-on-you { margin-bottom: 26px; }
+.waiting-on-you .sec-title { font-size: 17px; font-weight: 650; margin: 0 0 10px; }
+.thread.new { flex-direction: row; justify-content: center; font-weight: 620; color: var(--ink); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--sunken-edge); margin-bottom: 8px; }
+.thread.new:hover, .thread.new[aria-current="true"] { background: var(--press); }
+.thread.sub { margin-left: 18px; padding-top: 6px; padding-bottom: 6px; }
+.thread.sub .thread-top b { font-weight: 560; }
+.thread.stream .thread-top b { font-weight: 560; color: var(--ink-2); }
+.threads-rule { border: 0; height: 1px; background: var(--hairline); margin: 10px 4px; flex: none; }
+.convo-head { flex-wrap: wrap; row-gap: 4px; }
+.convo > .back { display: none; }
+.linkish { border: 0; background: none; padding: 0; font: inherit; font-size: 12.5px; color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--hairline); text-underline-offset: 3px; cursor: pointer; margin-left: auto; }
+.linkish:hover { color: var(--ink); text-decoration-color: currentColor; }
+.compose { flex-direction: column; align-items: stretch; gap: 6px; padding-top: 12px; box-shadow: 0 -1px 0 var(--hairline); }
+.compose-to { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.compose-to b { color: var(--ink); font-weight: 620; }
+.compose-row { display: flex; gap: 8px; align-items: flex-end; }
+.pick-to { border: 0; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; min-height: 0; }
+.pick-to legend { font-size: 12.5px; color: var(--ink-3); padding: 0; margin-bottom: 6px; }
+.pick-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+.pick-row:hover { background: var(--hover); }
+.pick-row input { accent-color: var(--red); width: 16px; height: 16px; margin: 0; }
+.pick-row .sec-note { margin-left: auto; }
+.stream-log { gap: 0; }
+.srow-msg { padding: 10px 0; }
+.srow-msg + .srow-msg { box-shadow: 0 -1px 0 var(--hairline); }
+.srow-msg .msg-meta { margin: 0 0 3px; }
+.srow-msg .msg-meta b { color: var(--ink-2); font-weight: 620; }
+.stream-text { margin: 0 0 3px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); font-size: 14px; }
+.stream-text.clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 
 /* Stats: tables and hand-drawn charts that fill the width. */
 .chart-box { width: 100%; }
@@ -665,10 +698,13 @@ button.lrow:hover { background: var(--hover); }
   .task-when { text-align: left; }
   .post { grid-template-columns: 52px minmax(0, 1fr); gap: 0 10px; }
   .post-time { font-size: 11px; }
-  .talk { grid-template-columns: 1fr; height: auto; }
-  .threads { flex-direction: row; overflow-x: auto; }
-  .thread { min-width: 180px; }
-  .convo { min-height: 420px; max-height: 70vh; }
+  /* One pane at a time: the list, or the conversation picked from it. */
+  .talk { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; }
+  .talk.open .threads, .talk:not(.open) .convo { display: none; }
+  .threads { overflow: visible; padding: 0; }
+  .convo { min-height: 0; height: calc(100dvh - 120px); padding: 12px 14px 14px; }
+  .convo > .back { display: inline-block; align-self: flex-start; margin-bottom: 10px; }
+  .linkish { margin-left: 0; }
   .hbar { grid-template-columns: minmax(0, 1fr) 110px; row-gap: 4px; }
   .hbar-track { grid-column: 1 / -1; grid-row: 2; }
   .lrow { flex-wrap: wrap; gap: 4px 12px; }

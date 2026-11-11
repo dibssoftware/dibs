@@ -106,7 +106,7 @@ struct ChatTests {
         #expect(list.open.isEmpty)
     }
 
-    @Test("an agent's words in the person's place say whose they are, and dibs's copy of a worded answer isn't shown twice")
+    @Test("another agent's message is left to the between-agents stream, and dibs's copy of a worded answer isn't shown twice")
     func byAgent() throws {
         let t = try threads(#"""
         {"threads": [{"agent": "b1", "to": "b1", "unread": 0, "last": 3, "messages": [
@@ -116,8 +116,26 @@ struct ChatTests {
         ]}]}
         """#)
         let items = Chat.items(threads: t, questions: [])
-        #expect(items.map(\.text) == ["on behalf of the crews", "keep it"])
-        #expect(items[0].by == "d3")
-        #expect(items[1].by == nil)
+        #expect(items.map(\.text) == ["keep it"])
+        #expect(items[0].by == nil)
+    }
+
+    @Test("the person's message says whether it reached the agent, when and how, or why not yet")
+    func delivery() throws {
+        let list = try JSONDecoder().decode(ThreadList.self, from: Data(#"""
+        {"threads": [{"agent": "w", "to": "w", "reach": "idle", "unread": 0, "last": 3, "messages": [
+          {"id": "m1", "at": 1, "from": "person", "kind": "message", "text": "use staging", "state": "delivered", "deliveredAt": 2, "via": "listen"},
+          {"id": "m2", "at": 3, "from": "person", "kind": "message", "text": "and rebase", "state": "queued"}
+        ]}],
+         "between": [{"id": "m9", "at": 1, "from": "steward", "to": "w", "text": "pod stopped", "state": "delivered", "deliveredAt": 2, "via": "tool"}],
+         "fromDibs": [{"id": "m8", "at": 1, "to": "w", "kind": "notice", "text": "your job used 9 GB", "state": "queued"}]}
+        """#.utf8))
+        #expect(list.threads[0].reach == .idle)
+        let items = Chat.items(threads: list.threads, questions: [])
+        #expect(items[0].delivery?.hasPrefix("Delivered ") == true)
+        #expect(items[0].delivery?.hasSuffix(", while it was listening.") == true)
+        #expect(items[1].delivery == "Not delivered: it's idle and not listening.")
+        #expect(list.between.map(\.from) == ["steward"])
+        #expect(list.fromDibs.map(\.kind) == ["notice"])
     }
 }

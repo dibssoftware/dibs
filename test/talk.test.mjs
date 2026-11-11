@@ -182,7 +182,7 @@ test('dibs threads --json: one thread per agent, newest first, with its question
   const list = threads(w);
   assert.deepEqual(list.map(th => th.to), ['api', 'web-app']);
   for (const th of list) {
-    assert.deepEqual(Object.keys(th).sort(), ['agent', 'agentId', 'alive', 'label', 'last', 'messages', 'session', 'to', 'unread', 'working']);
+    assert.deepEqual(Object.keys(th).sort(), ['agent', 'agentId', 'alive', 'label', 'last', 'messages', 'reach', 'session', 'to', 'unread', 'working']);
     for (const m of th.messages) for (const k of ['id', 'at', 'from', 'kind', 'text', 'options', 'questionId', 'state']) assert.ok(k in m, `${k} in ${JSON.stringify(m)}`);
   }
   const [api, web] = list;
@@ -300,4 +300,129 @@ test('a session file with junk after its record still names its session', t => {
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /queued for web-app/);
   assert.match(hook(w, bash('sess-a', 'ls')).hookSpecificOutput.additionalContext, /Message from the person: use the staging database/);
+});
+
+const json = w => JSON.parse(dibs(w, 'viewer', ['threads', '--json']).out);
+
+// 2026-11-11: the page and the app said "A message reaches its agent with its next tool call"
+// for every agent, idle ones too, and once one had it, only a separate line said so.
+test('a message to an agent says how it would reach it now, and once handed over, when and how', t => {
+  const w = setup(t, [{ pid: process.pid, sessionId: 'sess-a', name: 'web-app', status: 'busy' }]);
+  assert.equal(tell(w, 'web-app', 'use staging').code, 0);
+  let [th] = threads(w);
+  assert.equal(th.reach, 'working');
+  const sent = th.messages.find(m => m.kind === 'message');
+  assert.equal(sent.state, 'queued');
+  assert.equal(sent.deliveredAt, undefined);
+  const before = Date.now();
+  hook(w, bash('sess-a', 'ls'));
+  [th] = threads(w);
+  const got = th.messages.find(m => m.kind === 'message');
+  assert.equal(got.state, 'delivered');
+  assert.equal(got.via, 'tool');
+  assert.ok(got.deliveredAt >= before && got.deliveredAt <= Date.now());
+
+  const idle = setup(t, [{ pid: process.pid, sessionId: 'sess-i', name: 'quiet-one', status: 'idle' }]);
+  assert.equal(tell(idle, 'quiet-one', 'hi').code, 0);
+  assert.equal(threads(idle)[0].reach, 'idle');
+  const gone = setup(t, [{ pid: deadPid(), sessionId: 'sess-d', name: 'old-one' }]);
+  assert.equal(tell(gone, 'old-one', 'hi').code, 0);
+  assert.equal(threads(gone)[0].reach, 'ended');
+});
+
+// 2026-11-11: a steward agent's messages to "Poker pro hand history databases" showed on the
+// page in the person's own bubbles, and its thread list said "You: Steward follow-up".
+test("an agent's message to another is in the between stream, from and to, and never reads as the person's", t => {
+  const w = setup(t, [{ pid: process.pid, sessionId: 'sess-a', name: 'web-app', status: 'busy' }]);
+  const r = dibs(w, 'steward', ['tell', 'web-app', 'the pod is stopped'], { env: { AI_AGENT: '1' } });
+  assert.equal(r.code, 0, r.err);
+  let j = json(w);
+  assert.deepEqual(j.between.map(m => [m.from, m.to, m.text, m.state]), [['steward', 'web-app', 'the pod is stopped', 'queued']]);
+  assert.equal(j.threads[0].unread, 0);
+  hook(w, bash('sess-a', 'ls'));
+  j = json(w);
+  assert.equal(j.between[0].state, 'delivered');
+  assert.equal(j.between[0].via, 'tool');
+  assert.match(dibs(w, 'viewer', ['threads']).out, /steward: the pod is stopped/);
+  assert.doesNotMatch(dibs(w, 'viewer', ['threads']).out, /You: the pod/);
+  assert.match(dibs(w, 'viewer', ['threads', 'read', 'web-app']).out, /steward, another agent,: the pod is stopped/);
+});
+
+// 2026-11-11: 46 of one thread's 46 unread were "l446 (post-merge QUICK ...) finished: exit 0",
+// notes dibs later wrote in the agent's name, and the Messages count read 170.
+test("dibs's own notes and notices are in the from-dibs stream, never unread conversation", t => {
+  const w = setup(t, [{ pid: process.pid, sessionId: 'sess-a', name: 'web-app' }]);
+  // Written before notes carried a flag: known by their wording.
+  assert.equal(dibs(w, 'web-app', ['say', 'l3 (ios snapshot suite) finished: exit 0. Log: ~/.dibs/later/l3.log']).code, 0);
+  assert.equal(dibs(w, 'web-app', ['say', 'the build is green']).code, 0);
+  leave(w, { sessionId: 'sess-a', who: 'web-app' }, 'mem:#3', 'your job #3 used 5.0 GB.');
+  const j = json(w);
+  const th = j.threads.find(x => x.agent === 'web-app');
+  assert.deepEqual(th.messages.map(m => m.text), ['the build is green']);
+  assert.equal(th.unread, 1);
+  assert.deepEqual(j.fromDibs.map(m => [m.kind, m.text]), [['note', 'l3 (ios snapshot suite) finished: exit 0. Log: ~/.dibs/later/l3.log'], ['notice', 'your job #3 used 5.0 GB.']]);
+  assert.equal(j.fromDibs[1].to, 'web-app');
+  assert.equal(board(w.home, w.opts()).notes, 1);
+});
+
+// 2026-11-11: an opencode agent's message was signed "alex#92133", and "dibs say --to
+// alex#92133" answered "no agent called alex#92133". The hook also said "To answer
+// them, run: dibs say", which sent the reply to the person instead of the agent that wrote.
+test("an agent's message, from outside Claude Code too, is signed with a name a reply reaches, and says how to reply to it", t => {
+  const w = setup(t, [{ pid: process.pid, sessionId: 'sess-a', name: 'web-app', status: 'busy' }]);
+  const opencode = { env: { OPENCODE: '1' } };
+  assert.equal(dibs(w, 'repo#4242', ['tell', 'web-app', 'is the pod up?'], opencode).code, 0);
+  assert.equal(dibs(w, 'Poker hands', ['tell', 'web-app', 'hand 12 is ready'], opencode).code, 0);
+  const text = hook(w, bash('sess-a', 'ls')).hookSpecificOutput.additionalContext;
+  assert.match(text, /\nMessage from repo#4242 \(another agent, not the person\): is the pod up\?\n/);
+  assert.match(text, /\nTo answer repo#4242, run: dibs say --to repo#4242 "\.\.\."(\n|$)/);
+  assert.match(text, /\nTo answer Poker hands, run: dibs say --to 'Poker hands' "\.\.\."(\n|$)/);
+  assert.doesNotMatch(text, /run: dibs say "/, 'plain dibs say would go to the person');
+
+  const r = dibs(w, 'web-app', ['say', '--to', 'repo#4242', 'yes, since 3:10'], { env: { AI_AGENT: '1' } });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^Sent as a message to repo#4242 \(dibs tell repo#4242\): it isn't a Claude Code session, so it gets it with its next dibs command\.$/m);
+  assert.equal(dibs(w, 'web-app', ['tell', 'Poker hands', 'thanks'], { env: { AI_AGENT: '1' } }).code, 0);
+
+  // No Claude session, no hook: the reply comes with the agent's next dibs command, once.
+  const got = dibs(w, 'repo#4242', ['why'], opencode);
+  assert.match(got.err, /Message from web-app \(another agent, not the person\): yes, since 3:10\nTo answer web-app, run: dibs say --to web-app "\.\.\."/);
+  assert.doesNotMatch(got.err, /Claude Code settings/, "it didn't come through the Claude Code hook");
+  assert.doesNotMatch(dibs(w, 'repo#4242', ['why'], opencode).err, /since 3:10/, 'once');
+  assert.match(dibs(w, 'Poker hands', ['why'], opencode).err, /Message from web-app \(another agent, not the person\): thanks/);
+  const j = json(w);
+  assert.deepEqual(j.between.map(m => [m.from, m.to, m.state]),
+    [['repo#4242', 'web-app', 'delivered'], ['Poker hands', 'web-app', 'delivered'], ['web-app', 'repo#4242', 'delivered'], ['web-app', 'Poker hands', 'delivered']]);
+  assert.equal(j.threads.find(x => x.to === 'repo#4242').reach, 'command');
+  assert.ok(!j.between.some(m => m.fromGone), 'every sender is a name a reply reaches');
+});
+
+// 2026-11-11: a session the person knows as "Poker app iOS issue" signed its message
+// "alex" (its folder), and nothing answered to that name.
+test("an agent whose process dibs can't place signs with its Claude Code session's name, and a reply reaches it", t => {
+  const w = setup(t, [{ pid: process.pid, sessionId: 'sess-a', name: 'web-app', status: 'busy' }, { pid: process.ppid, sessionId: 'sess-b', name: 'Poker app', status: 'busy' }]);
+  const r = dibs(w, '', ['tell', 'web-app', 'ack'], { env: { AI_AGENT: '1', CLAUDE_CODE_SESSION_ID: 'sess-b' } });
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(json(w).between.map(m => [m.from, m.to]), [['Poker app', 'web-app']]);
+  assert.match(hook(w, bash('sess-a', 'ls')).hookSpecificOutput.additionalContext, /To answer Poker app, run: dibs say --to 'Poker app' "\.\.\."/);
+  assert.equal(dibs(w, 'web-app', ['say', '--to', 'Poker app', 'got it'], { env: { AI_AGENT: '1' } }).code, 0);
+  assert.match(hook(w, bash('sess-b', 'ls')).hookSpecificOutput.additionalContext, /Message from web-app \(another agent, not the person\): got it/);
+});
+
+// 2026-11-11: alex-d7 answered other agents with plain dibs say ("alex-d7 to Atlas
+// team-lead: ..."), as the hook told it to; the person saw three unread notes meant for an agent.
+test('a note an agent signs to another agent is in the between stream, not unread, and plain dibs say after an agent message says how to answer it', t => {
+  const w = setup(t, [{ pid: process.pid, sessionId: 'sess-a', name: 'web-app', status: 'busy' }]);
+  assert.equal(dibs(w, 'lead', ['tell', 'web-app', 'free some disk'], { env: { AI_AGENT: '1' } }).code, 0);
+  hook(w, bash('sess-a', 'ls'));
+  const r = dibs(w, 'web-app', ['say', 'web-app to lead: freed 2 GB'], { env: { CLAUDE_CODE_SESSION_ID: 'sess-a' } });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /The last message you got was from lead, another agent\. To answer it: dibs say --to lead "\.\.\."/);
+  assert.equal(dibs(w, 'web-app', ['say', 'the build is green'], { env: { CLAUDE_CODE_SESSION_ID: 'sess-a' } }).code, 0);
+  const j = json(w);
+  const th = j.threads.find(x => x.to === 'web-app');
+  assert.deepEqual(th.messages.filter(m => m.kind === 'note').map(m => m.text), ['the build is green']);
+  assert.equal(th.unread, 1);
+  assert.deepEqual(j.between.map(m => [m.from, m.to, m.text]), [['lead', 'web-app', 'free some disk'], ['web-app', 'lead', 'web-app to lead: freed 2 GB']]);
+  assert.equal(board(w.home, w.opts()).notes, 1);
 });

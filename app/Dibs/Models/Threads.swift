@@ -8,15 +8,21 @@ struct ThreadList: Decodable, Sendable {
     var threads: [AgentThread]
     // The agent that answers the person's chat (config "desk"), or nil when none is set.
     var desk: String?
+    // What agents tell each other, and what dibs tells agents (0.0.180): the person's to look
+    // at, never part of their conversations. Older dibs sends neither.
+    var between: [StreamItem] = []
+    var fromDibs: [StreamItem] = []
 
     init(threads: [AgentThread]) { self.threads = threads }
 
-    enum CodingKeys: String, CodingKey { case threads, desk }
+    enum CodingKeys: String, CodingKey { case threads, desk, between, fromDibs }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         threads = (c.lenient(.threads) as [Lenient<AgentThread>]?)?.compactMap(\.value) ?? []
         desk = c.lenient(.desk)
+        between = (c.lenient(.between) as [Lenient<StreamItem>]?)?.compactMap(\.value) ?? []
+        fromDibs = (c.lenient(.fromDibs) as [Lenient<StreamItem>]?)?.compactMap(\.value) ?? []
     }
 
     // One thread per agent from 0.0.70's questions: each question, then its answer.
@@ -54,6 +60,11 @@ struct AgentThread: Decodable, Sendable, Identifiable {
     var messages: [ThreadMessage]
     // The desk's own thread: its replies speak for dibs.
     var desk = false
+    // How a message sent now would reach it (Reach), from 0.0.180; guessed for older dibs.
+    var reach: Reach { reachRaw.flatMap(Reach.init(rawValue:)) ?? (!alive ? .ended : working == "listening" ? .listening : .working) }
+    var reachRaw: String?
+    // A subagent's thread: "web-app/tests".
+    var isSub: Bool { to != agent && to.hasPrefix("\(agent)/") }
 
     var id: String { to }
 
@@ -111,7 +122,7 @@ struct AgentThread: Decodable, Sendable, Identifiable {
         self.messages = messages
     }
 
-    enum CodingKeys: String, CodingKey { case agent, label, agentId, to, alive, working, unread, last, messages, desk }
+    enum CodingKeys: String, CodingKey { case agent, label, agentId, to, alive, working, unread, last, messages, desk, reachRaw = "reach" }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -124,6 +135,7 @@ struct AgentThread: Decodable, Sendable, Identifiable {
         unread = c.lenient(.unread) ?? 0
         last = c.lenient(.last) ?? 0
         desk = c.lenient(.desk) ?? false
+        reachRaw = c.lenient(.reachRaw)
         messages = ((c.lenient(.messages) as [Lenient<ThreadMessage>]?)?.compactMap(\.value) ?? []).sorted { $0.at < $1.at }
     }
 }
@@ -148,6 +160,9 @@ struct ThreadMessage: Decodable, Sendable, Identifiable, Hashable {
     var by: String?
     // The desk agent answering the person's chat (dibs say --to person).
     var reply = false
+    // When and how dibs handed the person's message over (0.0.180): tool, stop, listen, say, command.
+    var deliveredAt: Double?
+    var via: String?
 
     var fromPerson: Bool { from == "person" }
     // 0.0.86: dibs's own notice to the agent about one of its jobs (stuck,
@@ -168,7 +183,7 @@ struct ThreadMessage: Decodable, Sendable, Identifiable, Hashable {
         self.about = about
     }
 
-    enum CodingKeys: String, CodingKey { case id, at, from, kind, text, options, questionId, state, about, answer, why, by, reply }
+    enum CodingKeys: String, CodingKey { case id, at, from, kind, text, options, questionId, state, about, answer, why, by, reply, deliveredAt, via }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -186,5 +201,74 @@ struct ThreadMessage: Decodable, Sendable, Identifiable, Hashable {
         why = c.lenient(.why)
         by = c.lenient(.by)
         reply = c.lenient(.reply) ?? false
+        deliveredAt = c.lenient(.deliveredAt)
+        via = c.lenient(.via)
     }
+}
+
+// How a message reaches an agent, in the words the page uses too (web/app.js REACH).
+enum Reach: String, Sendable {
+    case listening, working, idle, ended, command
+
+    var sentence: String {
+        switch self {
+        case .listening: "Listening. It gets messages within seconds."
+        case .working: "Working. It gets messages at its next step."
+        case .idle: "Idle and not listening. It won't see messages until it works again."
+        case .ended: "Not running. Messages wait in case it comes back."
+        case .command: "Not a Claude Code session. It gets messages the next time it runs dibs say."
+        }
+    }
+
+    var short: String {
+        switch self {
+        case .listening: "listening"
+        case .working: "working"
+        case .idle: "idle, not listening"
+        case .ended: "not running"
+        case .command: "outside Claude Code"
+        }
+    }
+
+    // A message not handed over yet.
+    var waiting: String {
+        switch self {
+        case .listening: "Not delivered yet. It gets it within seconds."
+        case .working: "Waiting for its next step."
+        case .idle: "Not delivered: it's idle and not listening."
+        case .ended: "Not delivered: it isn't running."
+        case .command: "Waiting for its next dibs say."
+        }
+    }
+
+    // Can it hear the person soon: the thread's dot.
+    var hears: Bool { self == .listening || self == .working }
+
+    // A message's delivery in plain words. receipt: dibs's old "got it ..." line about it.
+    static func words(state: String?, deliveredAt: Double?, via: String?, reach: Reach, receipt: ThreadMessage? = nil, now: Date = .now) -> String {
+        if state == "queued" { return reach.waiting }
+        if state == "expired" { return "Never reached it." }
+        let how = via.flatMap { ["tool": "with its next step", "stop": "as it finished its turn", "listen": "while it was listening",
+                                 "say": "when it ran dibs say", "command": "with its next dibs command"][$0] }
+            ?? receipt.map { $0.text.replacingOccurrences(of: "got it ", with: "") }
+        guard let at = deliveredAt ?? receipt?.at else { return "Delivered." }
+        return "Delivered \(Span.ago(now.timeIntervalSince(Date(ms: at))))\(how.map { ", \($0)" } ?? "")."
+    }
+}
+
+// One line of the between-agents stream or the from-dibs stream.
+struct StreamItem: Decodable, Sendable, Identifiable, Hashable {
+    var id: String
+    var at: Double
+    // The sending agent (between agents); nil for dibs.
+    var from: String?
+    var to: String
+    // notice or note (from dibs).
+    var kind: String?
+    var text: String
+    var state: String?
+    var deliveredAt: Double?
+    var via: String?
+
+    var date: Date { Date(ms: at) }
 }

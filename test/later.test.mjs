@@ -115,22 +115,24 @@ test('--after an agent fires when its lease ends; --after-ok on a lease that fai
   assert.ok(!fs.existsSync(path.join(dir, 'nope')));
 });
 
-test("how a scheduled job ended reaches the person as a note in its agent's thread, a subagent's in its own", async t => {
+test("how a scheduled job ended is dibs's note to its agent, in the from-dibs stream, a subagent's under its own name", async t => {
   const h = tmp(t), dir = tmp(t, 'proj');
   await runner(t, h);
-  const threads = () => JSON.parse(sync(h, ['threads', '--json']).out).threads;
+  const json = () => JSON.parse(sync(h, ['threads', '--json']).out);
   const ok = schedule(h, 'ios-agent', ['test', '--in', '1s', '-m', 'ios snapshot suite', '--', 'true'], { cwd: dir });
   const bad = schedule(h, 'ios-agent', ['test', '--after-ok', ok, '--', 'false'], { cwd: dir });
   const skipped = schedule(h, 'ios-agent', ['test', '--after-ok', bad, '--', 'true'], { cwd: dir });
   await until(() => job(h, skipped).state === 'skipped');
-  const notes = threads().find(th => th.to === 'ios-agent').messages.map(m => [m.kind, m.text]);
+  const notes = json().fromDibs.filter(m => m.to === 'ios-agent').map(m => [m.kind, m.text]);
   assert.deepEqual(notes, [
     ['note', `${ok} (ios snapshot suite) finished: exit 0. Log: ${path.join(h, 'later', `${ok}.log`)}`],
     ['note', `${bad} (false) finished: exit 1. Log: ${path.join(h, 'later', `${bad}.log`)}`],
     ['note', `${skipped} (true) was skipped: ${bad} exited 1. Log: ${path.join(h, 'later', `${skipped}.log`)}`]]);
-  assert.match(sync(h, []).out, /^3 notes are waiting for you: dibs threads$/m);
+  // dibs talking, not the agent: nothing unread in the person's conversations (2026-11-11: 46 such notes read as unread).
+  assert.deepEqual(json().threads.find(th => th.to === 'ios-agent').messages, []);
+  assert.doesNotMatch(sync(h, []).out, /notes? (is|are) waiting for you/);
 
-  // A subagent schedules one: the guard notes which agent ran dibs later, and the note lands in that agent's thread.
+  // A subagent schedules one: the guard notes which agent ran dibs later, and the note names that agent.
   const sub = { session_id: 'sess-a', agent_id: 'agent-7f3e9c', agent_type: 'Explore' };
   const words = ['test', '--in', '1s', '--', 'true'];
   const hooked = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: env(h),
@@ -138,9 +140,9 @@ test("how a scheduled job ended reaches the person as a note in its agent's thre
   assert.equal(hooked.status, 0, hooked.stderr);
   const mine = schedule(h, 'web-app', words, { cwd: dir, env: { CLAUDE_CODE_SESSION_ID: 'sess-a' } });
   await until(() => job(h, mine).state === 'done');
-  const th = threads().find(x => x.agentId === 'agent-7f3e9c');
-  assert.equal(th?.to, 'web-app/Explore');
-  assert.match(th.messages.at(-1).text, new RegExp(`^${mine} \\(true\\) finished: exit 0\\.`));
+  const last = json().fromDibs.at(-1);
+  assert.equal(last.to, 'web-app/Explore');
+  assert.match(last.text, new RegExp(`^${mine} \\(true\\) finished: exit 0\\.`));
 });
 
 test('--after-ok an earlier later job runs only if it succeeded; --after runs either way', async t => {

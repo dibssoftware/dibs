@@ -11,8 +11,8 @@ import Foundation
 //            can overrule it by replying.
 //   mine     what the person said or answered.
 //
-// dibs's own notices to agents (stuck jobs, memory) are for the agents and
-// never show here.
+// dibs's own notices to agents (stuck jobs, memory) and what agents tell each
+// other are their own streams (ThreadList.between, .fromDibs), never here.
 struct ChatItem: Identifiable, Sendable, Hashable {
     enum Kind: Sendable, Hashable { case ask, note, decided, mine }
 
@@ -37,6 +37,8 @@ struct ChatItem: Identifiable, Sendable, Hashable {
     var by: String?
     // The person's message, not yet handed to its agent (its next tool call does that).
     var queued = false
+    // The person's message: whether and how it reached the agent, in plain words.
+    var delivery: String?
 
     var date: Date { Date(ms: at) }
 }
@@ -65,13 +67,16 @@ enum Chat {
         let byId = Dictionary(questions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var out: [ChatItem] = []
         for t in threads {
+            let receipts = Dictionary(t.messages.filter { $0.kind == "delivered" }.compactMap { m in m.about.map { ($0, m) } }, uniquingKeysWith: { a, _ in a })
             for m in t.messages {
                 guard let kind = kind(of: m, question: m.questionId.flatMap { byId[$0] }) else { continue }
                 let q = m.questionId.flatMap { byId[$0] }
                 var item = ChatItem(id: "\(t.to)-\(m.id)", kind: kind, at: m.at, to: t.to, agent: t.agent, label: t.label, text: m.text,
                                     chose: m.answer ?? (kind == .decided ? q?.answer ?? q?.recommend : nil), why: m.why ?? q?.why,
                                     desk: isDesk(t, desk) && (m.reply || m.fromPerson || t.agent == Self.desk), by: m.fromPerson ? m.by : nil,
-                                    queued: m.fromPerson && m.state == "queued")
+                                    queued: m.fromPerson && m.state == "queued",
+                                    delivery: m.fromPerson && m.kind == "message"
+                                        ? Reach.words(state: m.state, deliveredAt: m.deliveredAt, via: m.via, reach: t.reach, receipt: receipts[m.id]) : nil)
                 if m.kind == "question" {
                     let open = (q?.state ?? Question.State(rawValue: m.state ?? "") ?? .expired) == .open
                     item.question = ChatQuestion(id: m.questionId ?? m.id, options: q?.options ?? m.options ?? [],
@@ -103,6 +108,8 @@ enum Chat {
     // dibs's notices to agents, delivery receipts.
     static func kind(of m: ThreadMessage, question q: Question?) -> ChatItem.Kind? {
         if m.fromDibs || m.kind == "delivered" || m.kind == "notice" { return nil }
+        // Another agent's message to this one: the between-agents stream's, not the person's conversation.
+        if m.fromPerson && m.by != nil { return nil }
         // dibs copies a worded answer into the thread as a message for the
         // agent; the answer itself already shows.
         if m.fromPerson && m.kind == "message" && m.text.hasPrefix("(answering your question #") { return nil }
