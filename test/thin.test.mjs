@@ -710,3 +710,26 @@ test('a waiter in Node carries on as the new dibs after a release, in the same p
   assert.equal(await first.done, 0);
   assert.equal(await second.done, 0, second.err);
 });
+
+// 2026-11-11: the broker's tick kept a timestamp named full, which hid the function that tells
+// waiters the disk is full, so the first full-disk tick crashed it (TypeError, exit 70).
+test('a full disk while thin waiters wait: the broker tells them and keeps waiting, then runs them when space returns', async t => {
+  const home = tmp(t);
+  stopBroker(t, home);
+  block(home);
+  const fake = path.join(home, 'full');
+  const p = thin(t, home, ['run', 'deploy', '--', 'echo', 'ran'], { env: { DIBS_FAKE_ENOSPC: fake, CLAUDE_CODE_CHILD_SESSION: '1' } });
+  await inLine(home, p);
+  await settled(p);
+  const b = state(home).broker.pid;
+  // Every change to the state fails as on a full disk, starting with taking its lock.
+  fs.writeFileSync(fake, 'lock');
+  await until(() => /disk is too full for dibs to save your place/.test(flat(p.err)));
+  await new Promise(r => setTimeout(r, 2000));   // a few more broker ticks on the full disk
+  assert.ok(alive(b), `the broker died: ${JSON.stringify(events(home).filter(e => e.kind === 'crash'))}`);
+  assert.deepEqual(events(home).filter(e => e.kind === 'crash'), []);
+  fs.rmSync(fake);
+  unblock(home);
+  assert.equal(await p.done, 0, p.err);
+  assert.match(p.out, /ran/);
+});

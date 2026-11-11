@@ -290,3 +290,14 @@ test('dibs tell goes to the running session with that name, not an old thread or
   assert.equal(hook(w, bash('sess-dead', 'ls')), null, 'not to the dead session');
   assert.match(hook(w, bash('sess-live', 'ls')).hookSpecificOutput.additionalContext, /Message from the person: use staging/);
 });
+
+// 2026-11-10: Claude Code left ~/.claude/sessions/43095.json with a stray } after the object, and
+// the session dropped out of everything that reads those files.
+test('a session file with junk after its record still names its session', t => {
+  const w = setup(t);
+  fs.writeFileSync(path.join(w.home, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'sess-a', name: 'web-app' }) + '\n}');
+  const r = tell(w, 'web-app', 'use the staging database');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /queued for web-app/);
+  assert.match(hook(w, bash('sess-a', 'ls')).hookSpecificOutput.additionalContext, /Message from the person: use the staging database/);
+});

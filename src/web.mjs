@@ -35,8 +35,9 @@ import { summarize, verdict, span } from './history.mjs';
 import { collect, readRuns, text as statsText } from './stats.mjs';
 import { AGENT_ENV, logChange } from './owner.mjs';
 import { PRIORITIES } from './schedule.mjs';
-import { die, now, log, dur, clock, masked, inProcess, lockHeld, unlock } from './util.mjs';
+import { die, now, log, dur, clock, masked, inProcess } from './util.mjs';
 import { peek } from './state.mjs';
+import { underLock, commit } from './lock.mjs';
 import { boardJson, paceJson } from './commands.mjs';
 import { questionsJson, hours as hoursOf } from './questions.mjs';
 import { threadsJson } from './talk.mjs';
@@ -57,6 +58,8 @@ const ASSETS = path.join(ROOT, 'web');
 export const DEFAULT_WEB_PORT = 7421;   // the coordinator has 7420
 const FILE = path.join(HOME, 'web.json');
 const LOCK = path.join(HOME, 'web.lock');
+// Writes take milliseconds: a holder still at it past this is stuck on something else.
+const LOCK_WAIT = 5000;
 
 const MIN = 6e4, HOUR = 36e5, DAY = 24 * HOUR;
 // Long enough to walk from the terminal to the browser, short enough that a code
@@ -136,37 +139,19 @@ function load() {
 
 // `dibs pair` and the server both write web.json; a short mkdir lock keeps one from undoing the other.
 function locked(fn) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const t0 = now();
-  for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (!lockHeld(e)) throw e;
-      // A stale lock is renamed aside before it's removed: two processes breaking it at
-      // once can't then delete the fresh lock one of them just took.
-      try {
-        if (now() - fs.statSync(LOCK).mtimeMs > 5000) {
-          const aside = `${LOCK}.stale.${process.pid}`;
-          fs.renameSync(LOCK, aside);
-          fs.rmSync(aside, { recursive: true, force: true });
-        }
-      } catch {}
-      if (now() - t0 > 5000) throw new Error(`${LOCK} stayed locked; remove it if no dibs is running`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    }
-  }
-  try {
+  const r = underLock(LOCK, h => {
     const w = load();
     const out = fn(w);
     const t = now();
     w.codes = w.codes.filter(c => c.exp > t);
     // Remote entries are {at, ip, client}; local ones (and older remote ones) are bare times.
     for (const k of ['fails', 'rfails', 'registered', 'rregistered']) w[k] = w[k].filter(x => t - (x?.at ?? x) < FAIL_WINDOW);
-    for (const k of ['grants', 'tokens']) for (const [h, x] of Object.entries(w[k])) if (x.exp <= t) delete w[k][h];
-    const tmp = `${FILE}.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(w), { mode: 0o600 });
-    fs.renameSync(tmp, FILE);
+    for (const k of ['grants', 'tokens']) for (const [key, x] of Object.entries(w[k])) if (x.exp <= t) delete w[k][key];
+    commit(h, FILE, JSON.stringify(w), { mode: 0o600 });
     return out;
-  } finally { unlock(LOCK); }
+  }, { wait: LOCK_WAIT, files: [FILE] });
+  if (!r) throw new Error(`${LOCK} is held by a dibs that's still running; try again in a moment`);
+  return r.out;
 }
 
 const norm = s => String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');

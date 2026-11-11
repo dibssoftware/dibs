@@ -146,3 +146,19 @@ test("a full disk never costs the guard its file-lease check: another agent's ed
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision, 'deny');
 });
+
+// 2026-11-09: a SubagentStop on a full disk left "ENOSPC ... messages.lock" in guard.log, which
+// dibs alerts then showed the person as the hook failing.
+test('a full disk on subagent starts and stops: the hook lets them through and logs nothing', t => {
+  const h = tmp(t);
+  fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ agents: { slots: 2 } }));
+  full(h);
+  for (const hook_event_name of ['SubagentStart', 'SubagentStop']) {
+    const input = { session_id: 'sess-a', cwd: h, hook_event_name, agent_id: 'a1', agent_type: 'Explore' };
+    const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(input), encoding: 'utf8',
+      env: { ...process.env, DIBS_HOME: h, DIBS_AGENT: 'alice', DIBS_FAKE_ENOSPC: fake(h) } });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stderr, '', hook_event_name);
+  }
+  assert.ok(!fs.existsSync(path.join(h, 'guard.log')), `guard.log: ${fs.existsSync(path.join(h, 'guard.log')) && fs.readFileSync(path.join(h, 'guard.log'), 'utf8')}`);
+});

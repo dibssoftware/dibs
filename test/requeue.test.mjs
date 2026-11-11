@@ -11,8 +11,8 @@ import { BIN, G, MACHINE, tmp, env, bg, track, until, posixOnly, windowsGap } fr
 // dibs as an agent's shell runs it, by name; on Windows a .mjs doesn't run by name, so node runs it.
 const dibsBy = (args, o) => (process.platform === 'win32' ? spawn(process.execPath, [BIN, ...args], o) : spawn(BIN, args, o));
 import { withState } from '../src/state.mjs';
-import { diskRequeue, overBooked } from '../src/preempt.mjs';
-import { verdict } from '../src/schedule.mjs';
+import { diskRequeue, overBooked, pressureRequeue } from '../src/preempt.mjs';
+import { verdict, memUsed } from '../src/schedule.mjs';
 import { loadConfig } from '../src/config.mjs';
 
 const state = home => { try { return JSON.parse(fs.readFileSync(path.join(home, 'state.json'), 'utf8')); } catch { return { leases: [], queue: [] }; } };
@@ -152,4 +152,43 @@ test('a job requeued for going far past its booking waits for that much memory t
   process.env.DIBS_FAKE_MACHINE = JSON.stringify({ ...MACHINE, memFree: 90, memTotal: 16 * G, swapGrowth: 2 * G, diskDrain: 0, drainMs: 6e4 });
   assert.equal(at().rule, 'oversize', 'swap still growing');
   process.env.DIBS_FAKE_MACHINE = JSON.stringify(MACHINE);
+});
+
+// 2026-11-10 23:48: with jobs paused for memory pressure, swap still reached 13.7 GB and the Mac
+// froze. A stopped job keeps its memory; it goes to swap. Past the first pause, the watcher stops
+// a paused job for its dibs run to requeue, and its memory counts as held while it sits paused.
+test('memory pressure still critical with a job paused: a paused job is stopped to run again, the lowest priority first, then the biggest', () => {
+  const cfg = loadConfig();
+  const t = Date.now();
+  const lease = (id, extra) => ({ id, kind: 'run', res: ['test'], pgid: 999999, pid: 999998, start: t - 6e4, pausedAt: t - 1e4, requeuable: true,
+    pauses: [{ watcher: 1 }], mem: 2 * G, who: 'a', cmd: 'x', key: 'test|x', ...extra });
+  withState(s => {
+    s.leases = [
+      lease(1, { use: { mem: 3 * G }, prio: 'low' }),
+      lease(2, { use: { mem: 5 * G }, prio: 'low' }),
+      lease(3, { use: { mem: 9 * G }, prio: 'idle', res: ['deploy'] }),              // not safe to run again
+      lease(4, { use: { mem: 8 * G }, prio: 'idle', pauses: [{ watcher: 1 }, { owner: true }] }),   // the person's pause too
+      lease(5, { use: { mem: 1 * G }, prio: 'idle' }),
+      lease(6, { use: { mem: 6 * G }, prio: 'idle', pauses: [{ watcher: 1, disk: true }] }),   // paused for the disk, not memory
+    ];
+    assert.equal(pressureRequeue(s, cfg, t, []).id, 5, 'idle before low, whatever its size');
+    assert.equal(pressureRequeue(s, cfg, t, []).id, 2, 'then the biggest');
+    assert.equal(pressureRequeue(s, cfg, t, []).id, 1);
+    assert.equal(pressureRequeue(s, cfg, t, []), null);
+    assert.equal(s.leases.find(l => l.id === 5).requeue.why, 'memory');
+    s.leases = [];
+  });
+  // With nothing paused for memory yet, the watcher pauses first.
+  withState(s => {
+    s.leases = [lease(1, { pausedAt: undefined, pauses: undefined, prio: 'low' })];
+    assert.equal(pressureRequeue(s, cfg, t, []), null);
+    s.leases = [];
+  });
+});
+
+test('a paused job counts at the most memory it was seen using, not its last idle reading', () => {
+  const t = Date.now();
+  const run = { id: 1, kind: 'run', res: ['test'], mem: 2 * G, start: t - 30 * 6e4, use: { mem: 1 * G, cpu: 0 }, peak: { mem: 6 * G }, peakAt: t - 20 * 6e4, idleSince: t - 15 * 6e4 };
+  assert.equal(memUsed({ leases: [{ ...run, pausedAt: t - 6e4 }] }), 6 * G, 'paused: all it had, which it keeps');
+  assert.ok(memUsed({ leases: [run] }) < 6 * G, 'running idle: what it uses now');
 });

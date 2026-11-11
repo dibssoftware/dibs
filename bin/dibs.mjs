@@ -20,7 +20,7 @@ import { remoteRun, join, machines } from '../src/remote.mjs';
 import { sims } from '../src/simpool.mjs';
 import { question, questions, answer, hoursCmd } from '../src/questions.mjs';
 import { say, tell, threads, noticesFor, listen } from '../src/talk.mjs';
-import { bytes, ms, deadline, die, noSpace, fullDisk, setCaller, lastDie, lastDieCode } from '../src/util.mjs';
+import { bytes, ms, deadline, die, noSpace, fullDisk, setCaller, lastDie, lastDieCode, lastDieAt } from '../src/util.mjs';
 import { event } from '../src/events.mjs';
 import { fileRes, isFiles, resList } from '../src/files.mjs';
 import { boost, pause, resume, stop, cap } from '../src/override.mjs';
@@ -540,11 +540,27 @@ process.on('uncaughtException', fail);
 // (70) go in the event log, so the person hears of them (src/alerts.mjs), not
 // only the agent whose tool call ended.
 let calledVerb = '';
+// A crash's error and stack, so the record says which bug it was: the stack used to go only to the
+// terminal or a service's log, and the 2026-11-10 broker crashes left no trace of theirs anywhere.
+const SRC_FRAME = /\/((?:src|bin)\/[\w.]+:\d+)/;
+const crashAt = text => {
+  const [, error, ...frames] = text.split('\n');
+  const where = frames.map(l => l.match(SRC_FRAME)?.[1]).find(Boolean);
+  return error ? { error: error.slice(0, 300), ...(where && { where }), stack: frames.filter(l => /^\s+at /.test(l)).slice(0, 8).map(l => l.trim()).join('\n').slice(0, 1500) } : {};
+};
+// What a long-running dibs (a service, the broker, a listener) was doing when it gave up with 75.
+// Plain runs and holds exit 75 every day when a wait runs out; that's no news.
+const GAVE_UP = new Set(['throttle', 'worker', 'serve', 'web', 'relay', 'listen', '']);
+const gaveUpAt = () => ({ where: lastDieAt.split('\n').slice(2).map(l => l.match(SRC_FRAME)?.[1]).filter(Boolean).slice(0, 4).join(' < ') });
 process.on('exit', code => {
-  if (code !== lastDieCode || !(code === CRASHED || ((code === 76 || code === 77) && calledVerb === 'run'))) return;
+  if (code !== lastDieCode) return;
+  const lost = (code === 76 || code === 77) && calledVerb === 'run';
+  const gaveUp = code === 75 && GAVE_UP.has(calledVerb);
+  if (code !== CRASHED && !lost && !gaveUp) return;
   try {
-    event({ kind: code === CRASHED ? 'crash' : 'lost', code, verb: calledVerb, who: identity().who,
-      cmd: process.argv.slice(2).join(' ').slice(0, 160), why: lastDie.split('\n')[0].slice(0, 300) });
+    event({ kind: code === CRASHED ? 'crash' : gaveUp ? 'gaveup' : 'lost', code, verb: calledVerb, who: identity().who,
+      cmd: process.argv.slice(2).join(' ').slice(0, 160), why: lastDie.split('\n')[0].slice(0, 300),
+      ...(code === CRASHED ? crashAt(lastDie) : gaveUp ? gaveUpAt() : {}) });
   } catch {}
 });
 main().catch(fail);

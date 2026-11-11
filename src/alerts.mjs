@@ -33,6 +33,7 @@ import { sessionFiles } from './proc.mjs';
 import { EVENTS } from './events.mjs';
 import { serviceHealth } from './service.mjs';
 import { hogHint } from './hogs.mjs';
+import { underLock } from './lock.mjs';
 import { now, bytes, clock, gb, die } from './util.mjs';
 import { dim, red, amber, wrap } from './style.mjs';
 
@@ -103,13 +104,9 @@ function save(st) {
 }
 
 // One scan at a time. Whoever finds the lock taken shows what the file already
-// says; a lock left by a process that died is broken after 30 s.
+// says; a lock left by a process that died is taken over at once (src/lock.mjs).
 function locked(fn) {
-  try { fs.mkdirSync(LOCK); } catch (e) {
-    if (e.code !== 'EEXIST') return null;
-    try { if (now() - fs.statSync(LOCK).mtimeMs < 30e3) return null; fs.rmSync(LOCK, { recursive: true, force: true }); fs.mkdirSync(LOCK); } catch { return null; }
-  }
-  try { return fn(); } finally { fs.rmSync(LOCK, { recursive: true, force: true }); }
+  return underLock(LOCK, () => fn(), { wait: 0 })?.out ?? null;
 }
 
 // The lines a log gained since the offset last read. A file shorter than the

@@ -24,7 +24,8 @@ import { short, takeAgent, talkKey } from './files.mjs';
 import { noteAs } from './talk.mjs';
 import { named, about, minutes } from './plain.mjs';
 import { bold, dim, columns } from './style.mjs';
-import { clock, deadline, die, dur, log, ms, now, say, sleep, sleepSync, fakeFull, LEAN, lockHeld, unlock } from './util.mjs';
+import { underLock, commit } from './lock.mjs';
+import { clock, deadline, die, dur, log, ms, now, say, sleep, fakeFull, LEAN } from './util.mjs';
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'dibs.mjs');
 export const DIR = path.join(HOME, 'later');
@@ -41,8 +42,7 @@ const MAX_AHEAD = 7 * 864e5;
 const TICK = 1000;
 // Started this long after its time, a job says it ran late (the machine was asleep, or no runner was up).
 const LATE = 60e3;
-// Writes take milliseconds, so a lock this old belongs to a dibs that died holding it.
-const LOCK_STALE = 5000;
+// Writes take milliseconds: a live holder past this is stuck on something else, and the caller hears so.
 const LOCK_WAIT = 15e3;
 // Finished jobs and their logs stay a week for dibs later list, up to KEEP_DONE of them.
 const KEEP_FOR = 7 * 864e5;
@@ -68,31 +68,17 @@ const notEnv = k => k.startsWith('DIBS_') || k.startsWith('CLAUDE_CODE_') || AGE
 const ACTIVE = new Set(['scheduled', 'started']);
 
 function locked(fn) {
-  fs.mkdirSync(DIR, { recursive: true });
-  const t0 = now();
-  for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (!lockHeld(e)) throw e;
-      try { if (now() - fs.statSync(LOCK).mtimeMs > LOCK_STALE) fs.rmSync(LOCK, { recursive: true, force: true }); } catch {}
-      if (now() - t0 > LOCK_WAIT) throw Object.assign(new Error(`${LOCK} stayed locked for ${LOCK_WAIT / 1000}s; remove it if no dibs is running. Nothing was changed.`), { exit: 75 });
-      sleepSync(5 + Math.random() * 10);
-    }
-  }
-  try {
+  const r = underLock(LOCK, h => {
     const s = load();
     const before = JSON.stringify(s);
     reap(s);
     const out = fn(s);
-    if (JSON.stringify(s) !== before) {
-      // --env values may be tokens: only this user reads the file.
-      fakeFull('state');
-      fs.writeFileSync(`${FILE}.tmp`, JSON.stringify(s, null, 1), { mode: 0o600 });
-      fs.renameSync(`${FILE}.tmp`, FILE);
-    }
+    // --env values may be tokens: only this user reads the file.
+    if (JSON.stringify(s) !== before) commit(h, FILE, JSON.stringify(s, null, 1), { mode: 0o600, fake: () => fakeFull('state') });
     return out;
-  } finally {
-    unlock(LOCK);
-  }
+  }, { wait: LOCK_WAIT, files: [FILE] });
+  if (!r) throw Object.assign(new Error(`${LOCK} is held by a dibs that's still running, and stayed held for ${LOCK_WAIT / 1000}s. Nothing was changed: run the same command again.`), { exit: 75 });
+  return r.out;
 }
 
 function load() {

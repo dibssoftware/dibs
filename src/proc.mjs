@@ -43,7 +43,7 @@ function session() {
     if (!p) break;
     if (AGENTS.test(p.name)) {
       let name = null;
-      try { name = JSON.parse(fs.readFileSync(path.join(SESSIONS, `${pid}.json`), 'utf8')).name || null; } catch {}
+      try { name = sessionFile(path.join(SESSIONS, `${pid}.json`)).name || null; } catch {}
       cached = { pid, name, app: p.name.toLowerCase(), start: pstart(pid) };
       break;
     }
@@ -61,6 +61,31 @@ export function identity(o = {}) {
   return { who, agent, label, spid: se?.pid || null, sstart: se?.start || null };
 }
 
+// One session's record. Claude Code has left one with a stray } after the object (2026-11-10,
+// 43095.json), and a strict parse dropped that session from the board and its messages: the
+// object it starts with is the record.
+export function sessionFile(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  try { return JSON.parse(text); } catch (e) {
+    const end = objectEnd(text);
+    if (end < 0) throw e;
+    return JSON.parse(text.slice(0, end));
+  }
+}
+
+// Where the JSON object a text starts with ends, counting braces outside strings; -1 if it doesn't.
+function objectEnd(text) {
+  let depth = 0, str = false;
+  for (let i = text.indexOf('{'); i >= 0 && i < text.length; i++) {
+    const c = text[i];
+    if (str) { if (c === '\\') i++; else if (c === '"') str = false; continue; }
+    if (c === '"') str = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return i + 1;
+  }
+  return -1;
+}
+
 // Claude Code's own record of each session it runs: { pid, sessionId, name, status, updated }.
 // The person addresses an agent by the name; hooks know it by sessionId. status is Claude
 // Code's word for what it's doing ("busy", "idle", "shell"), or null from an older one.
@@ -70,7 +95,7 @@ export function sessionFiles() {
   const out = [];
   for (const n of names) {
     try {
-      const x = JSON.parse(fs.readFileSync(path.join(SESSIONS, n), 'utf8'));
+      const x = sessionFile(path.join(SESSIONS, n));
       if (x.pid && x.sessionId) out.push({ pid: x.pid, sessionId: x.sessionId, name: x.name || null, status: typeof x.status === 'string' ? x.status : null, updated: x.statusUpdatedAt || x.updatedAt || 0 });
     } catch {}
   }

@@ -375,6 +375,9 @@ const usedNow = l => (l.kind === 'run' && l.use?.mem != null ? l.use.mem : plann
 export const memOf = (l, t = now()) => {
   const planned = plannedOf(l);
   if (l.kind !== 'run' || l.use?.mem == null) return planned;
+  // Stopped, it keeps every byte it had (they go to swap, not back to the machine), and it isn't
+  // measured while paused: never the idle discount, always the most it was seen using.
+  if (l.pausedAt) return Math.max(planned, l.peak?.mem || 0);
   if (steady(l, t)) return l.idleSince && t - l.idleSince >= IDLE_BOOK ? l.use.mem : l.use.mem + BUSY_MARGIN;
   if (t - l.start - pausedFor(l, t) < BOOK_AFTER) return planned;
   const peak = Math.max(l.peak?.mem || 0, l.use.mem);
@@ -1068,8 +1071,9 @@ function decide(s, me, cfg, hist, t) {
   // Stopped last time for using far more than it booked (src/preempt.mjs diskRequeue):
   // it starts again only once what it's now booked at is really free and swap
   // has stopped growing, or it would land in the same crunch.
-  if (me.requeued === 'over' && ((realFree(m) ?? 0) < me.mem || swapGrowing(m)))
-    return { ok: false, rule: 'oversize', machine: true, why: `${gb(me.mem)} of memory to be really free and swap to hold still, since it used far more than it booked last time`
+  // Stopped under memory pressure that pausing couldn't ease (pressureRequeue): the same.
+  if ((me.requeued === 'over' || me.requeued === 'memory') && ((realFree(m) ?? 0) < me.mem || swapGrowing(m)))
+    return { ok: false, rule: 'oversize', machine: true, why: `${gb(me.mem)} of memory to be really free and swap to hold still, since ${me.requeued === 'over' ? 'it used far more than it booked last time' : 'memory pressure stopped it last time'}`
       + ` (now ${gb(realFree(m) ?? 0)} free${swapGrowing(m) ? ', swap growing' : ''})` };
   const pool = poolBlock(s, me, cfg, mine, m);
   if (pool) return { ok: false, ...pool };

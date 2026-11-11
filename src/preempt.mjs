@@ -376,13 +376,34 @@ export function diskRequeue(s, cfg, t = now(), hist = []) {
       && x.res.every(r => resCfg(cfg, r).rerun === true) && !nearlyDone(x, hist, t))
     .sort((a, b) => (measured(b) || b.mem || 0) - (measured(a) || a.mem || 0))[0];
   if (!l) return null;
-  l.requeue = { at: t, why: why(l) };
-  // Killed where it stands: SIGKILL ends a stopped process too. Its dibs run sees it end.
+  return stopToRequeue(l, why(l), t);
+}
+
+// Killed where it stands: SIGKILL ends a stopped process too. Its dibs run sees it end and
+// puts it back in line (src/commands.mjs requeue).
+function stopToRequeue(l, why, t) {
+  l.requeue = { at: t, why };
   if (ours(l)) {
     const groups = [...new Set([l.pgid, ...(l.stopped || []), ...(l.groups || [])].filter(Boolean))];
     queued.push(() => { for (const g of groups) stopTree(g, 'SIGKILL'); });
   }
   return { ...l };
+}
+
+// Memory pressure still critical with a job already paused for it: a stopped job keeps every
+// byte it had, and under pressure those go to swap, so pausing more only moves memory to the
+// disk. On 2026-11-10 at 23:48 swap reached 13.7 GB with jobs paused, and the Mac froze. One
+// paused job is stopped instead, the lowest priority first, then the most memory, and its dibs
+// run puts it back at the front of its line, to run again from the start once there's room.
+// Same limits as diskRequeue: jobs dibs can run again (rerun, requeuable), not nearly done, not
+// paused by a person or agent. Returns it, or null when none can go (then the watcher pauses one more).
+const LOWEST = { idle: 0, low: 1, normal: 2 };
+const memPaused = l => !!l.pauses?.some(p => p.watcher && !p.disk);
+export function pressureRequeue(s, cfg, t = now(), hist = []) {
+  const l = s.leases.filter(x => memPaused(x) && x.kind === 'run' && x.requeuable && !x.requeue && !x.pauses?.some(p => p.owner)
+      && x.res.every(r => resCfg(cfg, r).rerun === true) && !nearlyDone(x, hist, t))
+    .sort((a, b) => (LOWEST[a.prio || 'normal'] ?? 3) - (LOWEST[b.prio || 'normal'] ?? 3) || (measured(b) || b.mem || 0) - (measured(a) || a.mem || 0))[0];
+  return l ? stopToRequeue(l, 'memory', t) : null;
 }
 
 // Pause the next lease under memory pressure: a job running on top of a full

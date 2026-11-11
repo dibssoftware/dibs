@@ -263,7 +263,7 @@ export function broker() {
   const ctl = new net.Socket({ fd: fs.openSync(paths.ctl, O_RDWR | O_NONBLOCK), readable: true, writable: false });
   const code = fs.readFileSync(path.join(SRC, 'version.mjs'), 'utf8');
   const waits = new Map();   // queue id -> its wait (src/acquire.mjs waiter), with its FIFO as out
-  let cfg = loadConfig(), hist = history(), histAt = 0, beat = 0, idleSince = now(), pending = false, forced = false, pruned = 0, seen = '', full = 0;
+  let cfg = loadConfig(), hist = history(), histAt = 0, beat = 0, idleSince = now(), pending = false, forced = false, pruned = 0, seen = '', fullAt = 0;
 
   const exit = () => {
     for (const w of waits.values()) w.out.close();
@@ -298,7 +298,7 @@ export function broker() {
     // With nobody to wait for, the lock is taken only to keep the beat fresh.
     let quietNow = false, text = '';
     try { text = fs.readFileSync(paths.state, 'utf8'); quietNow = !waits.size && !thinWaiters(JSON.parse(text)).length; } catch {}
-    if (!quietNow && !kicked && text === seen && t - full < QUIET_POLL && [...waits.values()].every(w => running(w.me.pid))) return;
+    if (!quietNow && !kicked && text === seen && t - fullAt < QUIET_POLL && [...waits.values()].every(w => running(w.me.pid))) return;
     if (quietNow) {
       if (t - idleSince > IDLE_EXIT) return leave(false);
       if (t - beat > BEAT) withState(s => { if (s.broker?.pid === me.pid || !s.broker) s.broker = { ...me, beat: (beat = t) }; });
@@ -356,7 +356,7 @@ export function broker() {
       }
     }
     done();
-    idleSince = full = now();
+    idleSince = fullAt = now();
     try { seen = fs.readFileSync(paths.state, 'utf8'); } catch {}
   };
   const done = () => { for (const [id, w] of waits) if (w.out.done) waits.delete(id); };

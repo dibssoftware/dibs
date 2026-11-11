@@ -364,6 +364,8 @@ export function check(cmd, { rules = RULES, dibs = 'dibs' } = {}) {
 // Where in dibs it broke and on what kind of call, never the command itself
 // (it can hold secrets): enough to find the bug, as `dibs alerts` reports it.
 function logError(e, input) {
+  // A full disk is no bug in dibs: the call goes through, and the board already says the disk is full.
+  if (e?.code === 'ENOSPC' || e?.code === 'EDQUOT') return;
   const at = String(e?.stack || '').split('\n').find(l => l.includes('/src/'))?.match(/\/(src\/[\w.]+:\d+)/)?.[1];
   const on = input?.hook_event_name ? ` [${input.hook_event_name}${input.tool_name ? ` ${input.tool_name}` : ''}]` : '';
   try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${String(e?.message || e).split('\n')[0]}${at ? ` at ${at}` : ''}${on}\n`); } catch {}

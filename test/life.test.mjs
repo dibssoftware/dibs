@@ -110,7 +110,7 @@ test('--notify says started: false when the job never started', async t => {
 let failed = false;
 const w = fs.writeFileSync;
 fs.writeFileSync = function (f, ...a) {
-  if (!failed && String(f).endsWith('state.json.tmp') && String(a[0]).includes('"pgid"') && (failed = true)) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+  if (!failed && /state\\.json\\.\\d+\\.tmp$/.test(String(f)) && String(a[0]).includes('"pgid"') && (failed = true)) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
   return w.call(this, f, ...a);
 };`);
   const note = path.join(h, 'n.jsonl'), ran = path.join(h, 'ran');

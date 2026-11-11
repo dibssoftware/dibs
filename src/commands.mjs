@@ -248,6 +248,9 @@ function runAgain(o, lease, again) {
   say(again.why === 'over'
     ? `stopped #${lease.id}: it was using far more memory than it booked while swap filled the disk. It's back at the front of the line as #${again.id},`
       + ` booked at ${gb(again.mem)}, and runs again from the start once that much memory is really free. Nothing for you to do: this call carries on.`
+    : again.why === 'memory'
+    ? `stopped #${lease.id}: it was paused for memory pressure, which stayed critical, and a paused job's memory only goes to swap.`
+      + ` It's back at the front of the line as #${again.id} and runs again from the start when there's room. Nothing for you to do: this call carries on.`
     : `stopped #${lease.id}: it sat paused for low disk while its memory went to swap and filled the disk.`
       + ` It's back at the front of the line as #${again.id} and runs again from the start when there's room. Nothing for you to do: this call carries on.`);
   const args = process.argv.slice(2);

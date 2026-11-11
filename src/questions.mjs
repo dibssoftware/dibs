@@ -24,13 +24,13 @@ import { defaultMaxWait } from './acquire.mjs';
 import { event } from './events.mjs';
 import { takeAgent, talkKey } from './files.mjs';
 import { messageAsker } from './talk.mjs';
-import { clock, die, dur, ms, now, say, sleep, sleepSync, fakeFull, lockHeld, unlock } from './util.mjs';
+import { underLock, commit } from './lock.mjs';
+import { clock, die, dur, ms, now, say, sleep, fakeFull } from './util.mjs';
 import { bold, dim, amber, wrap } from './style.mjs';
 
 const FILE = path.join(HOME, 'questions.json');
 const LOCK = path.join(HOME, 'questions.lock');
-// Writes take milliseconds, so a lock this old belongs to a dibs that died holding it.
-const LOCK_STALE = 5000;
+// Writes take milliseconds: a live holder past this is stuck on something else, and the caller hears so.
 const LOCK_WAIT = 15e3;
 // A waiting asker looks for its answer this often. A person reads the answer
 // back slower than this, and each look is one small file read.
@@ -46,30 +46,16 @@ const OPEN = 'open';
 const DECIDED = 'decided';
 
 function locked(fn) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const t0 = now();
-  for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (!lockHeld(e)) throw e;
-      try { if (now() - fs.statSync(LOCK).mtimeMs > LOCK_STALE) fs.rmSync(LOCK, { recursive: true, force: true }); } catch {}
-      if (now() - t0 > LOCK_WAIT) die(`${LOCK} stayed locked for ${LOCK_WAIT / 1000}s; remove it if no dibs is running. Nothing was changed.`, 75);
-      sleepSync(5 + Math.random() * 10);
-    }
-  }
-  try {
+  const r = underLock(LOCK, h => {
     const s = load();
     const before = JSON.stringify(s);
     reap(s);
     const out = fn(s);
-    if (JSON.stringify(s) !== before) {
-      fakeFull('state');
-      fs.writeFileSync(`${FILE}.tmp`, JSON.stringify(s, null, 1));
-      fs.renameSync(`${FILE}.tmp`, FILE);
-    }
+    if (JSON.stringify(s) !== before) commit(h, FILE, JSON.stringify(s, null, 1), { fake: () => fakeFull('state') });
     return out;
-  } finally {
-    unlock(LOCK);
-  }
+  }, { wait: LOCK_WAIT, files: [FILE] });
+  if (!r) die(`${LOCK} is held by a dibs that's still running, and stayed held for ${LOCK_WAIT / 1000}s. Nothing was changed: run the same command again.`, 75);
+  return r.out;
 }
 
 // Writes are renames, so reading without the lock always sees a whole file.

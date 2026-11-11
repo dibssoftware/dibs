@@ -13,7 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOME } from './config.mjs';
 import { identity, makeAlive } from './proc.mjs';
-import { now, sleepSync, fakeFull, lockHeld, unlock } from './util.mjs';
+import { underLock, commit } from './lock.mjs';
+import { now, fakeFull } from './util.mjs';
 
 const FILE = path.join(HOME, 'agents.json');
 const LOCK = path.join(HOME, 'agents.lock');
@@ -30,8 +31,6 @@ const PENDING_FOR = 2 * 6e4;
 const QUIET_FOR = 60 * 6e4;
 // The hook gives up on the lock after this and lets the spawn through.
 const LOCK_WAIT = 1000;
-// A lock this old belongs to a hook that died holding it.
-const LOCK_STALE = 5000;
 
 // The Agent tool was called Task in older Claude Code.
 const SPAWN_TOOLS = new Set(['Agent', 'Task']);
@@ -40,31 +39,17 @@ const SPAWN_TOOLS = new Set(['Agent', 'Task']);
 export const agentSlots = cfg => (Number(cfg?.agents?.slots) > 0 ? Number(cfg.agents.slots) : null);
 
 function locked(fn) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const t0 = now();
-  for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (!lockHeld(e)) throw e;
-      try { if (now() - fs.statSync(LOCK).mtimeMs > LOCK_STALE) fs.rmSync(LOCK, { recursive: true, force: true }); } catch {}
-      if (now() - t0 > LOCK_WAIT) throw new Error(`${LOCK} stayed locked for ${LOCK_WAIT} ms`);
-      sleepSync(5 + Math.random() * 10);
-    }
-  }
-  try {
+  const r = underLock(LOCK, h => {
     let list = [];
     try { list = JSON.parse(fs.readFileSync(FILE, 'utf8')).agents || []; } catch (e) { if (e.code !== 'ENOENT' && !(e instanceof SyntaxError)) throw e; }
     const before = JSON.stringify(list);
     list = reap(list);
     const out = fn(list);
-    if (JSON.stringify(list) !== before) {
-      fakeFull('state');
-      fs.writeFileSync(`${FILE}.tmp`, JSON.stringify({ agents: list }, null, 1));
-      fs.renameSync(`${FILE}.tmp`, FILE);
-    }
+    if (JSON.stringify(list) !== before) commit(h, FILE, JSON.stringify({ agents: list }, null, 1), { fake: () => fakeFull('state') });
     return out;
-  } finally {
-    unlock(LOCK);
-  }
+  }, { wait: LOCK_WAIT, files: [FILE] });
+  if (!r) throw new Error(`${LOCK} stayed locked for ${LOCK_WAIT} ms`);
+  return r.out;
 }
 
 // Drop kept slots nobody took, subagents of a session that has exited, and

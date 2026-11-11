@@ -11,16 +11,16 @@ import path from 'node:path';
 import { HOME, machine, loadConfig } from './config.mjs';
 import { withState, history, peek } from './state.mjs';
 import { singleInstance } from './proc.mjs';
-import { processes, lower, memPressure, isDibs } from './platform.mjs';
+import { processes, lower, memPressure, isDibs, runtimes } from './platform.mjs';
 import { hogsOnce, hogHint } from './hogs.mjs';
-import { pressureStep, pressurePause, pressureResume, diskStep, diskPause, diskPausesPerPass, diskLine, diskCritical, adoptPauses, diskRequeue, measured, hardStop, hardResume, HARD_STOP, HARD_RESUME } from './preempt.mjs';
+import { pressureStep, pressurePause, pressureRequeue, pressureResume, diskStep, diskPause, diskPausesPerPass, diskLine, diskCritical, adoptPauses, diskRequeue, measured, hardStop, hardResume, HARD_STOP, HARD_RESUME } from './preempt.mjs';
 import { inversions, lift } from './override.mjs';
 import { swapGrowing } from './schedule.mjs';
 import { event } from './events.mjs';
 import { notify } from './talk.mjs';
 import { watchBroker } from './broker.mjs';
 import { progressScan } from './notices.mjs';
-import { scan as scanAlerts } from './alerts.mjs';
+import { scan as scanAlerts, CPU_FILE } from './alerts.mjs';
 import { say, sleep, now, noSpace, gb } from './util.mjs';
 
 const PIDFILE = path.join(HOME, 'cool.pid');
@@ -34,11 +34,46 @@ const SAMPLE_EVERY = 60e3;
 
 const toolName = args => path.basename(args.split(/\s+/)[0]).replace(/\.exe$/i, '');
 
+// Cores that stopped taking work. On 2026-11-10 this Mac's 4 performance cores did:
+// load went from 127 to 400 while top read a flat 40% idle, and only a restart
+// fixed it. Load that high counts work that's ready to run, so with that much of
+// the CPU idle the work isn't being run, and moving hot processes to background
+// priority (off the performance cores) only made it worse. Past STUCK_LOAD per
+// core with STUCK_IDLE or more of the CPU idle, the watcher lowers nothing, and
+// after STUCK_AFTER of it (src/alerts.mjs) the person is told to restart.
+const STUCK_LOAD = 5;
+const STUCK_IDLE = 0.25;
+export function coresStuck(m) {
+  if (!(m?.cores > 0) || m.busy == null || !(m.load >= STUCK_LOAD * m.cores)) return false;
+  return 1 - m.busy / m.cores >= STUCK_IDLE;
+}
+
+// Processes left behind: build and test tools outside dibs that have run for
+// ORPHAN_AGE and whose script is gone. On 2026-11-10 two node testfast.mjs from a
+// deleted scratchpad had run 23 hours at 17 CPU-hours each, kept hot and moved to
+// background priority over and over. They're named in an alert; nothing is killed.
+const ORPHAN_AGE = 3 * 36e5;
+const ORPHAN_EVERY = 6e4;   // a ps over the hot ones, once a minute
+const SCRIPT = /\.(c|m)?[jt]sx?$|\.py$|\.rb$/;
+// The script a tool runs, when its command line names one by its full path.
+export function scriptOf(args) {
+  return args.split(/\s+/).slice(1).find(a => a.startsWith('/') && SCRIPT.test(a)) || null;
+}
+export function orphans(procs, leased, ages, gone = f => !fs.existsSync(f)) {
+  const out = [];
+  for (const p of procs) {
+    if (leased.has(p.pgid) || !TOOLS.test(toolName(p.args)) || isDibs(p)) continue;
+    const script = scriptOf(p.args), r = ages.get(p.pid);
+    if (script && r && r.age >= ORPHAN_AGE && gone(script)) out.push({ pid: p.pid, name: toolName(p.args), script, age: r.age, cpu: r.cpu });
+  }
+  return out;
+}
+
 // One pass. A process must be hot on two passes in a row, so short bursts are
 // left alone. Returns the processes it moved.
-function throttleOnce(cfg, seen = new Map()) {
-  const load = machine().load;
-  const leased = new Set(withState(s => s.leases.flatMap(l => [l.pgid, ...(l.groups || [])]).filter(Boolean)));
+function throttleOnce(cfg, seen = new Map(), leased = leasedGroups()) {
+  const m = machine(), load = m.load;
+  const stuck = coresStuck(m);
   const moved = [];
   const next = new Map();
   for (const p of processes()) {
@@ -46,7 +81,7 @@ function throttleOnce(cfg, seen = new Map()) {
     if (p.cpu < HOT || p.pid === process.pid || leased.has(p.pgid) || !TOOLS.test(toolName(p.args)) || isDibs(p)) continue;
     const prev = seen.get(p.pid);
     if (prev === 'done') { next.set(p.pid, 'done'); continue; }
-    if (prev && load > cfg.coolLoad && lower(p.pid)) {
+    if (prev && load > cfg.coolLoad && !stuck && lower(p.pid)) {
       moved.push({ ...p, name: toolName(p.args) });
       next.set(p.pid, 'done');
       fs.appendFileSync(LOG, `${new Date().toISOString()} load ${load.toFixed(1)}: background ${toolName(p.args)} ${p.pid} (${p.cpu}% cpu)\n`);
@@ -57,12 +92,33 @@ function throttleOnce(cfg, seen = new Map()) {
   return moved;
 }
 
+const leasedGroups = () => new Set(withState(s => s.leases.flatMap(l => [l.pgid, ...(l.groups || [])]).filter(Boolean)));
+
+// What the watcher saw that only a person can fix, for src/alerts.mjs: since when
+// the cores have looked stuck, and the orphans. Every pass, with when, so a
+// watcher that stopped leaves no alert standing.
+function noteCpu(note) {
+  try { fs.writeFileSync(`${CPU_FILE}.${process.pid}`, JSON.stringify({ at: now(), ...note })); fs.renameSync(`${CPU_FILE}.${process.pid}`, CPU_FILE); } catch {}
+}
+
 // One memory pressure reading. Under sustained critical pressure, pause the
 // next idle or low lease; once it's been normal for a while, resume one.
 // Returns { act, leases } when it did something.
 export function pressureOnce(cfg, track, read = memPressure) {
   const act = pressureStep(track, read());
   if (!act) return null;
+  if (act === 'pause') {
+    const l = withState(s => pressureRequeue(s, cfg, now(), history()));
+    if (l) {
+      const used = measured(l) || l.mem;
+      fs.appendFileSync(LOG, `${new Date().toISOString()} memory pressure still critical with jobs paused: stopped ${l.who} ${l.res.join(',')} (${l.prio || 'normal'}), using ${gb(used)}, to run again at the front of its line: ${l.cmd.slice(0, 60)}\n`);
+      event({ kind: 'requeue', id: l.id, res: l.res, who: l.who, agent: l.agent, prio: l.prio || 'normal', why: 'memory', mem: used, booked: l.mem });
+      notify(l, `requeue:#${l.id}`, `your job #${l.id} (${l.purpose ? `"${l.purpose}", ` : ''}${l.cmd.slice(0, 60)}) was paused for memory pressure, and pausing frees no memory`
+        + ` (a stopped job's memory goes to swap), so with the pressure still critical dibs stopped it. Its dibs run put it back at the front of its line and runs it again`
+        + ` from the start once there's room. Don't run it again yourself, and don't end it: the same tool call carries on.`);
+      return { act: 'requeue', leases: [l] };
+    }
+  }
   const ls = withState(s => (act === 'pause' ? [pressurePause(s, cfg, now(), history())].filter(Boolean) : pressureResume(s)));
   for (const l of ls)
     fs.appendFileSync(LOG, `${new Date().toISOString()} memory pressure ${act === 'pause' ? 'critical: paused' : 'eased: resumed'} ${l.who} ${l.res.join(',')} (${l.prio || 'normal'}${l.alongside ? ', on top' : ''}): ${l.cmd.slice(0, 60)}\n`);
@@ -145,7 +201,7 @@ export async function throttle(o, cfg) {
   say(`throttling: when load is over ${cfg.coolLoad}, build and test processes outside dibs go to background priority.`
     + ` Under heavy memory pressure, idle and low dibs jobs pause until it eases; when swap fills the disk, jobs below high pause until there's room. Log: ${LOG}`);
   const seen = new Map(), track = { high: 0, low: 0, diskOk: 0, diskStill: 0 };
-  let sampled = 0, nudged = 0;
+  let sampled = 0, nudged = 0, stuckSince = null, found = [], looked = 0;
   // Disk pauses stay while the disk is still critical: the next watcher adopts them (src/preempt.mjs settle).
   const stop = () => {
     try { withState(s => pressureResume(s, diskCritical(machine(), cfg) ? 'memory' : true)); } catch {}
@@ -166,7 +222,21 @@ export async function throttle(o, cfg) {
     // First, without the lock: a broker stuck while holding it would hold up this pass too.
     const fixed = watchBroker();
     if (fixed) fs.appendFileSync(LOG, `${new Date().toISOString()} ${fixed}\n`);
-    try { throttleOnce(cfg, seen); pressureOnce(cfg, track); diskOnce(cfg, track); } catch (e) { if (!noSpace(e)) throw e; }
+    try {
+      const leased = leasedGroups();
+      throttleOnce(cfg, seen, leased);
+      const m = machine(), stuck = coresStuck(m);
+      if (stuck !== (stuckSince != null)) fs.appendFileSync(LOG, `${new Date().toISOString()} load ${m.load.toFixed(0)} with ${Math.round(100 * (1 - m.busy / m.cores))}% of the CPU idle: `
+        + `${stuck ? 'cores look stuck, lowering nothing until it passes' : 'the cores are taking work again'}\n`);
+      stuckSince = stuck ? stuckSince ?? now() : null;
+      if (now() - looked >= ORPHAN_EVERY) {
+        looked = now();
+        const hot = processes().filter(p => p.cpu >= HOT && p.pid !== process.pid);
+        found = orphans(hot, leased, runtimes(hot.map(p => p.pid)));
+      }
+      noteCpu({ stuckSince, ...(stuck && { load: Math.round(m.load), idle: Math.round(100 * (1 - m.busy / m.cores)), cores: m.cores, swapping: m.vmPressure >= 1 || swapGrowing(m) }), orphans: found });
+      pressureOnce(cfg, track); diskOnce(cfg, track);
+    } catch (e) { if (!noSpace(e)) throw e; }
     // A lift whose waiter went away without leaving (kill -9) drops back here (src/override.mjs inversions).
     try { lift(withState(s => inversions(s, cfg))); } catch (e) { if (!noSpace(e)) throw e; }
     // Not awaited: measuring a full temp folder can take a minute, and this loop keeps the machine's pace meanwhile.
