@@ -67,15 +67,19 @@ test('A: exit 74 only for a run bigger than the whole disk, or at the wait limit
 });
 
 // 2026-11-10: `dibs run deploy --mem 7G --disk 1G -- scripts/deploy.sh` exited 74 twice at 2.6 GB free, and
-// its agent read --disk 1G as lowering the 5 GB floor. The wait and the exit say what the floor is and why --disk didn't move it.
-test('a job held at the disk floor is told the floor and that its --disk does not lower it, waiting and at exit 74', async t => {
+// its agent read --disk 1G as lowering the 5 GB floor. Now 1 GB or less on a deploy does start under it,
+// and a bigger --disk is told the floor and why its --disk didn't move it, waiting and at exit 74.
+test('a deploy that says --disk 1G starts at 2.6 GB free; one held at the floor is told the floor and that its --disk does not lower it', async t => {
   const h = tmp(t), d = disk(t, 2.6 * G);
-  const r = sync(h, ['run', 'deploy', '--disk', '1G', '--max-wait', '2s', '-m', 'deploy', '--', 'echo', 'ran'], { env: d.env });
+  const ran = sync(h, ['run', 'deploy', '--mem', '7G', '--disk', '1G', '--max-wait', '2s', '-m', 'deploy', '--', 'echo', 'ran'], { env: d.env });
+  assert.equal(ran.code, 0, ran.err);
+  assert.equal(ran.out, 'ran\n');
+  const r = sync(h, ['run', 'deploy', '--disk', '2G', '--max-wait', '2s', '-m', 'deploy', '--', 'echo', 'ran'], { env: d.env });
   assert.equal(r.code, 74, r.err);
   assert.equal(r.out, '');
   const said = flat(r.err);
-  assert.match(said, /Waiting for more free disk \(2\.6 GB free, it needs 5\.0 GB: the 5\.0 GB dibs keeps free; --disk 1\.0 GB doesn't lower that: only a --disk under 1 GB starts a job below it, or two runs of the same command that each wrote under 100 MB\)/);
-  assert.match(said, /not enough free disk: 2\.6 GB free, it needs 5\.0 GB: the 5\.0 GB dibs keeps free; --disk 1\.0 GB doesn't lower that.*\. Your command did NOT run \(exit 74\)\. Free some space, then run it again/);
+  assert.match(said, /Waiting for more free disk \(2\.6 GB free, it needs 5\.0 GB: the 5\.0 GB dibs keeps free; --disk 2\.0 GB doesn't lower that: only a --disk of 1 GB or less starts a job below it, or two runs of the same command that each wrote under 100 MB\)/);
+  assert.match(said, /not enough free disk: 2\.6 GB free, it needs 5\.0 GB: the 5\.0 GB dibs keeps free; --disk 2\.0 GB doesn't lower that.*\. Your command did NOT run \(exit 74\)\. Free some space, then run it again/);
   assert.doesNotMatch(said, /pass --disk with what this job really needs/, 'no advice to pass the --disk it already passed');
   // A build declares disk, so only a --disk under 100 MB would lower its floor; a job a person waits on has a 3 GB one.
   const build = waiter({ res: ['heavy'], disk: 1 * G, diskDeclared: true, key: 'heavy|make' });
@@ -146,11 +150,11 @@ test('E: a command whose runs ate under 100 MB starts under minDisk, on any reso
   const masked = ate('heavy|new', 5, 5).map(h => ({ ...h, cleaned: true }));
   assert.equal(tinyDisk({ res: ['heavy'], key: 'heavy|new' }, masked, cfg()), false, 'runs under a cache clear');
   // relayreview, 2026-11-05: a first npm ci or bundling deploy writes gigabytes. With no runs, no resource is small by its kind;
-  // only a --disk says so: under 100 MB anywhere, under 1 GB on one that declares no disk need.
+  // only a --disk says so: under 100 MB anywhere, 1 GB or less on one that declares no disk need.
   const by = r => tinyDisk({ res: [r], key: `${r}|first` }, [], cfg());
   assert.deepEqual(['deploy', 'test', 'migrations', 'xcode-build', 'sim', 'heavy'].map(by), [false, false, false, false, false, false]);
   const said = (r, d) => tinyDisk({ res: [r], key: `${r}|first`, disk: d, diskDeclared: true }, [], cfg());
-  assert.deepEqual([said('heavy', 50 * M), said('heavy', 200 * M), said('test', 200 * M), said('deploy', 900 * M), said('deploy', 2 * G)], [true, false, true, true, false]);
+  assert.deepEqual([said('heavy', 50 * M), said('heavy', 200 * M), said('test', 200 * M), said('deploy', 900 * M), said('deploy', 1 * G), said('deploy', 2 * G)], [true, false, true, true, true, false]);
   const deploy = waiter({ res: ['deploy'], mem: 0.5 * G, key: 'deploy|upload.sh' });
   assert.equal(judge({ leases: [lease()], queue: [deploy] }, deploy, cfg(), { diskFree: 4.4 * G }).rule, 'disk', 'a first deploy keeps the floor');
   assert.equal(judge({ leases: [lease()], queue: [deploy] }, deploy, cfg(), { diskFree: 4.4 * G }, ate('deploy|upload.sh', 90, 80)).ok, true, '2e\'s upload, 100 MB a run, 4.4 GB free');

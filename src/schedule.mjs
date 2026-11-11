@@ -883,11 +883,11 @@ export function tinyDisk(me, hist, cfg) {
   const good = runs.filter(h => !h.failed).map(h => h.ate);
   if (good.length >= TINY_RUNS) return (good.length < DISK_RUNS ? Math.max(...good) : mid(good)) < TINY_DISK;
   // Too few runs to go by: only its own word makes it small. A first npm ci or a bundling deploy
-  // writes gigabytes, so a resource's kind alone never does. Under CLAIM_MAX on a resource that
+  // writes gigabytes, so a resource's kind alone never does. Up to CLAIM_MAX on a resource that
   // declares no disk (tests, deploys, locks), or under TINY_DISK anywhere.
   if (!me.diskDeclared) return false;
   const claim = me.disk || 0;
-  return claim < TINY_DISK || (claim < CLAIM_MAX && me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk));
+  return claim < TINY_DISK || (claim <= CLAIM_MAX && me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk));
 }
 // Why a job held at the floor is held there, and, when its --disk is smaller, why that didn't
 // lower it: agents read --disk 1G as the floor's size, and a deploy hit exit 74 twice at 2.6 GB
@@ -898,13 +898,14 @@ export function floorWhy(me, cfg) {
   const base = `the ${GBs(floor)} dibs keeps free${waitedOn(me) && floor < bytes(cfg.minDisk) ? ' for a job a person waits on' : ''}`;
   if (!me.diskDeclared || (me.disk || 0) >= floor) return base;
   const little = me.res.every(r => isFiles(r) || !resCfg(cfg, r).disk);
-  return `${base}; --disk ${GBs(me.disk || 0)} doesn't lower that: only a --disk under ${little ? '1 GB' : '100 MB'}`
+  return `${base}; --disk ${GBs(me.disk || 0)} doesn't lower that: only a --disk ${little ? 'of 1 GB or less' : 'under 100 MB'}`
     + ` starts a job below it, or two runs of the same command that each wrote under 100 MB`;
 }
 // Runs it takes to be small by history alone: one could be a run that happened to write little.
 const TINY_RUNS = 2;
-// The most a --disk alone can claim on a resource that declares no disk: on 2026-11-03 a test
-// suite that writes nothing said --disk 200M and was refused at 4.4 GB free.
+// The most a --disk alone can claim on a resource that declares no disk, itself included: agents
+// write --disk 1G, and a deploy that said so waited out 2.6 GB free twice on 2026-11-10. On
+// 2026-11-03 a test suite that writes nothing said --disk 200M and was refused at 4.4 GB free.
 const CLAIM_MAX = 1024 ** 3;
 
 // The verdict, and for a job held by something else (its turn, memory, cores) a
