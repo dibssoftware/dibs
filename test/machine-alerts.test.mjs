@@ -88,9 +88,11 @@ test('a listen that fails every 30 s is logged once, again when the failure chan
   assert.equal(lines.length, 3);
 });
 
-test('the board scans for alerts only when nobody has for a minute: the throttle watcher keeps them fresh, and a scan reads launchd and top', t => {
+test('with the throttle watcher running, the board scans for alerts only when nobody has for a minute; without it, every 15 s', t => {
   const h = tmp(t);
   const file = path.join(h, 'alerts.json');
+  // This test process stands in for a live watcher.
+  fs.writeFileSync(path.join(h, 'cool.pid'), String(process.pid));
   const at = () => JSON.parse(fs.readFileSync(file, 'utf8')).at;
   const recent = Date.now() - 20e3;
   fs.writeFileSync(file, JSON.stringify({ at: recent }));
@@ -100,6 +102,10 @@ test('the board scans for alerts only when nobody has for a minute: the throttle
   fs.writeFileSync(file, JSON.stringify({ at: old }));
   assert.equal(sync(h, []).code, 0);
   assert.ok(at() > old, 'a minute without a scan: the board scans');
+  fs.rmSync(path.join(h, 'cool.pid'));
+  fs.writeFileSync(file, JSON.stringify({ at: recent }));
+  assert.equal(sync(h, []).code, 0);
+  assert.ok(at() > recent, 'no watcher: 20 s is long enough');
 });
 
 test('the guard service logs to its own file, not the hook\'s error log the alerts read', { skip: process.platform !== 'darwin' }, t => {

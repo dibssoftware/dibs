@@ -21,7 +21,8 @@
 // scan needs between runs: how far into the event log and the hook's log it
 // has read, recent waits per resource, and the services' start counts. The
 // throttle watcher scans every SCAN_EVERY, so alerts keep up even when nobody
-// looks; whatever shows the board scans too once nobody has for READER_EVERY.
+// looks; whatever shows the board scans too, every SCAN_EVERY without a
+// watcher and every READER_EVERY with one.
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOME, paths, machine } from './config.mjs';
@@ -53,10 +54,13 @@ const STUCK_AFTER = 5 * MIN;
 // Reads are cheap but not free (a verdict per waiter, the tail of two logs);
 // the app polls every 2 s, so a scan stands for this long.
 const SCAN_EVERY = 15e3;
-// The throttle watcher scans every SCAN_EVERY; a board, the page or the app scan only when
-// nobody has for this long (the watcher is down). A scan reads launchd once per service and
-// top for memory: on 2026-11-11 that made every fifteenth-second board 2 s instead of 0.8.
+// While the throttle watcher runs it scans every SCAN_EVERY, and a board, the page or the app
+// scan only when nobody has for this long. A scan reads launchd once per service and top for
+// memory: on 2026-11-11 that made every fifteenth-second board 2 s instead of 0.8. With no
+// watcher, they scan every SCAN_EVERY as before.
 const READER_EVERY = 60e3;
+// A liveness hint only (kill 0, no ps): a reused pid costs alerts up to a minute's lag.
+const watching = () => { try { process.kill(Number(fs.readFileSync(path.join(HOME, 'cool.pid'), 'utf8')), 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 // A wait is long past this, or past WAIT_TIMES its usual wait, whichever is later.
 const WAIT_FLOOR = 10 * MIN;
 const WAIT_TIMES = 3;
@@ -445,7 +449,7 @@ export function merge(st, found, t) {
 export function scan({ s, cfg, hist, m = machine(), t = now(), force = false, watcher = false } = {}) {
   try {
     const was = load();
-    if (!force && was.at && t - was.at < (watcher ? SCAN_EVERY : READER_EVERY)) return shown(was, t);
+    if (!force && was.at && t - was.at < (watcher || !watching() ? SCAN_EVERY : READER_EVERY)) return shown(was, t);
     const st = locked(() => {
       const st = load();
       // Alerts made by older rules aren't resolved, only no longer said that way: start the open list over.
