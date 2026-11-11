@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { resCfg, machine, paths, HOME, loadConfig } from './config.mjs';
 import { identity, pstart, tag } from './proc.mjs';
 import { processes, parent, OS } from './platform.mjs';
-import { withState, history, KEEP_PLACE } from './state.mjs';
+import { withState, peek, history, KEEP_PLACE } from './state.mjs';
 import { preempt } from './preempt.mjs';
 import { isFiles, short, shellRes, projectKey } from './files.mjs';
 import { jobSize } from './simpool.mjs';
@@ -91,6 +91,12 @@ const again = () => `dibs ${quoted(process.argv.slice(2))}`;
 // Every process group the run spans counts: a test runner's workers split off
 // into groups of their own, and a run whose own group sleeps while they work isn't idle.
 // A simulator the run is using counts too (src/measure.mjs treeOf): its work runs there.
+// The process table markIdle reads, read before taking the lock when a run may need it:
+// at load 30, ps -A took 0.6 to 4 s, and under the lock every other dibs waited that long too.
+export function tableFirst() {
+  if (peek().leases.some(l => l.kind === 'run' && l.pgid && !l.pausedAt)) processes();
+}
+
 export function markIdle(s, procs) {
   const runs = s.leases.filter(l => l.kind === 'run' && l.pgid && !l.pausedAt);   // a paused job is quiet on purpose
   if (!runs.length) return;

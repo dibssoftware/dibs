@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { HOME, machine, resCfg } from './config.mjs';
 import { withState, history } from './state.mjs';
 import { used } from './schedule.mjs';
-import { markIdle } from './acquire.mjs';
+import { markIdle, tableFirst } from './acquire.mjs';
 import { boardOf } from './board.mjs';
 import { singleInstance } from './proc.mjs';
 import { OS, stopTree } from './platform.mjs';
@@ -39,6 +39,7 @@ const EPHEMERAL_LOST_BUSY = 10 * 6e4;
 function report(cfg, name, running, inUse = new Set()) {
   const m = machine();
   const hist = history();
+  tableFirst();
   const { busy, board } = withState(s => {
     markIdle(s);
     const out = {};
