@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { resCfg, machine, paths, HOME, loadConfig } from './config.mjs';
 import { identity, pstart, tag } from './proc.mjs';
 import { processes, parent, OS } from './platform.mjs';
-import { withState, peek, history, KEEP_PLACE } from './state.mjs';
+import { withState, peek, history, setLockDeadline, KEEP_PLACE } from './state.mjs';
 import { preempt } from './preempt.mjs';
 import { isFiles, short, shellRes, projectKey } from './files.mjs';
 import { jobSize } from './simpool.mjs';
@@ -664,6 +664,7 @@ export async function acquire(o, kind, cfg) {
   if (machine().diskFree == null) say("couldn't read free disk space, so the disk check is off for this request.");
 
   const started = now();
+  if (maxWait !== Infinity) setLockDeadline(started + maxWait);
   const w = waiter({ started, maxWait, waitSet: o.maxWait != null, for: o.for, est: o.est, agentId: o.agentId, sessionId: process.env.CLAUDE_CODE_SESSION_ID,
                      cwd: process.cwd(), ppid: callerPid(), sstart: id.sstart, size: { mem, cpu, asked, askedCpu, usual }, again: again(), path: o.thin?.fifo,
                      notify: o.notify ? path.resolve(o.notify) : undefined, follow: process.env.DIBS_REMOTE_JOB ? { pid: callerPid(), pstart: pstart(callerPid()) } : undefined }, cfg, hist, stderrOut);
@@ -749,6 +750,7 @@ export async function acquire(o, kind, cfg) {
       const to = await loadShipTarget(me, cfg, w.info.cwd, { temp: MEMORY_HELD.has(x.ship) });
       if (to) return shipTo(w, to, bail, x.ship);
     } else if (x) {
+      setLockDeadline(null);   // it runs now: its changes to the state wait as long as they must
       for (const sig of SIGNALS) process.removeListener(sig, bail);
       if (o.thin) o.thin.go(x.lease);
       return x.lease;

@@ -533,7 +533,8 @@ async function readOne(argv) {
 const CRASHED = 70;
 const crash = e => die(`dibs itself crashed (a bug in dibs, not in your command; exit ${CRASHED}). Report it: dibs ask "..."\n${e?.stack || String(e)}`, CRASHED);
 // A full disk is no bug: say what to do, with the exit code agents know (74), not a stack.
-const fail = e => (noSpace(e) ? die(fullDisk(e), 74) : crash(e));
+// A lock dibs can't take over (src/lock.mjs LockBroken) is no bug either: the message names what to remove.
+const fail = e => (noSpace(e) ? die(fullDisk(e), 74) : e?.code === 'ELOCKBROKEN' ? die(e.message, 75) : crash(e));
 process.on('uncaughtException', fail);
 
 // A job lost on its way to or on another machine (76, 77) and dibs's own crash

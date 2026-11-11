@@ -15,6 +15,7 @@ import { HOME, paths, loadConfig, machine } from './config.mjs';
 import { pstart, makeAlive } from './proc.mjs';
 import { processes } from './platform.mjs';
 import { withState, history, kick, quiet, KEEP_PLACE } from './state.mjs';
+import { sweepLock } from './lock.mjs';
 import { decide, step, waiter, full, markIdle, saidText, abandon, POLL } from './acquire.mjs';
 import { byRank } from './schedule.mjs';
 import { inversions, lift } from './override.mjs';
@@ -368,8 +369,12 @@ export function broker() {
   tick();
 }
 
-// FIFOs of shells that are gone. Only in ~/.dibs/w, the folder dibs made for them.
+// FIFOs of shells that are gone. Only in ~/.dibs/w, the folder dibs made for them. And what writers
+// killed mid-change left beside the state and message locks (src/lock.mjs sweepLock): a claim
+// sweeps too, but only after a death it sees, and the broker is always around while anyone waits.
 function prune() {
+  sweepLock(paths.lock, [paths.state]);
+  sweepLock(path.join(HOME, 'messages.lock'), [path.join(HOME, 'messages.json'), path.join(HOME, 'inbox.json'), path.join(HOME, 'listeners.json')]);
   let names = [];
   try { names = fs.readdirSync(WAKE); } catch { return; }
   for (const n of names) {

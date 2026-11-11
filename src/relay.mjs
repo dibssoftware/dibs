@@ -28,8 +28,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { HOME } from './config.mjs';
-import { die, now, log, sleep, dur, lockHeld, unlock } from './util.mjs';
+import { die, now, log, sleep, dur } from './util.mjs';
 import { makeAlive, singleInstance } from './proc.mjs';
+import { underLock, commit } from './lock.mjs';
 import { qr, render } from './qr.mjs';
 import { logChange } from './owner.mjs';
 import { remoteAccess, LOCAL_ONLY_TEXT, lookOnlyText, remoteMcp, MCP_ORIGIN, mcpCodes } from './web.mjs';
@@ -39,6 +40,8 @@ export const RELAY = process.env.DIBS_RELAY_URL || 'wss://app.dibs.cc';
 const KEYS = path.join(HOME, 'relay-keys.json');
 const FILE = path.join(HOME, 'relay.json');
 const LOCK = path.join(HOME, 'relay.lock');
+// Writes take milliseconds: a holder still at it past this is stuck on something else.
+const LOCK_WAIT = 5000;
 export const STATUS = path.join(HOME, 'relay-status.json');
 const PIDFILE = path.join(HOME, 'relay.pid');
 
@@ -156,31 +159,15 @@ export function load() {
 
 // `dibs pair` and the connector both write relay.json; this keeps one from undoing the other.
 function locked(fn) {
-  fs.mkdirSync(HOME, { recursive: true });
-  const t0 = now();
-  for (;;) {
-    try { fs.mkdirSync(LOCK); break; } catch (e) {
-      if (!lockHeld(e)) throw e;
-      try {
-        if (now() - fs.statSync(LOCK).mtimeMs > 5000) {
-          const aside = `${LOCK}.stale.${process.pid}`;
-          fs.renameSync(LOCK, aside);
-          fs.rmSync(aside, { recursive: true, force: true });
-        }
-      } catch {}
-      if (now() - t0 > 5000) throw new Error(`${LOCK} stayed locked; remove it if no dibs is running`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    }
-  }
-  try {
+  const r = underLock(LOCK, h => {
     const w = load();
     const out = fn(w);
     w.pairs = w.pairs.filter(p => p.exp > now());
-    const tmp = `${FILE}.${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(w), { mode: 0o600 });
-    fs.renameSync(tmp, FILE);
+    commit(h, FILE, JSON.stringify(w), { mode: 0o600 });
     return out;
-  } finally { unlock(LOCK); }
+  }, { wait: LOCK_WAIT, files: [FILE] });
+  if (!r) throw new Error(`${LOCK} is held by a dibs that's still running; try again in a moment`);
+  return r.out;
 }
 
 // A one-time pairing link. The secret is shown once and only its derived pieces are kept.

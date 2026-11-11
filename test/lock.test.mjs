@@ -173,3 +173,89 @@ test('a long-running dibs that gives up (exit 75) records where, with its comman
   assert.match(e.why, /messages\.lock/);
   assert.match(e.where, /^src\/talk\.mjs:\d+/);
 });
+
+// dibs with fs patched by a preload, to make a race happen on cue.
+function patched(t, home, patch, args) {
+  const pre = path.join(home, 'patch.mjs');
+  fs.writeFileSync(pre, `import fs from 'node:fs';\nimport { spawn } from 'node:child_process';\nconst LOCK = ${JSON.stringify(path.join(home, 'lock'))};\n${patch}\n`);
+  const p = spawn(process.execPath, ['--import', pre, BIN, ...args], { env: env(home, { agent: 'a' }), stdio: ['ignore', 'pipe', 'pipe'] });
+  p.out = ''; p.err = '';
+  p.stdout.on('data', d => (p.out += d));
+  p.stderr.on('data', d => (p.err += d));
+  return track(t, p);
+}
+
+test("an older dibs's lock taken over by an older waiter just before this one claims it: the live waiter keeps it", { timeout: 60e3 }, async t => {
+  const home = tmp(t);
+  // An older dibs's lock whose writer died.
+  const lock = path.join(home, 'lock');
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'pid'), '999999');
+  const log = path.join(home, 'took.json');
+  // Just before this dibs claims it, an older waiter takes it over its own way (a new folder) and
+  // writes its own pid: a process alive for 4 s.
+  const p = patched(t, home, `
+const rename = fs.renameSync;
+let done = false;
+fs.renameSync = (a, b) => {
+  if (!done && a === LOCK + '/pid' && String(b).startsWith(LOCK + '/owner.')) {
+    done = true;
+    fs.rmSync(LOCK, { recursive: true, force: true });
+    fs.mkdirSync(LOCK);
+    const old = spawn('sleep', ['4'], { stdio: 'ignore' });
+    old.unref();
+    fs.writeFileSync(LOCK + '/pid', String(old.pid));
+    fs.writeFileSync(${JSON.stringify(log)}, String(Date.now()));
+  }
+  return rename(a, b);
+};`, ['t', '--', 'echo', 'ran']);
+  assert.equal(await p.done, 0, p.err);
+  assert.equal(p.out, 'ran\n');
+  const waited = Date.now() - Number(fs.readFileSync(log, 'utf8'));
+  assert.ok(waited >= 3500, `it went ahead ${waited} ms after the older waiter took the lock, while that waiter lived`);
+});
+
+test("an older dibs's lock in the moment between its mkdir and its pid: never replaced under its writer", { timeout: 60e3 }, async t => {
+  const home = tmp(t);
+  const lock = path.join(home, 'lock');
+  fs.mkdirSync(lock);   // made a moment ago, its pid not written yet
+  const w = bg(t, home, ['t', '--', 'echo', 'ran'], { agent: 'b' });
+  await new Promise(r => setTimeout(r, 1500));   // under the 3 s an older writer gets to write its pid
+  assert.equal(w.exitCode, null, `it went ahead: ${w.out}${w.err}`);
+  assert.deepEqual(fs.readdirSync(lock), [], 'the older writer\'s folder is still its own');
+  // Its writer writes its pid, and holds the lock 3 s more.
+  const old = track(t, spawn('sleep', ['3'], { stdio: 'ignore' }));
+  fs.writeFileSync(path.join(lock, 'pid'), String(old.pid));
+  const t0 = Date.now();
+  assert.equal(await w.done, 0, w.err);
+  assert.ok(Date.now() - t0 >= 2500, `it went ahead of the live older writer after ${Date.now() - t0} ms`);
+});
+
+test('a live owner whose recorded start is later than ps says it started is the same process, not a reused pid', { timeout: 60e3 }, async t => {
+  const home = tmp(t);
+  // Node's own start, which the owner name records, comes seconds after the exec ps reports when
+  // the machine is short on memory: here, 20 s after.
+  const live = track(t, spawn('sleep', ['5'], { stdio: 'ignore' }));
+  const lock = path.join(home, 'lock');
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'pid'), String(live.pid));
+  fs.writeFileSync(path.join(lock, `owner.${live.pid}.${Date.now() + 20e3}.test`), '');
+  const t0 = Date.now();
+  const w = bg(t, home, ['t', '--', 'echo', 'ran'], { agent: 'b' });
+  assert.equal(await w.done, 0, w.err);
+  assert.ok(Date.now() - t0 >= 4000, `it took the lock from a live owner after ${Date.now() - t0} ms`);
+});
+
+test('a plain file where the lock goes: dibs gives up with 75 naming it, instead of spinning', { timeout: 60e3 }, t => {
+  const home = tmp(t);
+  const lock = path.join(home, 'lock');
+  fs.writeFileSync(lock, '');
+  const old = new Date(Date.now() - 10e3);
+  fs.utimesSync(lock, old, old);
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, [BIN, 't', '--', 'echo', 'ran'], { env: env(home, { agent: 'a' }), encoding: 'utf8', timeout: 50e3 });
+  assert.equal(r.status, 75, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.match(r.stderr.replace(/\n +/g, ' '), new RegExp(`${lock.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} is in the way.*rm -rf`));
+  assert.ok(Date.now() - t0 < 30e3, `took ${Date.now() - t0} ms`);
+});
