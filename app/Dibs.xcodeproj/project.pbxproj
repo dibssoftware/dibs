@@ -23,8 +23,8 @@
 		1F7500926952584CEDEF5932 /* History.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80E1D10799F42F14DB5641A /* History.swift */; };
 		208D9FC0AD42F4996CD8FF9B /* AgentNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3813FF9B67DF16C92B89D40F /* AgentNames.swift */; };
 		20B544FCA22FEF22A8B7354F /* AccountsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1858EC33FE934C3F49A4A012 /* AccountsTests.swift */; };
-		2286140FF27F27135FC4C447 /* logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 6A65913562A6321F311A98E6 /* logo.png */; };
 		25AEEAEFCA3DC028D1F87D18 /* Stats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20BC27F9063C0220C87A72F /* Stats.swift */; };
+		2797D3E98EBC107820254321 /* SchibstedGrotesk.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = DDA16C8C7A5BC360E4728220 /* SchibstedGrotesk.woff2 */; };
 		2933C15D3903F352015B3370 /* LineHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F499A32C6303F4F011B444 /* LineHelp.swift */; };
 		296F9AA5E816C204C28917A6 /* threads-080-cli.json in Resources */ = {isa = PBXBuildFile; fileRef = AFCABDBFDF01BE99A3D869E5 /* threads-080-cli.json */; };
 		2BA09FE1EAEFC60BB10FFE7C /* LaterScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = E140719C42151831C2779199 /* LaterScreen.swift */; };
@@ -81,6 +81,7 @@
 		C08B7298D241DC0EDAAFDAA7 /* board-listening.json in Resources */ = {isa = PBXBuildFile; fileRef = 0CE47B6F2407E3B43C2976E7 /* board-listening.json */; };
 		C09CA2E956CB57D7B5E43E14 /* MachinesScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AB4EDD5DC8CFE520ADC6ED /* MachinesScreen.swift */; };
 		C0A8F6FBA95FCEE3251956B9 /* Plain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAABBEEB6AB8A45E05A81A00 /* Plain.swift */; };
+		C0F481C1E0DBB903BCD0071D /* logo.png in Resources */ = {isa = PBXBuildFile; fileRef = 3E00974254B5DA83DD9A75A5 /* logo.png */; };
 		C118CE0ED2AFA8AE0766EB6B /* history-080.json in Resources */ = {isa = PBXBuildFile; fileRef = 3D46CCE73D75C27247A2C678 /* history-080.json */; };
 		C246E712656BEAD554F3999C /* MatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DFBEAEA87D228AD47EAC1D6 /* MatchTests.swift */; };
 		C808F567B057FFAED29F3A81 /* Accounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B52586C9E471DE706DA26D7 /* Accounts.swift */; };
@@ -98,7 +99,6 @@
 		D9FFEDE3B270B4720A3B5FBE /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9634C6057A5630B4EE5C706 /* Store.swift */; };
 		DAF0530981E6F09BBA9A34D3 /* JobsTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EE88A5B094D587E03B3D65 /* JobsTimeline.swift */; };
 		DD5EF384903F8F563065F397 /* ReviewFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36F163E02D1BE7063A74FCAC /* ReviewFixTests.swift */; };
-		DE1B61BDC3D58DB11E35B37D /* SchibstedGrotesk.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = D68BB46D96339CAF41EB181F /* SchibstedGrotesk.woff2 */; };
 		DF1229BEB0546A3698A90629 /* AccountsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B604211F65BA2FDB0F74B /* AccountsCard.swift */; };
 		E0393059687CF577F95EDA1D /* Rows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13B778046534699AC8DD6904 /* Rows.swift */; };
 		E12D143D4E9DE758C62EF23E /* board-unreachable.json in Resources */ = {isa = PBXBuildFile; fileRef = 6EFF224880B392322B38035A /* board-unreachable.json */; };
@@ -149,6 +149,7 @@
 		393E4672F67B1EC064FF3BD4 /* ChatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTests.swift; sourceTree = "<group>"; };
 		3A09608D0B915317ADA27CDA /* MessagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesView.swift; sourceTree = "<group>"; };
 		3D46CCE73D75C27247A2C678 /* history-080.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "history-080.json"; sourceTree = "<group>"; };
+		3E00974254B5DA83DD9A75A5 /* logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = logo.png; sourceTree = "<group>"; };
 		408AFDB55844A14CD68AB107 /* Updates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updates.swift; sourceTree = "<group>"; };
 		4A9CE8499E2FE3576593BF12 /* QuestionsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionsScreen.swift; sourceTree = "<group>"; };
 		4CCE623E6CC20BD244D3CA0F /* CommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette.swift; sourceTree = "<group>"; };
@@ -156,7 +157,6 @@
 		533B2991B8D0F29E0CEE9B48 /* Alerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Alerts.swift; sourceTree = "<group>"; };
 		5A3F02AA9EA5CE4032D30721 /* StatsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsScreen.swift; sourceTree = "<group>"; };
 		64F7CCDCD288983F574413B6 /* Progress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Progress.swift; sourceTree = "<group>"; };
-		6A65913562A6321F311A98E6 /* logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = logo.png; sourceTree = "<group>"; };
 		6B5B1CBF2F6FD2911B6DBC9A /* threads-080.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "threads-080.json"; sourceTree = "<group>"; };
 		6B6C82838E48ED689C33B2E5 /* ServerAlertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAlertTests.swift; sourceTree = "<group>"; };
 		6EFF224880B392322B38035A /* board-unreachable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-unreachable.json"; sourceTree = "<group>"; };
@@ -196,10 +196,10 @@
 		D3AB4EDD5DC8CFE520ADC6ED /* MachinesScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesScreen.swift; sourceTree = "<group>"; };
 		D5BC2F3A9B9F76006F8DE56A /* ServerAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAlerts.swift; sourceTree = "<group>"; };
 		D62159DC02B7165E1756EC6D /* guard-080.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "guard-080.json"; sourceTree = "<group>"; };
-		D68BB46D96339CAF41EB181F /* SchibstedGrotesk.woff2 */ = {isa = PBXFileReference; path = SchibstedGrotesk.woff2; sourceTree = "<group>"; };
 		D9634C6057A5630B4EE5C706 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		D99F0EFA52583A9E277AC1FA /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		DA635EF2B4746DBD474F0968 /* board-070.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-070.json"; sourceTree = "<group>"; };
+		DDA16C8C7A5BC360E4728220 /* SchibstedGrotesk.woff2 */ = {isa = PBXFileReference; path = SchibstedGrotesk.woff2; sourceTree = "<group>"; };
 		DEA2CDFBA2248633F203C8E4 /* board-080-fallback.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "board-080-fallback.json"; sourceTree = "<group>"; };
 		DEB6038C47BCF99D92E21C66 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E047DAD16248B96DFC389247 /* OverrideByTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverrideByTests.swift; sourceTree = "<group>"; };
@@ -250,15 +250,6 @@
 			path = Dibs;
 			sourceTree = "<group>";
 		};
-		4B036F5E2FAF5F959DF2059F /* dibs-rel179 */ = {
-			isa = PBXGroup;
-			children = (
-				7570071777798B963515549D /* web */,
-			);
-			name = "dibs-rel179";
-			path = ..;
-			sourceTree = "<group>";
-		};
 		5B80D0101E7A4E03537F488E /* Store */ = {
 			isa = PBXGroup;
 			children = (
@@ -300,15 +291,6 @@
 			path = Fixtures;
 			sourceTree = "<group>";
 		};
-		7570071777798B963515549D /* web */ = {
-			isa = PBXGroup;
-			children = (
-				6A65913562A6321F311A98E6 /* logo.png */,
-				D68BB46D96339CAF41EB181F /* SchibstedGrotesk.woff2 */,
-			);
-			path = web;
-			sourceTree = "<group>";
-		};
 		7A69B492C595928CF495C051 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -316,6 +298,24 @@
 				D35E51D4F017E55A4E9BF176 /* DibsTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		7A93F23890FB77B7A8E8C636 /* web */ = {
+			isa = PBXGroup;
+			children = (
+				3E00974254B5DA83DD9A75A5 /* logo.png */,
+				DDA16C8C7A5BC360E4728220 /* SchibstedGrotesk.woff2 */,
+			);
+			path = web;
+			sourceTree = "<group>";
+		};
+		7C615C0A07E3677C8CBA86E6 /* dibs-rel180 */ = {
+			isa = PBXGroup;
+			children = (
+				7A93F23890FB77B7A8E8C636 /* web */,
+			);
+			name = "dibs-rel180";
+			path = ..;
 			sourceTree = "<group>";
 		};
 		83AA1CF1FE69958EAA7A13EC /* Views */ = {
@@ -393,7 +393,7 @@
 			isa = PBXGroup;
 			children = (
 				3FB8C013AFCA879735C4D80E /* Dibs */,
-				4B036F5E2FAF5F959DF2059F /* dibs-rel179 */,
+				7C615C0A07E3677C8CBA86E6 /* dibs-rel180 */,
 				0A8F2A429870B28736BFF98A /* DibsTests */,
 				7A69B492C595928CF495C051 /* Products */,
 			);
@@ -515,8 +515,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				54523BB261B24BA37E967A7F /* AppIcon.icon in Resources */,
-				DE1B61BDC3D58DB11E35B37D /* SchibstedGrotesk.woff2 in Resources */,
-				2286140FF27F27135FC4C447 /* logo.png in Resources */,
+				2797D3E98EBC107820254321 /* SchibstedGrotesk.woff2 in Resources */,
+				C0F481C1E0DBB903BCD0071D /* logo.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -640,7 +640,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.0.179;
+				MARKETING_VERSION = 0.0.180;
 				PRODUCT_BUNDLE_IDENTIFIER = "cc.dibs.mac$(DIBS_BUNDLE_SUFFIX)";
 				PRODUCT_NAME = dibs;
 				SDKROOT = macosx;
@@ -746,7 +746,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.0.179;
+				MARKETING_VERSION = 0.0.180;
 				PRODUCT_BUNDLE_IDENTIFIER = "cc.dibs.mac$(DIBS_BUNDLE_SUFFIX)";
 				PRODUCT_NAME = dibs;
 				SDKROOT = macosx;
