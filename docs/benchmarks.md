@@ -1,6 +1,6 @@
 # Does dibs speed work up or slow it down?
 
-Measured on 2026-10-14, on the owner's 10-core (4 performance, 6 efficiency), 16 GB Mac, with 0.0.72 and with this branch. Everything here can be rerun: the commands are under each section.
+Measured on 2026-10-14, on a 10-core (4 performance, 6 efficiency), 16 GB Mac, with 0.0.72 and with this branch. Everything here can be rerun: the commands are under each section.
 
 ## Short answer
 

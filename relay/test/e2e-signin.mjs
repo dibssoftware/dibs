@@ -89,7 +89,7 @@ async function main() {
   for (const name of engines) {
     const b = await pw[name].launch();
     browsers.push(b);
-    // The owner's report: the link pasted into the tab already open on /account did nothing.
+    // Reported: the link pasted into the tab already open on /account did nothing.
     // The code, typed into the page that asked: a wrong one says how many tries are left and
     // keeps the cursor in the field; the right one signs in.
     const coder = await (await b.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 2 })).newPage();

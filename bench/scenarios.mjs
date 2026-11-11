@@ -2,7 +2,7 @@
 // config: what goes in config.json (null: no dibs, everything starts at once).
 // measured: the budgets count what running jobs really use, not what they asked for.
 // slots: every resource's slots times this.
-// The owner's live settings on 2026-10-14 (pace normal with cores and budget pinned).
+// The live settings on the benchmark Mac on 2026-10-14 (pace normal with cores and budget pinned).
 export const OWNER = { budget: '11G', cores: 10, pace: 'normal', starveAfter: '3m', unknown: { slots: 1, mem: '1G' } };
 
 export const SCENARIOS = {
