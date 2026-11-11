@@ -48,19 +48,19 @@ struct NeedsTests {
     @Test("an agent stuck behind a file says which file, who has it and when, by the agents' titles")
     func fileWait() throws {
         let now = Date(ms: 1_791_946_000_000)
-        let file = "files:/Users/x/atlas/format/SPEC.md"
+        let file = "files:/Users/x/shop/docs/NOTES.md"
         let holder = Row(id: "lease-1", leaseID: 1, res: [file], who: "alex-d3", label: "", purpose: "", cmd: "", prio: .normal, held: true,
                          isHold: true, paused: nil, since: now.addingTimeInterval(-600), endsAt: now.addingTimeInterval(18 * 60), startsAt: nil,
                          due: nil, blocked: nil, place: nil, rank: [], owner: nil)
-        let waiter = Row(id: "wait-2", leaseID: 2, res: [file], who: "alex-b8", label: "", purpose: "Scripts: SPEC 4.17", cmd: "", prio: .normal,
+        let waiter = Row(id: "wait-2", leaseID: 2, res: [file], who: "alex-b8", label: "", purpose: "Scripts: notes pass", cmd: "", prio: .normal,
                          held: false, isHold: false, paused: nil, since: now.addingTimeInterval(-39 * 60), endsAt: nil, startsAt: nil, due: nil,
                          blocked: nil, place: nil, rank: [], owner: nil)
-        let titles = ["alex-d3": "Atlas build and deploy", "alex-b8": "Atlas scripts"]
+        let titles = ["alex-d3": "Shop build and deploy", "alex-b8": "Shop scripts"]
         let items = Needs.items(counters: [holder, waiter].counters(now: now), questions: [], now: now, name: { titles[$0] ?? $0 })
         let need = try #require(items.first { $0.kind == .stuck })
         #expect(need.title == "Two agents need the same file")
-        #expect(need.detail == "Atlas scripts wants to change SPEC.md, but Atlas build and deploy is changing it right now. "
-            + "Atlas scripts waits so neither one overwrites the other's work. "
+        #expect(need.detail == "Shop scripts wants to change NOTES.md, but Shop build and deploy is changing it right now. "
+            + "Shop scripts waits so neither one overwrites the other's work. "
             + "It starts by itself in about 18 min, when the other one is done. You don't need to do anything.")
     }
 
