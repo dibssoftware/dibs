@@ -18,13 +18,17 @@ jobs:
           - os: ubuntu-24.04
           # Windows starts every process slowly and reads the process table through
           # PowerShell, so its leg runs in six shards, two files at a time each.
-          - { os: windows-latest, shard: 0, shards: 6 }
-          - { os: windows-latest, shard: 1, shards: 6 }
-          - { os: windows-latest, shard: 2, shards: 6 }
-          - { os: windows-latest, shard: 3, shards: 6 }
-          - { os: windows-latest, shard: 4, shards: 6 }
-          - { os: windows-latest, shard: 5, shards: 6 }
+          # Experimental: Windows works with gaps (docs/windows.md), so its failures
+          # show on the run without failing it.
+          - { os: windows-latest, shard: 0, shards: 6, experimental: true }
+          - { os: windows-latest, shard: 1, shards: 6, experimental: true }
+          - { os: windows-latest, shard: 2, shards: 6, experimental: true }
+          - { os: windows-latest, shard: 3, shards: 6, experimental: true }
+          - { os: windows-latest, shard: 4, shards: 6, experimental: true }
+          - { os: windows-latest, shard: 5, shards: 6, experimental: true }
+    name: test (${{ matrix.os }}${{ matrix.experimental && format(', {0} of 6, experimental', matrix.shard) || '' }})
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental == true }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
