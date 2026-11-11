@@ -37,11 +37,21 @@ export function makeAlive(pids) {
 // The agent session that owns this call (Claude Code, Codex, Cursor...), found
 // by walking up the process tree. Holds outlive a single tool call, so they
 // hang off this process. For Claude Code, its name is the one SendMessage uses.
+// What other agent programs set (src/owner.mjs AGENT_ENV, less Claude Code's own).
+const OTHER_AGENTS = ['CODEX_SANDBOX', 'CODEX_THREAD_ID', 'CURSOR_AGENT', 'GEMINI_CLI', 'OPENCODE'];
 let cached;
 function session() {
   if (cached !== undefined) return cached;
   cached = null;
   if (process.env.DIBS_NO_SESSION) return cached;   // tests act as several agents from one session
+  // Inside Claude Code the session names itself: its file in SESSIONS gives the pid without
+  // walking up the tree, one ps per level (3 of them, 190 ms of a board at load 60 on
+  // 2026-11-11). Not when another agent program runs under it: then the nearest is that one.
+  const sid = process.env.CLAUDE_CODE_SESSION_ID;
+  if (sid && !OTHER_AGENTS.some(k => process.env[k])) {
+    const f = sessionFiles().find(x => x.sessionId === sid && answers(x.pid));
+    if (f) return (cached = { pid: f.pid, name: f.name, app: 'claude', start: pstart(f.pid) });
+  }
   let pid = callerPid();
   for (let i = 0; i < 25 && pid > 1; i++) {
     const p = parent(pid);

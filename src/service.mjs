@@ -30,7 +30,11 @@ const label = k => `dev.dibs.${k}`;
 const plist = k => path.join(process.env.DIBS_LAUNCH_AGENTS || path.join(os.homedir(), 'Library', 'LaunchAgents'), `${label(k)}.plist`);
 const LAUNCHCTL = process.env.DIBS_LAUNCHCTL || 'launchctl';
 const unit = k => path.join(process.env.DIBS_LAUNCH_AGENTS || path.join(os.homedir(), '.config', 'systemd', 'user'), `dibs-${k}.service`);
-const logFile = k => path.join(HOME, `${k}.log`);
+// The guard service's output can't go in guard.log: that's the hook's own error
+// log, which the alerts read as hook failures (src/alerts.mjs readHook).
+const LOGS = { guard: 'guard-service.log' };
+export const logName = k => LOGS[k] || `${k}.log`;
+const logFile = k => path.join(HOME, logName(k));
 const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { return e.stdout || ''; } };
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const uid = () => process.getuid?.() ?? 0;

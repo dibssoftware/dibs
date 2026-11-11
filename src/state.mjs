@@ -105,7 +105,7 @@ function change(fn, lock) {
 }
 
 // Every pid the state names, whose start times reap() checks.
-const pidsOf = s => [...(s.leases || []).map(l => l.pid), ...(s.queue || []).map(q => q.pid || q.keptFor), ...(s.resets || []).flatMap(x => [x.pid, x.cpid])];
+export const pidsOf = s => [...(s.leases || []).map(l => l.pid), ...(s.queue || []).map(q => q.pid || q.keptFor), ...(s.resets || []).flatMap(x => [x.pid, x.cpid])];
 
 // Read those start times before taking the lock, so reap() under it finds them in
 // makeAlive's cache instead of running ps: on 2026-11-11 that ps (100 to 700 ms on a

@@ -5,9 +5,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { resCfg, machine, HOME, paths, PACES, PACE_OVERLAP, paced, paceKnobs, hardware, writePace, loadConfig } from './config.mjs';
 import { logChange } from './owner.mjs';
-import { identity, isMine, tag } from './proc.mjs';
+import { identity, isMine, tag, makeAlive } from './proc.mjs';
 import { launch, stopTree, processes, descendants, which, starts, scoped, watchdog, OS } from './platform.mjs';
-import { withState, withStateIfRoom, history, record, peakOf, peek, KEEP_PLACE } from './state.mjs';
+import { withState, withStateIfRoom, history, record, peakOf, peek, pidsOf, KEEP_PLACE } from './state.mjs';
 import { acquire, markIdle, tableFirst, idleFor, describeLease, commandKey, holdUntil, outerLease, defaultMaxWait, HOLD_CAP } from './acquire.mjs';
 import { rank, rankParts, byRank, forecast, verdict, remaining, used, sum, lent, pausedFor, overLoad, loadWhy, loadAhead, holdingOf, swapping, swapWhy, diskSqueeze, BACKGROUND, roomFor } from './schedule.mjs';
 import { noticeHandler } from './preempt.mjs';
@@ -19,7 +19,7 @@ import { bold, dim, amber, columns, wrap, quoted } from './style.mjs';
 import { quotasNow, isQuota } from './quota.mjs';
 import { agentsNow } from './agents.mjs';
 import { forYou } from './questions.mjs';
-import { notesForYou, listeners } from './talk.mjs';
+import { notesForYou, listeners, listenerPids } from './talk.mjs';
 import { remoteConf, shortHost } from './remote.mjs';
 import { sample, sized, grewLine, grewPlain, tellOverAsk } from './measure.mjs';
 import { clash, isFiles, short, takeAgent, callKey, sameAgent, fileKey, shellRes, projectKey } from './files.mjs';
@@ -718,6 +718,9 @@ function marked() {
 const BOARD_WAIT = 2000;
 export async function status(o, cfg) {
   const hist = history();
+  // One ps for the start times of the state's pids and the listeners' (src/proc.mjs keeps
+  // them 10 s): the state lock's own read and the board's line of listeners took one each.
+  try { makeAlive([...pidsOf(peek()), ...listenerPids()]); } catch {}
   tableFirst();
   const s = withState(s => { markIdle(s); return s; }, BOARD_WAIT) ?? peek();
   const m = machine();

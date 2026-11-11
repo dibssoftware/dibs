@@ -19,9 +19,9 @@
 //
 // alerts.json keeps the open ones, the resolved ones for a day, and what the
 // scan needs between runs: how far into the event log and the hook's log it
-// has read, recent waits per resource, and the services' start counts. Every
-// process that shows the board scans at most every SCAN_EVERY, and so does the
-// throttle watcher, so alerts keep up even when nobody looks.
+// has read, recent waits per resource, and the services' start counts. The
+// throttle watcher scans every SCAN_EVERY, so alerts keep up even when nobody
+// looks; whatever shows the board scans too once nobody has for READER_EVERY.
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOME, paths, machine } from './config.mjs';
@@ -33,7 +33,7 @@ import { withState, history } from './state.mjs';
 import { markIdle, tableFirst } from './acquire.mjs';
 import { sessionFiles } from './proc.mjs';
 import { EVENTS } from './events.mjs';
-import { serviceHealth } from './service.mjs';
+import { serviceHealth, logName } from './service.mjs';
 import { hogHint } from './hogs.mjs';
 import { underLock, heldBy } from './lock.mjs';
 import { now, bytes, clock, gb, die } from './util.mjs';
@@ -53,6 +53,10 @@ const STUCK_AFTER = 5 * MIN;
 // Reads are cheap but not free (a verdict per waiter, the tail of two logs);
 // the app polls every 2 s, so a scan stands for this long.
 const SCAN_EVERY = 15e3;
+// The throttle watcher scans every SCAN_EVERY; a board, the page or the app scan only when
+// nobody has for this long (the watcher is down). A scan reads launchd once per service and
+// top for memory: on 2026-11-11 that made every fifteenth-second board 2 s instead of 0.8.
+const READER_EVERY = 60e3;
 // A wait is long past this, or past WAIT_TIMES its usual wait, whichever is later.
 const WAIT_FLOOR = 10 * MIN;
 const WAIT_TIMES = 3;
@@ -330,13 +334,13 @@ export function detect({ s, cfg, hist, m, t, st, users }) {
     if (!h.running)
       out.push({ id: `service:${k}`, cause: 'dibs', level: 'urgent',
         title: `dibs's ${k} service isn't running${h.exit ? ` (it last exited with code ${h.exit})` : ''}: ${h.what}`,
-        fix: `Start it again: dibs service install ${k}. Why it stopped is in ~/.dibs/${k}.log.` });
+        fix: `Start it again: dibs service install ${k}. Why it stopped is in ~/.dibs/${logName(k)}.` });
   for (const k of new Set((st.restarts || []).map(r => r.k))) {
     const rs = st.restarts.filter(r => r.k === k);
     const last = rs[rs.length - 1];
     out.push({ id: `restart:${k}`, cause: 'dibs', level: 'warn', at: rs[0].at,
       title: `dibs's ${k} service crashed (exit ${last.exit}) and launchd started it again${rs.length > 1 ? `, ${rs.length} times in the last hour` : ''}, last at ${stamp(last.at, t)}`,
-      fix: `Look in ~/.dibs/${k}.log for why, and report it: dibs ask "the ${k} service keeps exiting with ${last.exit}"` });
+      fix: `Look in ~/.dibs/${logName(k)} for why, and report it: dibs ask "the ${k} service keeps exiting with ${last.exit}"` });
   }
   if (st.hook?.length) {
     const last = st.hook[st.hook.length - 1];
@@ -438,10 +442,10 @@ export function merge(st, found, t) {
 // Read what's new and bring alerts.json up to date, unless another process
 // did within SCAN_EVERY. Returns the list to show. Never throws: the board,
 // the watcher and the page call it, and none of them may fail over an alert.
-export function scan({ s, cfg, hist, m = machine(), t = now(), force = false } = {}) {
+export function scan({ s, cfg, hist, m = machine(), t = now(), force = false, watcher = false } = {}) {
   try {
     const was = load();
-    if (!force && was.at && t - was.at < SCAN_EVERY) return shown(was, t);
+    if (!force && was.at && t - was.at < (watcher ? SCAN_EVERY : READER_EVERY)) return shown(was, t);
     const st = locked(() => {
       const st = load();
       // Alerts made by older rules aren't resolved, only no longer said that way: start the open list over.

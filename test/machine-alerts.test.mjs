@@ -5,8 +5,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import './helpers.mjs';
+import { tmp, sync } from './helpers.mjs';
 import { coresStuck, orphans, scriptOf } from '../src/cool.mjs';
 import { detect, CPU_FILE } from '../src/alerts.mjs';
 import { duration } from '../src/platform.mjs';
@@ -85,4 +86,27 @@ test('a listen that fails every 30 s is logged once, again when the failure chan
   failed('100.64.0.10', null);
   failed('100.64.0.10', "can't listen on 100.64.0.10:7420: listen EADDRINUSE");
   assert.equal(lines.length, 3);
+});
+
+test('the board scans for alerts only when nobody has for a minute: the throttle watcher keeps them fresh, and a scan reads launchd and top', t => {
+  const h = tmp(t);
+  const file = path.join(h, 'alerts.json');
+  const at = () => JSON.parse(fs.readFileSync(file, 'utf8')).at;
+  const recent = Date.now() - 20e3;
+  fs.writeFileSync(file, JSON.stringify({ at: recent }));
+  assert.equal(sync(h, []).code, 0);
+  assert.equal(at(), recent, 'scanned 20 s ago: the board reads the list as it is');
+  const old = Date.now() - 70e3;
+  fs.writeFileSync(file, JSON.stringify({ at: old }));
+  assert.equal(sync(h, []).code, 0);
+  assert.ok(at() > old, 'a minute without a scan: the board scans');
+});
+
+test('the guard service logs to its own file, not the hook\'s error log the alerts read', { skip: process.platform !== 'darwin' }, t => {
+  const h = tmp(t), agents = tmp(t, 'agents'), bin = tmp(t, 'fakebin');
+  fs.writeFileSync(path.join(bin, 'launchctl'), '#!/bin/sh\n[ "$1" = print ] && exit 1\nexit 0\n', { mode: 0o755 });
+  assert.equal(sync(h, ['service', 'install', 'guard'], { env: { DIBS_LAUNCHCTL: path.join(bin, 'launchctl'), DIBS_LAUNCH_AGENTS: agents } }).code, 0);
+  const plist = fs.readFileSync(path.join(agents, 'dev.dibs.guard.plist'), 'utf8');
+  assert.match(plist, /<key>StandardOutPath<\/key><string>[^<]*\/guard-service\.log<\/string>/);
+  assert.doesNotMatch(plist, /\/guard\.log</);
 });

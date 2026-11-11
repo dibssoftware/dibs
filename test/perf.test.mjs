@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
 import { tmp, sync, bg, until, board, HOME, MACHINE } from './helpers.mjs';
@@ -140,4 +140,32 @@ test('history.jsonl past 2 MB moves aside when a run ends, and learned sizes sti
   assert.equal(got.first, 1000 + 9000 - 999);
   assert.match(got.last, /^t\|/);
   assert.equal(got.runs, 9001, 'dibs stats reads both files');
+});
+
+test('the board checks its jobs and its listeners with one ps, and finds a Claude Code session from its session file', { skip: WIN }, async t => {
+  const h = tmp(t), sessions = tmp(t, 'sessions');
+  fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify(CONFIG));
+  const { env, calls } = spy(t, h);
+  const gate = path.join(h, 'gate');
+  const holder = bg(t, h, ['run', 't', '--', 'sh', '-c', `while [ ! -e ${gate} ]; do sleep 0.05; done`], { agent: 'a' });
+  await until(() => board(h).held.length === 1);
+  // A listener on record, and a Claude Code session: live processes this test started.
+  const live = spawn('sleep', ['60']);
+  t.after(() => live.kill());
+  fs.writeFileSync(path.join(h, 'listeners.json'), JSON.stringify({ 'some-session|main': { pid: live.pid, pstart: 'x', at: Date.now() } }));
+  fs.writeFileSync(path.join(sessions, `${live.pid}.json`), JSON.stringify({ pid: live.pid, sessionId: 'perf-session', name: 'perf-agent' }));
+  const as = { DIBS_NO_SESSION: undefined, DIBS_AGENT: undefined, DIBS_SESSIONS: sessions, CLAUDE_CODE_SESSION_ID: 'perf-session' };
+  const before = calls().length;
+  const r = sync(h, [], { env: { ...env, ...as } });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /You're perf-agent\b/);
+  const lstart = calls().slice(before).filter(c => c.includes('lstart'));
+  // One for the session's start time, one for the jobs and listeners together.
+  assert.equal(lstart.length, 2, lstart.join('; '));
+  assert.ok(!calls().slice(before).some(c => c.includes('comm=')), 'no walk up the process tree');
+  // Under another agent program, the nearest agent is that one: walk as before.
+  const other = sync(h, [], { env: { ...env, ...as, CODEX_THREAD_ID: 'x' } });
+  assert.doesNotMatch(other.out, /You're perf-agent\b/);
+  fs.writeFileSync(gate, '');
+  assert.equal(await holder.done, 0);
 });

@@ -551,6 +551,9 @@ export async function listen(args) {
   console.log(`${texts(r.got)}\n\n${AGAIN}`);
 }
 
+// The pids of every dibs listen on record, for the board to check with the state's in one ps.
+export const listenerPids = () => Object.values(readListeners()).map(x => x.pid);
+
 // Who's listening now, by thread key, read without the lock: for the board and dibs threads.
 export function listening() {
   const l = Object.entries(readListeners());

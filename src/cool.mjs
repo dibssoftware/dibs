@@ -242,7 +242,7 @@ export async function throttle(o, cfg) {
     // Not awaited: measuring a full temp folder can take a minute, and this loop keeps the machine's pace meanwhile.
     hogsOnce(cfg, machine());
     // Alerts open and close even while nobody looks at the board (src/alerts.mjs); the scan itself keeps its pace.
-    scanAlerts({ s: peek(), cfg, hist: history() });
+    scanAlerts({ s: peek(), cfg, hist: history(), watcher: true });
     // Open progress tasks gone quiet or past their ETA: their agents hear about it (src/notices.mjs).
     if (now() - nudged >= SAMPLE_EVERY) { nudged = now(); progressScan(); }
     if (now() - sampled >= SAMPLE_EVERY) {
