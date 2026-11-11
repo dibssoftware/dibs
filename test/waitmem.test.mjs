@@ -78,10 +78,15 @@ test('the real CLI: a poll that changes nothing leaves the state file alone', as
   await until(() => board(h).held.length === 1);
   const second = bg(t, h, ['run', 'one', '--', 'true'], { ...quiet, agent: 'b' });
   await until(() => board(h).waiting.length === 1);
+  // Two real changes come once each: the job's first measurement, and its idle mark, set by the
+  // first look at the process table after a just-started process's CPU share falls under 1%.
+  // At load 40 both could land in the six seconds below, and a third write would pass unseen.
+  const lease = () => JSON.parse(fs.readFileSync(path.join(h, 'state.json'), 'utf8')).leases[0] || {};
+  await until(() => lease().use && lease().idleSince);
   // Six seconds of the waiter's polls, 1.5 s apart: every one used to rewrite the file.
   const seen = new Set();
   for (const t0 = Date.now(); Date.now() - t0 < 6000; await new Promise(r => setTimeout(r, 200))) seen.add(fs.statSync(path.join(h, 'state.json')).mtimeMs);
-  assert.ok(seen.size <= 2, `the state file was written ${seen.size - 1} times`);
+  assert.equal(seen.size, 1, `the state file was written ${seen.size - 1} times`);
   first.kill('SIGTERM');
   await first.done;
   assert.equal(await second.done, 0);
