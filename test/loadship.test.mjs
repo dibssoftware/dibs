@@ -162,7 +162,12 @@ test('jobs memory pressure holds pack onto boat-1 while they fit its memory, the
 // 2026-10-20: ten jobs waited on the Mac (load, the budgets, a reservation) while boat-1 sat idle.
 test('a job the CPU budget holds goes to an on-demand machine on its own', async t => {
   const { h, boatDir, hot, proj } = await setup(t, { config: { cores: 4, maxLoad: null }, machine: { memFree: 20, load: 0 } });
-  const busy = bg(t, h, ['run', 'heavy', '--cpu', '3', '--mem', '1G', '-m', 'busy', '--', 'sh', '-c', 'while [ ! -f stop ]; do sleep 0.2; done'], { ...hot, cwd: proj, agent: 'busy' });
+  // Cores go by what a run is measured using once it has been (src/schedule.mjs coresOf), and this
+  // sleep loop uses none: its own run measures it about 3 s in, it no longer holds the CPU budget,
+  // and a job that hasn't shipped by then rightly starts here (match's ghost2 run, CI on 2026-11-03).
+  // An endless sample interval puts every measurement in slot 0, taken here first, so it's never measured.
+  fs.writeFileSync(path.join(h, 'sample-0'), '');
+  const busy = bg(t, h, ['run', 'heavy', '--cpu', '3', '--mem', '1G', '-m', 'busy', '--', 'sh', '-c', 'while [ ! -f stop ]; do sleep 0.2; done'], { cwd: proj, agent: 'busy', env: { ...hot.env, DIBS_SAMPLE_MS: 'Infinity' } });
   await until(() => board(h).held.some(l => l.who === 'busy'));
   const job = bg(t, h, ['run', 'test', '--cpu', '2', '--mem', '1G', '-m', 'count', '--', 'sh', '-c', 'echo "ran on $HOME"'], { ...hot, cwd: proj, agent: 'counter' });
   assert.equal(await job.done, 0, job.err);
