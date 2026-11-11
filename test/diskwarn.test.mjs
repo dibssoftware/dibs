@@ -33,11 +33,13 @@ test('under twice the floor, dibs clears caches and tells only the sessions with
   t.after(() => { delete process.env.DIBS_CLEAN; delete process.env.DIBS_DERIVED; });
   const t0 = Date.now();
   // sess-a's job wrote 2 GB; sess-c's job wrote nothing; sess-b only waits. Only sess-a has something to free.
+  // Each waiter under a process of its own: two places under one process are twins, and the clean's
+  // state write (src/diskwarn.mjs clean marks running jobs) keeps only the newer (src/state.mjs reap).
   fs.writeFileSync(path.join(HOME, 'state.json'), JSON.stringify({ seq: 4,
     leases: [{ id: 1, res: ['test'], kind: 'run', who: 'builder', sessionId: 'sess-a', pid: process.pid, start: t0, purpose: 'suite', cmd: 'npm test', ate: 2 * G },
       { id: 3, res: ['heavy'], kind: 'run', who: 'reader', sessionId: 'sess-c', pid: process.pid, start: t0, cmd: 'grep -r x', ate: 0.1 * G }],
     queue: [{ id: 2, res: ['test'], pid: process.pid, who: 'waiter', sessionId: 'sess-a', enq: t0, purpose: 'lint' },
-      { id: 4, res: ['test'], pid: process.pid, who: 'other', sessionId: 'sess-b', enq: t0 }] }));
+      { id: 4, res: ['test'], pid: process.ppid, who: 'other', sessionId: 'sess-b', enq: t0 }] }));
 
   await hogsOnce(cfg, { diskFree: 11 * G }, t0);
   assert.equal(notes().length, 0, 'over twice the floor: nothing');
