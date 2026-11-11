@@ -83,7 +83,7 @@ withState(s => {
   assert.deepEqual(leftovers(home), []);
 });
 
-test('a live holder that is slow is waited for, however old its lock, and never taken over or called stuck', { timeout: 60e3 }, async t => {
+test('a live holder that is slow is waited for, however old its lock, and never taken over', { timeout: 60e3 }, async t => {
   const home = tmp(t);
   // A live process holding the lock the way an older dibs makes it, and holding it a minute already.
   const lock = path.join(home, 'lock');
@@ -99,7 +99,7 @@ test('a live holder that is slow is waited for, however old its lock, and never 
   fs.rmSync(lock, { recursive: true });
   assert.equal(await w.done, 0, w.err);
   assert.equal(w.out, 'ran\n');
-  assert.doesNotMatch(w.err, /stuck/);
+  assert.doesNotMatch(w.err, /state lock stuck|did not run/);
   assert.ok(alive(process.pid));
 });
 
@@ -116,4 +116,40 @@ test('a crash is recorded with its error, its stack and the command', t => {
   assert.match(crash.where, /^src\/state\.mjs:\d+$/);
   assert.match(crash.stack, /^at .*\n.*src\/state\.mjs:\d+/);
   assert.equal(crash.cmd, 'why');
+});
+
+// A live holder is waited for, but one that's hung would stop all of dibs without a word.
+test('a holder that keeps the lock past a minute: waiters keep waiting, one alert names it, and the board says who dibs is stuck behind', { timeout: 110e3 }, async t => {
+  const home = tmp(t);
+  const hung = track(t, spawn('sleep', ['300'], { stdio: 'ignore' }));
+  // Its lock, taken 61 s ago by a process that's alive and doing nothing.
+  const lock = path.join(home, 'lock'), owner = path.join(lock, `owner.${hung.pid}.0.test`);
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'pid'), String(hung.pid));
+  fs.writeFileSync(owner, '');
+  const then = new Date(Date.now() - 61e3);
+  fs.utimesSync(owner, then, then);
+  const a = bg(t, home, ['t', '--', 'echo', 'ran'], { agent: 'a' });
+  const b = bg(t, home, ['t2', '--', 'echo', 'ran'], { agent: 'b' });
+  const stuckEvents = () => (fs.existsSync(path.join(home, 'events.jsonl')) ? fs.readFileSync(path.join(home, 'events.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l)) : []).filter(e => e.kind === 'lockstuck');
+  await until(() => stuckEvents().length > 0 && /dibs is stuck behind pid/.test(a.err + b.err));
+  await new Promise(r => setTimeout(r, 1000));   // both waiters have looked again by now
+  assert.equal(stuckEvents().length, 1, 'one record, not one per waiter');
+  const e = stuckEvents()[0];
+  assert.equal(e.pid, hung.pid);
+  assert.match(e.cmd, /sleep 300/);
+  assert.ok(e.held >= 60e3);
+  assert.equal(a.exitCode, null, 'still waiting');
+  assert.equal(b.exitCode, null, 'still waiting');
+  // The board doesn't wait on the lock: it says who everyone is stuck behind, and what to do.
+  const t0 = Date.now();
+  const board = spawnSync(process.execPath, [BIN], { env: env(home, { agent: 'viewer' }), encoding: 'utf8', timeout: 60e3 });
+  assert.ok(Date.now() - t0 < 20e3, `the board took ${Date.now() - t0} ms`);
+  assert.match(board.stdout.replace(/\n +/g, ' '), new RegExp(`dibs is stuck behind pid ${hung.pid} \\(sleep 300\\).*kill ${hung.pid}`));
+  // It lets go: everyone goes on, and the alert closes.
+  hung.kill('SIGKILL');
+  assert.equal(await a.done, 0, a.err);
+  assert.equal(await b.done, 0, b.err);
+  // Alerts are looked at again every 15 s at most; then it's shown resolved.
+  await until(() => /Resolved at .*: dibs is stuck behind pid/.test(spawnSync(process.execPath, [BIN], { env: env(home, { agent: 'viewer' }), encoding: 'utf8', timeout: 60e3 }).stdout), 40e3);
 });
