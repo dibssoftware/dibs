@@ -253,7 +253,8 @@ test('a plain file where the lock goes: dibs gives up with 75 naming it, instead
   const old = new Date(Date.now() - 10e3);
   fs.utimesSync(lock, old, old);
   const t0 = Date.now();
-  const r = spawnSync(process.execPath, [BIN, 't', '--', 'echo', 'ran'], { env: env(home, { agent: 'a' }), encoding: 'utf8', timeout: 50e3 });
+  // SIGKILL at the limit: a dibs spinning on the lock holds SIGTERM, and the old one spun for an hour here.
+  const r = spawnSync(process.execPath, [BIN, 't', '--', 'echo', 'ran'], { env: env(home, { agent: 'a' }), encoding: 'utf8', timeout: 50e3, killSignal: 'SIGKILL' });
   assert.equal(r.status, 75, r.stderr);
   assert.equal(r.stdout, '');
   assert.match(r.stderr.replace(/\n +/g, ' '), new RegExp(`${lock.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} is in the way.*rm -rf`));
