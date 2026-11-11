@@ -153,3 +153,23 @@ test('a holder that keeps the lock past a minute: waiters keep waiting, one aler
   // Alerts are looked at again every 15 s at most; then it's shown resolved.
   await until(() => /Resolved at .*: dibs is stuck behind pid/.test(spawnSync(process.execPath, [BIN], { env: env(home, { agent: 'viewer' }), encoding: 'utf8', timeout: 60e3 }).stdout), 40e3);
 });
+
+// 2026-11-10 23:13: the worker and throttle services exited 75 and launchd restarted them, and
+// nothing said where they had given up.
+test('a long-running dibs that gives up (exit 75) records where, with its command', { timeout: 60e3 }, async t => {
+  const home = tmp(t);
+  // The message lock held by a live process that never lets go: dibs listen gives up on it.
+  const hung = track(t, spawn('sleep', ['300'], { stdio: 'ignore' }));
+  const lock = path.join(home, 'messages.lock');
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'pid'), String(hung.pid));
+  fs.writeFileSync(path.join(lock, `owner.${hung.pid}.0.test`), '');
+  const l = bg(t, home, ['listen', '--for', '1m'], { agent: 'a' });
+  assert.equal(await l.done, 75, l.err);
+  const e = fs.readFileSync(path.join(home, 'events.jsonl'), 'utf8').trim().split('\n').map(x => JSON.parse(x)).find(x => x.kind === 'gaveup');
+  assert.ok(e, 'a gaveup event');
+  assert.equal(e.verb, 'listen');
+  assert.match(e.cmd, /^listen --for 1m/);
+  assert.match(e.why, /messages\.lock/);
+  assert.match(e.where, /^src\/talk\.mjs:\d+/);
+});
