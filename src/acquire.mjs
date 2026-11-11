@@ -729,6 +729,7 @@ export async function acquire(o, kind, cfg) {
       processes();   // read the process table before taking the lock, not while holding it
       noticeScan();   // a waiter is who notices a job ahead of it is stuck: tell that job's agent (src/notices.mjs)
     }
+    machine();   // and the machine's readings, which decide() needs: a fresh one is up to 3 spawns
     // A budget changed while this waits counts, as it does for the broker's waiters.
     const at = configAt();
     if (at !== cfgAt) { cfgAt = at; w.cfg = freshConfig() || w.cfg; }

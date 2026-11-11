@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pressure, memPressure, dibsMem } from './platform.mjs';
+import { pressure, dibsMem } from './platform.mjs';
 import { isFiles, FILES_COST } from './files.mjs';
 import { die, ms, now, bytes } from './util.mjs';
 
@@ -304,10 +304,23 @@ export const swapGrowth = (used, t = now()) => trends(used, null, t).swapGrowth;
 
 // Free disk and how fast it falls, swap and how fast it grows, memory
 // pressure, OS-reported free memory and load. Cached for 3s because waiters
-// poll and each reading costs a process spawn. DIBS_FAKE_MACHINE may give
+// poll and each reading costs process spawns. The cache is shared through
+// MACHINE_FILE: on 2026-11-11 a dozen waiters each took their own reading,
+// three spawns of 100 ms to 1.8 s apiece on a Mac at load 30, most of them
+// while holding the state lock. DIBS_FAKE_MACHINE may give
 // swapGrowth, diskDrain, drainMs, swapRecent and drainRecent; otherwise they
 // come from the readings file, with the fake swapUsed and diskFree.
 let cache = null;
+const MACHINE_FILE = path.join(HOME, 'machine.json');
+const MACHINE_FRESH = 3000;
+const fresh = m => Number.isFinite(m?.at) && now() - m.at < MACHINE_FRESH && m.at <= now();
+function lastReading() {
+  try { return JSON.parse(fs.readFileSync(MACHINE_FILE, 'utf8')); } catch { return null; }
+}
+function shareReading(m) {
+  const tmp = `${MACHINE_FILE}.${process.pid}`;
+  try { fs.writeFileSync(tmp, JSON.stringify(m)); fs.renameSync(tmp, MACHINE_FILE); } catch { try { fs.rmSync(tmp, { force: true }); } catch {} }
+}
 export function machine() {
   if (process.env.DIBS_FAKE_MACHINE) {
     const m = { at: now(), load: 0, cores: 8, dibsMem: 0, ...JSON.parse(process.env.DIBS_FAKE_MACHINE) };
@@ -319,8 +332,9 @@ export function machine() {
     return { ...m, swapGrowth: m.swapGrowth ?? t.swapGrowth, diskDrain: m.diskDrain ?? t.diskDrain, drainMs: m.drainMs ?? t.drainMs,
              swapRecent: m.swapRecent ?? (m.swapGrowth != null ? m.swapGrowth : t.swapRecent), drainRecent: m.drainRecent ?? (m.diskDrain != null ? m.diskDrain : t.drainRecent) };
   }
-  if (cache && now() - cache.at < 3000) return cache;
+  if (fresh(cache)) return cache;
   // dibsMem, the full process table, only when swap is in question (schedule.mjs swapNotOurs).
-  const m = { at: now(), ...pressure(HOME), vmPressure: memPressure() };
+  let m = lastReading();
+  if (!fresh(m)) shareReading(m = { at: now(), ...pressure(HOME, m) });
   return (cache = { ...m, ...trends(m.swapUsed, m.diskFree, m.at) });
 }

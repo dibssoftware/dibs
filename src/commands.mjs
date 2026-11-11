@@ -7,8 +7,8 @@ import { resCfg, machine, HOME, paths, PACES, PACE_OVERLAP, paced, paceKnobs, ha
 import { logChange } from './owner.mjs';
 import { identity, isMine, tag } from './proc.mjs';
 import { launch, stopTree, processes, descendants, which, starts, scoped, watchdog, OS } from './platform.mjs';
-import { withState, withStateIfRoom, history, record, peakOf, KEEP_PLACE } from './state.mjs';
-import { acquire, markIdle, idleFor, describeLease, commandKey, holdUntil, outerLease, defaultMaxWait, HOLD_CAP } from './acquire.mjs';
+import { withState, withStateIfRoom, history, record, peakOf, peek, KEEP_PLACE } from './state.mjs';
+import { acquire, markIdle, tableFirst, idleFor, describeLease, commandKey, holdUntil, outerLease, defaultMaxWait, HOLD_CAP } from './acquire.mjs';
 import { rank, rankParts, byRank, forecast, verdict, remaining, used, sum, lent, pausedFor, overLoad, loadWhy, loadAhead, holdingOf, swapping, swapWhy, diskSqueeze, BACKGROUND, roomFor } from './schedule.mjs';
 import { noticeHandler } from './preempt.mjs';
 import { checkout, checkin, jobSize } from './simpool.mjs';
@@ -433,7 +433,7 @@ export function when(o, cfg) {
   const key = `${res.join(',')}|${o.cmd ? commandKey(o.cmd) : 'hold'}`;
   const probe = { id: -1, res, enq: t, pid: 1, who: id.who, agent: id.agent, spid: id.spid, prio: o.prio, by: o.by, est: o.est, declared: o.mem != null,
     ...sized(jobSize(cfg, res, o), hist, key, cfg), key };
-  const s = withState(s => { markIdle(s); return s; });
+  const s = marked();
   probe.holding = holdingOf(s, probe, cfg, t);
   const v = verdict(s, probe, cfg, hist, t);
   const at = v.ok ? t : forecast(s, cfg, hist, t, probe).get(-1);
@@ -464,7 +464,7 @@ export function why(o, cfg) {
   const id = caller(o);
   const hist = history();
   const t = now();
-  const s = withState(s => { markIdle(s); return s; });
+  const s = marked();
   const mine = s.queue.filter(q => q.pid && ours(q, id));
   if (!mine.length) {
     const holds = s.leases.filter(l => ours(l, id));
@@ -533,7 +533,7 @@ export function who(o, cfg) {
   if (!o.res.length) return status(o, cfg);
   const hist = history();
   const t = now();
-  const s = withState(s => { markIdle(s); return s; });
+  const s = marked();
   const order = s.queue.filter(q => q.pid).sort(byRank(hist, t));
   const rows = [];
   for (const r of o.res) {
@@ -707,9 +707,19 @@ export function boardJson(s, cfg, { hist = history(), m = machine(), t = now(), 
   };
 }
 
+// The state with idle runs marked.
+function marked() {
+  tableFirst();
+  return withState(s => { markIdle(s); return s; });
+}
+
+// Plain dibs never hangs: behind a holder that won't let go of the state lock, the board shows the
+// state as last written, and the alert that says who dibs is stuck behind.
+const BOARD_WAIT = 2000;
 export async function status(o, cfg) {
   const hist = history();
-  const s = withState(s => { markIdle(s); return s; });
+  tableFirst();
+  const s = withState(s => { markIdle(s); return s; }, BOARD_WAIT) ?? peek();
   const m = machine();
   const t = now();
   // A broken remote.json still leaves this machine's board worth showing.

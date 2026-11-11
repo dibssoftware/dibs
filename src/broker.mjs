@@ -11,7 +11,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { HOME, paths, loadConfig } from './config.mjs';
+import { HOME, paths, loadConfig, machine } from './config.mjs';
 import { pstart, makeAlive } from './proc.mjs';
 import { processes } from './platform.mjs';
 import { withState, history, kick, quiet, KEEP_PLACE } from './state.mjs';
@@ -304,7 +304,8 @@ export function broker() {
       if (t - beat > BEAT) withState(s => { if (s.broker?.pid === me.pid || !s.broker) s.broker = { ...me, beat: (beat = t) }; });
       return;
     }
-    processes();   // read the process table before taking the lock, not while holding it
+    processes();   // read the process table and the machine before taking the lock, not while holding it
+    machine();
     noticeScan();
     try { cfg = loadConfig(); } catch {}
     try { const m = fs.statSync(paths.history).mtimeMs; if (m !== histAt) { histAt = m; hist = history(); } } catch {}

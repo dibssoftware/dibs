@@ -12,8 +12,11 @@ export const OS = process.platform === 'win32' ? 'windows' : process.platform ==
 const WIN = OS === 'windows';
 
 // Output of a command, or null when it couldn't run at all (spawn failed under
-// memory pressure, killed by a signal). Callers must not read null as "nothing".
-function tryRun(cmd, args, timeout) {
+// memory pressure, killed by a signal, or no answer in RUN_LIMIT). Callers must not read null as "nothing".
+// Some of these run under the state lock (killLease reaping a dead job), where a ps that never
+// returns would stop every dibs command: no process-table read gets longer than this.
+const RUN_LIMIT = 15e3;
+function tryRun(cmd, args, timeout = RUN_LIMIT) {
   try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, timeout }); }
   catch (e) { return typeof e.status === 'number' ? e.stdout || '' : null; }   // ps exits 1 when any pid is gone
 }
@@ -58,12 +61,33 @@ export function starts(pids) {
   }
   // ps exits 1 with no output when every pid is gone, and also when it refuses
   // the list (it says why on stderr). The second is "can't tell", not "all dead".
-  const r = spawnSync('ps', ['-o', 'pid=,lstart=', '-p', pids.join(',')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = spawnSync('ps', ['-o', 'pid=,lstart=', '-p', pids.join(',')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: RUN_LIMIT });
   if (r.status == null || (r.status !== 0 && !r.stdout && r.stderr.trim())) return null;
   const txt = r.stdout;
   for (const line of txt.split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(.*)$/);
     if (m) out.set(Number(m[1]), m[2].trim());
+  }
+  return out;
+}
+
+// How long each process has run and the CPU time it has used, in ms, from one ps.
+// Empty on Windows. ps writes both as [[dd-]hh:]mm:ss, CPU time with hundredths.
+export function duration(text) {
+  const m = String(text).trim().match(/^(?:(\d+)-)?([\d:]+)(?:\.(\d+))?$/);
+  if (!m) return null;
+  const parts = m[2].split(':').map(Number).reverse();
+  const secs = (parts[0] || 0) + (parts[1] || 0) * 60 + (parts[2] || 0) * 3600 + Number(m[1] || 0) * 86400;
+  return secs * 1000 + (m[3] ? Number(`0.${m[3]}`) * 1000 : 0);
+}
+export function runtimes(pids) {
+  const out = new Map();
+  pids = [...new Set(pids.filter(p => Number.isInteger(p) && p > 0 && p <= PID_MAX))];
+  if (WIN || !pids.length) return out;
+  for (const line of run('ps', ['-o', 'pid=,etime=,time=', '-p', pids.join(',')]).split('\n')) {
+    const [pid, age, cpu] = line.trim().split(/\s+/);
+    const a = duration(age), c = duration(cpu);
+    if (pid && a != null && c != null) out.set(Number(pid), { age: a, cpu: c });
   }
   return out;
 }
@@ -346,18 +370,39 @@ export function diskSize(dir) {
 
 // Free disk where dibs lives, swap in use, % of memory free, 1-minute load.
 // Windows has no load average, so CPU busy % across all cores stands in for it.
-export function pressure(dir) {
+// The CPU's busy and total time so far, summed over every core (ms).
+export function cpuTicks() {
+  let busy = 0, total = 0;
+  for (const { times: c } of os.cpus()) { busy += c.user + c.nice + c.sys + c.irq; total += c.user + c.nice + c.sys + c.irq + c.idle; }
+  return { busy, total };
+}
+// Cores in use from two cpuTicks readings this far apart: closer is noise,
+// further is an average that hides what's happening now.
+const BUSY_GAP_MIN = 1000, BUSY_GAP_MAX = 60e3;
+export function busyBetween(prev, ticks, gap, cores) {
+  const dt = ticks.total - (prev?.total ?? NaN);
+  if (!(gap >= BUSY_GAP_MIN && gap <= BUSY_GAP_MAX && dt > 0)) return null;
+  return Math.max(0, (ticks.busy - prev.busy) / dt) * cores;
+}
+
+// prev: an earlier reading's { at, ticks }, from which the cores in use come
+// without ps (src/config.mjs machine keeps the last one).
+export function pressure(dir, prev = null) {
   const vol = OS === 'macos' ? '/System/Volumes/Data' : dir;
   const diskFree = freeDisk(vol), diskTotal = diskSize(vol);
   let swapUsed = 0, swapFiles = null, memFree = Math.round(100 * os.freemem() / os.totalmem()), memAvail = null;
+  let vmPressure;
   if (OS === 'macos') {
-    const sw = run('sysctl', ['-n', 'vm.swapusage']).match(/used = ([\d.]+)M/);
+    // One sysctl for all three: under heavy load each spawn costs 100 to 300 ms.
+    const [usage = '', level = '', vmLevel = ''] = run('sysctl', ['-n', 'vm.swapusage', 'kern.memorystatus_level', MEM_PRESSURE]).split('\n');
+    const sw = usage.match(/used = ([\d.]+)M/);
     if (sw) swapUsed = parseFloat(sw[1]) * 1024 ** 2;
     // The swap files' total size, which is what swap takes from the disk: macOS adds them a gigabyte at a time, ahead of what's used.
-    const tot = run('sysctl', ['-n', 'vm.swapusage']).match(/total = ([\d.]+)M/);
+    const tot = usage.match(/total = ([\d.]+)M/);
     if (tot) swapFiles = parseFloat(tot[1]) * 1024 ** 2;
-    const lvl = Number(run('sysctl', ['-n', 'kern.memorystatus_level']));
+    const lvl = Number(level);
     if (lvl) memFree = lvl;   // counts reclaimable cache as free, unlike os.freemem
+    vmPressure = PRESSURE_LEVEL[Number(vmLevel)] ?? null;
     memAvail = vmAvail(run('vm_stat', []));
   } else if (OS === 'linux') {
     try {
@@ -376,13 +421,20 @@ export function pressure(dir) {
   // disk, so heavy swapping can read 20 on a machine that's nearly idle.
   // Just the CPU column (13 ms) unless the full table is fresh anyway: the full one,
   // with every command line, took 60 ms of each dibs run's start on a busy Mac.
+  // The CPU's own counters since the last reading cost nothing; ps -Ao pcpu took
+  // 0.1 to 1.8 s on 2026-11-11, at load 30 with a thousand processes.
   let busy = null;
+  const ticks = cpuTicks(), cores = os.cpus().length;
   if (!WIN) {
-    const cpus = procCache && Date.now() - procCache.at < 5000 ? procCache.list.map(p => p.cpu || 0)
-      : run('ps', ['-Ao', 'pcpu=']).split('\n').map(Number).filter(x => !isNaN(x));
-    if (cpus.length) busy = cpus.reduce((a, c) => a + c, 0) / 100;
+    busy = busyBetween(prev?.ticks, ticks, Date.now() - prev?.at, cores);
+    if (busy == null) {
+      const cpus = procCache && Date.now() - procCache.at < 5000 ? procCache.list.map(p => p.cpu || 0)
+        : run('ps', ['-Ao', 'pcpu=']).split('\n').map(Number).filter(x => !isNaN(x));
+      if (cpus.length) busy = cpus.reduce((a, c) => a + c, 0) / 100;
+    }
   }
-  return { diskFree, ...(diskTotal != null && { diskTotal }), swapUsed, ...(swapFiles != null && { swapFiles }), memFree, memAvail, load, busy, cores: os.cpus().length, os: OS };
+  return { diskFree, ...(diskTotal != null && { diskTotal }), swapUsed, ...(swapFiles != null && { swapFiles }), memFree, memAvail, load, busy, cores, os: OS, ticks,
+           vmPressure: vmPressure === undefined ? memPressure() : vmPressure };
 }
 
 // Share of all cores busy over CPU_WINDOW ms (0 to 1), from two os.cpus() readings.
@@ -419,8 +471,10 @@ export function wokeAt() {
   const m = run('sysctl', ['-n', 'kern.waketime']).match(/sec = (\d+), usec = (\d+)/);
   return m && Number(m[1]) ? Number(m[1]) * 1000 + Math.floor(Number(m[2]) / 1000) : null;
 }
+const MEM_PRESSURE = 'kern.memorystatus_vm_pressure_level';
+const PRESSURE_LEVEL = { 1: 0, 2: 1, 4: 2 };
 export function memPressure() {
-  if (OS === 'macos') return { 1: 0, 2: 1, 4: 2 }[Number(run('sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']))] ?? null;
+  if (OS === 'macos') return PRESSURE_LEVEL[Number(run('sysctl', ['-n', MEM_PRESSURE]))] ?? null;
   if (OS !== 'linux') return null;
   try {
     const t = fs.readFileSync('/proc/pressure/memory', 'utf8');

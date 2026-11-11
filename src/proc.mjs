@@ -17,14 +17,19 @@ export const pstart = pid => starts([pid])?.get(pid) || null;
 // 30 to 50 ms each time on a busy Mac. A pid can only be reused after its
 // process is gone, which kill(0) sees.
 const STARTS_FOR = 10e3;
-const known = new Map();   // pid -> { start, at }
+const known = new Map();   // pid -> { pid, start, at }
+const KNOWN_MAX = 1000;   // a long-lived broker or service sees thousands of pids a day
+// A pid found gone is remembered as gone (start null) for as long: that process
+// can't come back, and a new one given its number isn't the holder recorded.
 const answers = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+const still = (k, t) => k && t - k.at < STARTS_FOR && (k.start == null || answers(k.pid));
 export function makeAlive(pids) {
   const t = Date.now();
-  const need = pids.filter(p => p && !(known.has(p) && t - known.get(p).at < STARTS_FOR && answers(p)));
+  const need = pids.filter(p => p && !still(known.get(p), t));
   const st = need.length ? starts(need) : new Map();
   if (!st) return pid => !!pid;
-  for (const p of need) if (st.has(p)) known.set(p, { start: st.get(p), at: t }); else known.delete(p);
+  for (const p of need) known.set(p, { pid: p, start: st.has(p) ? st.get(p) : null, at: t });
+  if (known.size > KNOWN_MAX) for (const [p, k] of known) if (t - k.at >= STARTS_FOR) known.delete(p);
   const startOf = pid => (st.has(pid) ? st.get(pid) : known.get(pid)?.start);
   return (pid, started) => !!pid && startOf(pid) != null && (!started || startOf(pid) === started);
 }
