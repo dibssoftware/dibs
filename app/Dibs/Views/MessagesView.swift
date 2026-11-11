@@ -115,7 +115,7 @@ struct MessagesView: View {
                     threadRow(t, picked: stream == nil && t.to == current?.to, nested: t.isSub && threads.contains { !$0.isSub && $0.agent == t.agent })
                 }
                 Rectangle().fill(Palette.hairline).frame(height: 1).padding(.vertical, Space.s + 2).padding(.horizontal, 4)
-                streamRow(.between, "Between agents", store.threadList?.between ?? []) { "\($0.from ?? "an agent")\($0.fromGone == true ? " (no agent answers to this name now)" : "") to \($0.to ?? "another agent"): \($0.text)" }
+                streamRow(.between, "Between agents", store.threadList?.between ?? []) { "\($0.from ?? "an agent")\($0.fromGone == true ? " (old name)" : "") to \($0.to ?? "another agent"): \($0.text)" }
                 streamRow(.dibs, "From dibs", store.threadList?.fromDibs ?? []) { "To \($0.to ?? "an agent"): \($0.text)" }
             }
         }
@@ -355,15 +355,21 @@ private struct StreamList<Content: View>: View {
                 .padding(Space.l + 2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    Group { content }
-                        .overlay(alignment: .top) { Rectangle().fill(Palette.hairline).frame(height: 1) }
+            // Newest at the bottom: scrolled to once the lines are laid out, and again when one arrives.
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        Group { content }
+                            .overlay(alignment: .top) { Rectangle().fill(Palette.hairline).frame(height: 1) }
+                        Color.clear.frame(height: 1).id("end")
+                    }
+                    .padding(.horizontal, Space.l + 2)
+                    .padding(.vertical, Space.s)
                 }
-                .padding(.horizontal, Space.l + 2)
-                .padding(.vertical, Space.s)
+                .defaultScrollAnchor(.bottom)
+                .onAppear { scroller.scrollTo("end", anchor: .bottom) }
+                .onChange(of: count) { scroller.scrollTo("end", anchor: .bottom) }
             }
-            .defaultScrollAnchor(.bottom)
         }
     }
 }
