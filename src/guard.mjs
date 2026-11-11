@@ -467,9 +467,17 @@ function rearm(input) {
 // The hook itself: Claude Code's JSON on stdin, a decision on stdout. Any
 // failure prints nothing, which leaves the command to the normal permission flow.
 export async function hook() {
-  let out = null, input = null;
+  let input;
+  try { input = JSON.parse(fs.readFileSync(0, 'utf8')); } catch (e) { return logError(e, null); }
+  const out = await decide(input);
+  if (out) process.stdout.write(JSON.stringify(out) + '\n');
+}
+
+// What the hook answers for one event, or null to say nothing. The resident
+// guard (src/guardd.mjs) runs this too, in a fresh worker per call.
+export async function decide(input) {
+  let out = null;
   try {
-    input = JSON.parse(fs.readFileSync(0, 'utf8'));
     if (AGENT_EVENT(input)) out = (await import('./agents.mjs')).agentHook(input, dibsConfig());
     else if (!STOP_EVENT(input) && !START_EVENT(input)) out = respond(input, guardConfig(), dibsCommand());
   } catch (e) { logError(e, input); }
@@ -480,7 +488,7 @@ export async function hook() {
     else if (input?.hook_event_name === 'SubagentStop' && talked(input)) (await import('./talk.mjs')).finished(input);
   } catch (e) { logError(e, input); }
   try { if (!out) out = rearm(input); } catch (e) { logError(e, input); }
-  if (out) process.stdout.write(JSON.stringify(out) + '\n');
+  return out;
 }
 
 const isGuard = h => h?.type === 'command' && /dibs-guard\.mjs['"]?$|\bdibs(\.mjs)?['"]? guard['"]?$/.test(String(h.command || '').trim());
@@ -572,6 +580,7 @@ const USAGE = `dibs guard: catch heavy commands an agent runs outside dibs, turn
   dibs guard remove [--settings file]    take it out again
   dibs guard status [--settings file] [--json]   is it installed (exit 1 if not; --json always exits 0)
   dibs guard check "<command>"           what the hook would do with a command
+  dibs guard serve                       answer the hook from one running process (dibs service install guard keeps it up)
 The hook reads Claude Code's JSON on stdin: dibs guard < input.json`;
 
 // What `dibs guard status --json` prints, for dibs web too.
@@ -593,6 +602,7 @@ export function guard(args) {
   const verb = args[0];
   try {
     if (!verb) return process.stdin.isTTY ? reply(USAGE) : hook();
+    if (verb === 'serve') return import('./guardd.mjs').then(m => m.serveGuard());
     if (verb === 'install') return reply(`dibs guard: ${install(file)}`);
     if (verb === 'remove') { const r = remove(file); return r ? reply(`dibs guard: ${r}`) : reply(`dibs guard: not installed in ${file}`, 1); }
     if (verb === 'status') {

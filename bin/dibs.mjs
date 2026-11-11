@@ -203,7 +203,7 @@ other
   dibs throttle [--watch]                  move CPU hogs running outside dibs to background priority when the machine is hot
   dibs setup scratch [--size 40G]          print the one-time commands for a capped volume for build output (--check: how full)
   dibs changes                             what changed in recent versions
-  dibs guard install|remove|status|check   a Claude Code hook that runs heavy commands through dibs when an agent forgets
+  dibs guard install|remove|status|check|serve   a Claude Code hook that runs heavy commands through dibs when an agent forgets
   dibs init [--repo] [--remove]            write dibs.md (the agent instructions) and a note pointing at it in ~/.claude/CLAUDE.md,
                                            ~/.codex/AGENTS.md and this repo's CLAUDE.md and AGENTS.md (install does it; --repo makes
                                            this repo's CLAUDE.md; --remove takes it all out; DIBS_NO_AGENT_NOTES=1 skips it)

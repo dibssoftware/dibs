@@ -20,9 +20,10 @@ const KINDS = {
   throttle: { args: ['throttle', '--watch'], what: 'moves hot work outside dibs to background priority' },
   web:      { args: ['web'],                 what: 'the page and MCP server showing your agents\' work' },
   relay:    { args: ['relay'],               what: 'reach the page from any browser through the encrypted relay (dibs pair --remote)' },
+  guard:    { args: ['guard', 'serve'],      what: 'answers the Claude Code hook without starting Node for every tool call' },
 };
 // Things started by hand before the service existed; stopped so the service can take over.
-const PIDFILES = { worker: 'worker.pid', throttle: 'cool.pid' };
+const PIDFILES = { worker: 'worker.pid', throttle: 'cool.pid', guard: 'guard.pid' };
 
 const label = k => `dev.dibs.${k}`;
 // DIBS_LAUNCH_AGENTS and DIBS_LAUNCHCTL stand in for ~/Library/LaunchAgents and launchctl in tests.
@@ -88,7 +89,7 @@ function install(k) {
   if (PIDFILES[k]) stopManual(k);
   if (OS === 'macos') {
     // Jobs a worker runs inherit its scheduling class, so it can't be Background.
-    const type = { serve: 'Standard', worker: 'Interactive', throttle: 'Background', web: 'Standard', relay: 'Standard' }[k];
+    const type = { serve: 'Standard', worker: 'Interactive', throttle: 'Background', web: 'Standard', relay: 'Standard', guard: 'Interactive' }[k];
     fs.mkdirSync(path.dirname(plist(k)), { recursive: true });
     fs.writeFileSync(plist(k), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -210,7 +211,7 @@ export async function service(args) {
     if (kinds.includes('relay')) { const s = await relayStatus(); if (s) console.log(`          relay: ${s}`); }
     return;
   }
-  if (!kinds.length) die(`which? dibs service ${action} serve|worker|throttle|web|relay   (several at once is fine)`);
+  if (!kinds.length) die(`which? dibs service ${action} serve|worker|throttle|web|relay|guard   (several at once is fine)`);
   // A service runs for weeks and listens on the network: not on a Node with a known hole.
   const hole = action === 'install' && !process.env.DIBS_ALLOW_UNPATCHED && unpatched();
   if (hole) die(`${hole}. The service would run on that Node (${process.execPath}): put a fixed one first on your PATH and run this again.`);

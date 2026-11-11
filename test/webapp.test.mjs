@@ -327,7 +327,7 @@ test('Machines on the page: this Mac\'s limits, its simulator pool and services,
   const m = (await w.get('/api/machines')).json;
   assert.equal(m.group, null);
   assert.match(m.limits, /memory/);
-  assert.deepEqual(m.services.map(x => x.name), ['serve', 'worker', 'throttle', 'web', 'relay']);
+  assert.deepEqual(m.services.map(x => x.name), ['serve', 'worker', 'throttle', 'web', 'relay', 'guard']);
   assert.ok(m.services.every(x => x.state === 'not installed'), JSON.stringify(m.services));
   assert.ok(m.pool.room['sim-own'], 'the private simulator pool');
 });

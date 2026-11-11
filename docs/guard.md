@@ -61,6 +61,12 @@ dibs guard status                       # installed? exit 1 if not
 dibs guard remove
 ```
 
+**Faster: the resident guard.** The hook runs on every tool call, and starting Node for each one is most of its time on a busy Mac. `dibs service install guard` keeps one process answering it over `~/.dibs/guard.sock` (macOS and Linux, settings.json installs; the plugin's hook starts Node as before). Each call still runs on its own, with the session's environment, so it answers exactly as before. When the service isn't running, or doesn't answer within 2 seconds, the hook starts Node itself: a stopped service slows the hook down but never breaks a tool call.
+
+```bash
+dibs service install guard
+```
+
 **Codex.** Codex reads the same marketplace and plugin files:
 
 ```bash
