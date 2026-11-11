@@ -210,10 +210,17 @@ export const sum = (xs, f) => xs.reduce((a, x) => a + f(x), 0);
 // never queue behind yourself. Two subagents of one session are different
 // agents when the guard told dibs which is which (src/files.mjs).
 const covers = (h, x) => (h.kind === 'hold' && !!x.spid && h.pid === x.spid && coversAgent(h, x)) || (!!x.outer && h.id === x.outer);
-export const holdsOf = (s, me) => new Set(s.leases.filter(l => covers(l, me)).flatMap(l => l.res));
+// A hold or outer run is one slot, so it covers one run on each of its resources at a time; a
+// second run alongside the first needs a slot of its own. On 2026-11-10 at 23:44 a session's hold
+// on playwright covered four of its subagents' runs at once, each 5 to 7.5 GB, past slots: 2 and
+// past the memory budget (a covered run is charged nothing): swap reached 13.7 GB and the Mac froze.
+const inside = (s, h, r, not) => s.leases.filter(o => o !== h && o.id !== not && o.covered?.includes(r) && covers(h, o));
+export const holdsOf = (s, me) => new Set(s.leases.filter(l => covers(l, me)).flatMap(l => l.res.filter(r => !inside(s, l, r, me.id).length)));
 // Slots of r in use. A run covered by its own hold or outer run doesn't count
-// twice, but only while that lasts: once it ends, the run is a user again.
-export const coveredNow = (s, l, r) => l.covered?.includes(r) && s.leases.some(h => h.res.includes(r) && covers(h, l));
+// twice, but only while that lasts: once it ends, the run is a user again. Of several runs that
+// say they're covered by one hold (a state written before the rule above), only the first is.
+export const coveredNow = (s, l, r) => l.covered?.includes(r)
+  && s.leases.some(h => h !== l && h.res.includes(r) && covers(h, l) && !inside(s, h, r, l.id).some(o => o.id < l.id));
 
 // What a waiter already holds while it waits, or null: the dibs run it's
 // nested in, unless that runs at low or idle priority, and its session's holds
