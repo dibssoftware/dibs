@@ -536,6 +536,14 @@ const crash = e => die(`dibs itself crashed (a bug in dibs, not in your command;
 // A lock dibs can't take over (src/lock.mjs LockBroken) is no bug either: the message names what to remove.
 const fail = e => (noSpace(e) ? die(fullDisk(e), 74) : e?.code === 'ELOCKBROKEN' ? die(e.message, 75) : crash(e));
 process.on('uncaughtException', fail);
+// A caller that stops reading (a `| head`, a closed terminal, a tool call that gave up) closes our
+// stdout or stderr. That's no bug, and the job dibs runs must go on and keep its exit code: from then
+// on dibs says nothing on that stream. On 2026-11-11 a run whose stderr reader went away crashed
+// with EPIPE (exit 70) mid-wait, twice in 8 minutes.
+for (const s of [process.stdout, process.stderr]) s.on('error', e => {
+  if (e?.code !== 'EPIPE' && e?.code !== 'ERR_STREAM_DESTROYED') return fail(e);
+  s.write = (_c, enc, cb) => { (typeof enc === 'function' ? enc : cb)?.(); return true; };
+});
 
 // A job lost on its way to or on another machine (76, 77) and dibs's own crash
 // (70) go in the event log, so the person hears of them (src/alerts.mjs), not
