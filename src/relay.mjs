@@ -132,6 +132,23 @@ const CODE_SALT = 'dibs-code-v1';
 export const normCode = s => String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
 export const isCode = s => /^[0-9A-HJKMNP-TV-Z]{12}$/.test(s);
 const randomCrockford = n => Array.from({ length: n }, () => CROCKFORD[crypto.randomInt(32)]).join('');
+// DIBS_FAKE_CODES: codes to hand out first, comma-separated, so a test can make two Macs pick the
+// same drop name. Read once per process.
+const fakeCodes = (process.env.DIBS_FAKE_CODES || '').split(',').map(normCode).filter(isCode);
+// A new code whose drop name none of this Mac's open links uses.
+function freshCode() {
+  const mine = new Set(load().pairs.map(p => p.cr));
+  for (;;) {
+    const c = fakeCodes.shift() || randomCrockford(12);
+    if (!mine.has(c.slice(0, 4))) return c;
+  }
+}
+// How long dibs pair --remote waits for the relay to take its code (the connector notices the new
+// link within TOKEN_SYNC, then it's one round trip), and how many fresh codes it tries when
+// another Mac already holds the drop name. One clash is a 1 in a million event; three in a row
+// means something else is wrong.
+const CODE_ACK_WAIT = 5000;
+const CODE_TRIES = 3;
 export const showCode = c => `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8, 12)}`;
 const codeKey = (k, r) => crypto.pbkdf2Sync(utf8(k), utf8(CODE_SALT + r), CODE_ITERATIONS, 32, 'sha256');
 // iv (12) || ciphertext || tag (16), base64url, with the salt as associated data.
@@ -208,15 +225,54 @@ export function newPairing({ act = false, account = false } = {}) {
   const frag = `${k.mid}.${b64u(secret)}.${k.fp}`;
   // A browser link gets a code to type as well. The account link opens on /account, which has
   // its own sign-in, so it has none.
-  let code = null;
-  // Two open links of this Mac never share a drop name.
-  if (!account) do code = randomCrockford(12); while (load().pairs.some(p => p.cr === code.slice(0, 4)));
+  const code = account ? null : freshCode();
   const box = code && sealCode(frag, code.slice(0, 4), code.slice(4));
+  const pid = b64u(pairId(secret));
   locked(w => {
-    w.pairs.push({ pid: b64u(pairId(secret)), key: b64u(pairKey(secret)), nk: b64u(nameKey(secret)), th: tokenHash(pairTicket(secret)), exp: now() + PAIR_LIFE, fails: 0, ...(act ? { act: true } : {}), ...(account ? { acct: true } : {}), ...(code ? { cr: code.slice(0, 4), cb: box } : {}) });
+    w.pairs.push({ pid, key: b64u(pairKey(secret)), nk: b64u(nameKey(secret)), th: tokenHash(pairTicket(secret)), exp: now() + PAIR_LIFE, fails: 0, ...(act ? { act: true } : {}), ...(account ? { acct: true } : {}), ...(code ? { cr: code.slice(0, 4), cb: box } : {}) });
     w.pairs = w.pairs.slice(-MAX_PAIRS);
   });
-  return { link: account ? `${PAGE}account#join=${frag}` : `${PAGE}#p=${frag}`, ...(code ? { code: showCode(code) } : {}), mid: k.mid, fp: k.fp, life: PAIR_LIFE, exp: now() + PAIR_LIFE, act };
+  return { link: account ? `${PAGE}account#join=${frag}` : `${PAGE}#p=${frag}`, ...(code ? { code: showCode(code) } : {}), pid, frag, mid: k.mid, fp: k.fp, life: PAIR_LIFE, exp: now() + PAIR_LIFE, act };
+}
+
+// A new code for an open link whose drop name another Mac holds at the relay: the same link,
+// sealed again under a fresh drop name and key. Null if the link is gone (used, revoked, expired).
+export function recode(pid, frag) {
+  const code = freshCode();
+  const box = sealCode(frag, code.slice(0, 4), code.slice(4));
+  return locked(w => {
+    const p = w.pairs.find(x => x.pid === pid);
+    if (!p) return null;
+    Object.assign(p, { cr: code.slice(0, 4), cb: box });
+    delete p.ca;
+    return showCode(code);
+  });
+}
+
+// The relay's answer to a drops message: which drop names it holds for this Mac (ok) and which
+// another machine already holds (taken). Kept on each open link as ca, for pairRemote to wait on.
+export function dropsAck(m) {
+  const ok = new Set(Array.isArray(m?.ok) ? m.ok : []), taken = new Set(Array.isArray(m?.taken) ? m.taken : []);
+  locked(w => {
+    for (const p of w.pairs) {
+      if (typeof p.cr !== 'string') continue;
+      if (taken.has(p.cr)) p.ca = 'taken';
+      else if (ok.has(p.cr)) p.ca = 'ok';
+    }
+  });
+}
+
+// What the relay said about this link's code: 'ok', 'taken', 'gone' (the link was used or
+// revoked meanwhile, so the code no longer matters), or null if it hasn't said within CODE_ACK_WAIT.
+async function codeAck(pid, code) {
+  const r = normCode(code).slice(0, 4), until = now() + CODE_ACK_WAIT;
+  while (now() < until) {
+    const p = load().pairs.find(x => x.pid === pid);
+    if (!p) return 'gone';
+    if (p.cr === r && p.ca) return p.ca;
+    await sleep(100);
+  }
+  return null;
 }
 
 export const devices = () => Object.entries(load().devices).map(([id, d]) => ({ id, ...d }));
@@ -588,7 +644,7 @@ export function relayTokens(w = load(), t = now()) {
 // The sealed boxes of open links' codes, by drop name, for the relay to hand to whoever types
 // the code (see CROCKFORD above). Sent apart from the tokens, which have a size limit of their own.
 export function relayDrops(w = load(), t = now()) {
-  return { t: 'drops', d: w.pairs.filter(p => p.exp > t && typeof p.cr === 'string' && typeof p.cb === 'string').map(p => ({ r: p.cr, b: p.cb, exp: p.exp })) };
+  return { t: 'drops', d: w.pairs.filter(p => p.exp > t && typeof p.cr === 'string' && typeof p.cb === 'string' && p.ca !== 'taken').map(p => ({ r: p.cr, b: p.cb, exp: p.exp })) };
 }
 
 function status(state, extra = {}) {
@@ -754,6 +810,7 @@ export function connectOnce(base, k, call) {
         if (m.t === 'http' && typeof m.id === 'string') {
           return mcpAnswer(m, k).catch(() => offJson(500)).then(r => { if (ws.readyState === 1) ws.send(httpRes(m.id, r)); });
         }
+        if (m.t === 'drops-res') { try { dropsAck(m); } catch (e) { log(`relay: couldn't note which codes the relay took: ${e.message}`); } return; }
         if (m.t === 'open' && unb64u(m.ch, 16)) return peer.open(m.ch);
         if (m.t === 'gone' && unb64u(m.ch, 16)) return peer.gone(m.ch);
         return;
@@ -771,16 +828,32 @@ export function connectOnce(base, k, call) {
 const ago = t => (t ? `${dur(now() - t)} ago` : 'never');
 
 // The remote half of `dibs pair`: --remote [--allow-actions], and its rows in --list and --revoke.
-export function pairRemote({ act = false } = {}) {
+export async function pairRemote({ act = false } = {}) {
   const p = newPairing({ act });
   logChange('pair remote', { actions: act });
-  console.log(`${render(qr(p.link))}\nCode: ${p.code}\n`);
-  console.log(`Scan the QR code with your phone, or type the code at ${PAGE.replace(/^https?:\/\//, '').replace(/\/$/, '')}.`);
+  // The code is shown only once the relay has taken it, so the one printed works. Another Mac
+  // holding the same drop name gets a fresh code for the same link; no answer from the relay
+  // (it's slow, or the connector isn't running) prints the code with a warning.
+  const s = statusLine();
+  const connected = !!s?.startsWith('connected');
+  let code = p.code, ack = connected ? await codeAck(p.pid, code) : null;
+  for (let i = 1; ack === 'taken' && i < CODE_TRIES; i++) {
+    code = recode(p.pid, p.frag);
+    ack = code ? await codeAck(p.pid, code) : 'gone';
+  }
+  const page = PAGE.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  if (ack === 'taken') {
+    console.log(`${render(qr(p.link))}\n`);
+    console.log(`Scan the QR code with your phone. Its code clashed with another Mac's at the relay, so there's none to type this time: run dibs pair --remote again for one.`);
+  } else {
+    console.log(`${render(qr(p.link))}\nCode: ${code}\n`);
+    console.log(`Scan the QR code with your phone, or type the code at ${page}.`);
+    if (connected && !ack) console.log(`The relay hasn't confirmed the code yet, so it may not work. The QR code works either way.`);
+  }
   console.log(`It works once, until ${clockOf(p.exp)} (${p.life / MIN} minutes). That browser checks it reached this Mac by its fingerprint ${p.fp.slice(0, 16)}...`);
   console.log(`The QR code as a link:\n${p.link}\n`);
   console.log(act ? 'It can act: boost, pause, resume and stop jobs, cap an agent, set the pace, cancel scheduled runs. Never message agents, answer their questions, or change the hook or your hours. Revoke it if the device is lost.'
     : 'It can only look. To let a browser change things too: dibs pair --remote --allow-actions');
-  const s = statusLine();
   if (!s || s.startsWith('not running')) console.log(`\nThis Mac isn't connected to the relay yet. Turn it on: dibs service install relay`);
 }
 // dibs connect --account: a link a browser signed in to a dibs account opens, to add this Mac to

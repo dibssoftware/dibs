@@ -640,14 +640,21 @@ export class Machine extends DurableObject {
           await this.env.INDEX.get(this.env.INDEX.idFromName('index')).fetch('https://index.internal/set', { method: 'POST', body: JSON.stringify({ mid: a.mid, codes }) });
         }
       }
-      // Open links' pairing code drops, the whole list each time, to the code index.
+      // Open links' pairing code drops, the whole list each time, to the code index. The Mac hears
+      // back which drop names are its own now and which another machine holds, so the code
+      // dibs pair --remote prints is always one that works. A list the same as the last one gets
+      // the last answer again (until the object sleeps and forgets it; then the index is asked again).
       if (m?.t === 'drops' && Array.isArray(m.d)) {
         const drops = m.d.filter(x => typeof x?.r === 'string' && typeof x.b === 'string' && Number.isFinite(x.exp)).slice(0, MAX_DROPS).map(x => ({ r: x.r, b: x.b, exp: x.exp }));
         const key = JSON.stringify(drops);
-        if (key !== this.sentDrops) {
+        if (key !== this.sentDrops || !this.dropsAnswer) {
+          const r = await this.env.INDEX.get(this.env.INDEX.idFromName('index')).fetch('https://index.internal/drops', { method: 'POST', body: JSON.stringify({ mid: a.mid, drops }) });
+          if (r.status !== 200) return;
+          const j = await r.json();
           this.sentDrops = key;
-          await this.env.INDEX.get(this.env.INDEX.idFromName('index')).fetch('https://index.internal/drops', { method: 'POST', body: JSON.stringify({ mid: a.mid, drops }) });
+          this.dropsAnswer = { t: 'drops-res', ok: j.ok, taken: j.taken };
         }
+        ws.send(JSON.stringify(this.dropsAnswer));
         return;
       }
       // A tab that just paired becomes a paired tab: the Mac saw its pairing succeed and registered its token.
@@ -728,11 +735,11 @@ export class CodeIndex extends DurableObject {
       return new Response('ok');
     }
     if (url.pathname === '/drops') {
-      const next = await this.book.setDrops(j.mid, j.drops);
-      if (next === null) return new Response('bad', { status: 400 });
+      const r = await this.book.setDrops(j.mid, j.drops);
+      if (r === null) return Response.json({ error: 'bad' }, { status: 400 });
       const due = await this.ctx.storage.getAlarm();
-      if (next && (!due || next < due)) await this.ctx.storage.setAlarm(next);
-      return new Response('ok');
+      if (r.next && (!due || r.next < due)) await this.ctx.storage.setAlarm(r.next);
+      return Response.json({ ok: r.ok, taken: r.taken });
     }
     if (url.pathname === '/take') return Response.json(await this.book.takeDrop(j.r, j.ip));
     if (url.pathname === '/find') return Response.json(await this.book.find(j.h, j.ip));

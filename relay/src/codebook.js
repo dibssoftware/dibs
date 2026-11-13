@@ -101,7 +101,9 @@ export class CodeBook {
   }
 
   // A machine's whole list of open pairing code drops, replacing the one before: [{ r, b, exp }].
-  // A drop name another machine holds stays theirs. Returns when the next sweep is due (0 for none).
+  // A drop name another machine holds stays theirs. Returns { next, ok, taken }: when the next
+  // sweep is due (0 for none), the names now held for this machine, and the ones another holds,
+  // which the machine is told so it can pick fresh codes (src/relay.mjs pairRemote).
   async setDrops(mid, list, t = Date.now()) {
     if (typeof mid !== 'string' || !MID.test(mid)) return null;
     const s = this.storage;
@@ -113,17 +115,18 @@ export class CodeBook {
       const e = await s.get(`r:${r}`);
       if (e?.mid === mid) await s.delete(`r:${r}`);
     }
-    const kept = [];
+    const kept = [], taken = [];
     for (const d of drops) {
       const e = await s.get(`r:${d.r}`);
-      if (e && e.mid !== mid && e.exp > t) continue;
+      if (e && e.mid !== mid && e.exp > t) { taken.push(d.r); continue; }
       kept.push(d);
       // The same box listed again keeps its count: listing never earns more fetches.
       if (!(e && e.mid === mid && e.b === d.b)) await s.put(`r:${d.r}`, { mid, b: d.b, exp: d.exp, n: 0 });
     }
-    if (!kept.length) { await s.delete(`rm:${mid}`); return 0; }
-    await s.put(`rm:${mid}`, { rs: kept.map(d => d.r), exp: Math.max(...kept.map(d => d.exp)) });
-    return Math.min(...kept.map(d => d.exp));
+    const ok = kept.map(d => d.r);
+    if (!kept.length) { await s.delete(`rm:${mid}`); return { next: 0, ok, taken }; }
+    await s.put(`rm:${mid}`, { rs: ok, exp: Math.max(...kept.map(d => d.exp)) });
+    return { next: Math.min(...kept.map(d => d.exp)), ok, taken };
   }
 
   // { box } for a live drop with fetches left, { box: null } for anything else (malformed,

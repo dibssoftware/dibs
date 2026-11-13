@@ -647,3 +647,75 @@ test('an expired link\'s box leaves the relay, and account links carry no code',
   assert.equal(relay.relayDrops().d.length, 1);
   relay.revoke('all');
 });
+
+// dibs pair --remote waits for the relay to take its code. The connector (src/relay.mjs
+// connectOnce) is played here: the status file says connected, and this test answers for the relay.
+async function withConnector(fn) {
+  const file = path.join(HOME, 'relay-status.json');
+  fs.writeFileSync(file, JSON.stringify({ state: 'connected', since: Date.now(), pid: process.pid, url: 'wss://app.dibs.cc' }));
+  try { return await fn(); } finally { fs.rmSync(file, { force: true }); }
+}
+const openCodes = () => relay.load().pairs.map(p => p.cr).filter(Boolean);
+
+test('a code whose drop name another Mac holds at the relay is never printed: the same link gets a fresh code, which the relay takes', async t => {
+  relay.revoke('all');
+  await withConnector(async () => {
+    const p = bg(t, HOME, ['pair', '--remote'], { env: { DIBS_FAKE_CODES: 'AAAA-BBBB-CCCC,DDDD-EEEE-FFFF' } });
+    await until(() => openCodes().includes('AAAA'), 10e3, 'the first code');
+    relay.dropsAck({ t: 'drops-res', ok: [], taken: ['AAAA'] });
+    assert.deepEqual(relay.relayDrops().d.filter(d => d.r === 'AAAA'), [], 'a taken name isn\'t offered again');
+    await until(() => openCodes().includes('DDDD'), 10e3, 'a fresh code for the same link');
+    relay.dropsAck({ t: 'drops-res', ok: ['DDDD'], taken: [] });
+    assert.equal(await p.done, 0, p.err);
+    assert.match(p.out, /^Code: DDDD-EEEE-FFFF$/m);
+    assert.doesNotMatch(p.out, /AAAA/);
+    assert.doesNotMatch(p.out, /may not work/);
+    assert.equal(relay.load().pairs.length, 1, 'one link, recoded, not a second one');
+    // The fresh code opens the same link the QR code holds.
+    const link = linkFrom(p.out.match(/https:\/\/app\.dibs\.cc\/#p=\S+/)[0]);
+    const got = await B.codeLink('DDDD-EEEE-FFFF', dropRelay().fetch);
+    assert.equal(B.b64u(got.secret), B.b64u(link.secret));
+  });
+  relay.revoke('all');
+});
+
+test('no word from the relay: the code is printed with a warning, and the QR code still works', async t => {
+  relay.revoke('all');
+  await withConnector(async () => {
+    const p = bg(t, HOME, ['pair', '--remote']);
+    assert.equal(await p.done, 0, p.err);
+    assert.match(p.out, /^Code: \S{4}-\S{4}-\S{4}$/m);
+    assert.match(p.out, /hasn't confirmed the code yet, so it may not work\. The QR code works either way/);
+    assert.match(p.out, /▀|▄|█/);
+  });
+  relay.revoke('all');
+});
+
+test('three clashes in a row: no code to type, only the QR code and how to get a new one', async t => {
+  relay.revoke('all');
+  await withConnector(async () => {
+    const p = bg(t, HOME, ['pair', '--remote'], { env: { DIBS_FAKE_CODES: 'AAAA-BBBB-CCCC,DDDD-EEEE-FFFF,GGGG-HHHH-JJJJ' } });
+    for (const r of ['AAAA', 'DDDD', 'GGGG']) {
+      await until(() => openCodes().includes(r), 10e3, r);
+      relay.dropsAck({ t: 'drops-res', ok: [], taken: [r] });
+    }
+    assert.equal(await p.done, 0, p.err);
+    assert.doesNotMatch(p.out, /^Code:/m);
+    assert.match(p.out, /clashed with another Mac's/);
+    assert.match(p.out, /https:\/\/app\.dibs\.cc\/#p=/);
+  });
+  relay.revoke('all');
+});
+
+test('the relay\'s answer marks only links whose current code it names', () => {
+  relay.revoke('all');
+  const a = relay.newPairing(), b = relay.newPairing();
+  const ra = relay.normCode(a.code).slice(0, 4), rb = relay.normCode(b.code).slice(0, 4);
+  relay.dropsAck({ t: 'drops-res', ok: [ra], taken: ['ZZZZ'] });
+  const byR = Object.fromEntries(relay.load().pairs.map(p => [p.cr, p.ca]));
+  assert.equal(byR[ra], 'ok');
+  assert.equal(byR[rb], undefined);
+  relay.dropsAck({ t: 'drops-res' });
+  relay.dropsAck(null);
+  relay.revoke('all');
+});

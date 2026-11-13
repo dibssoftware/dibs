@@ -460,6 +460,17 @@ async function main() {
   procs.push({ ...macB, home: HOME2 });
   await until(() => { try { return JSON.parse(fs.readFileSync(path.join(HOME2, 'relay-status.json'), 'utf8')).state === 'connected'; } catch { return false; } }, 30e3, `machine B to connect\n${macB.log}`);
   const midB = macB.log.match(/machine ([A-Za-z0-9_-]{22})/)[1];
+
+  // Two Macs picking the same drop name: the second hears so from the relay and prints a fresh code.
+  const pageReqAt = (body, ip) => mcpReq('POST', '/pair/code', { headers: { Host: `127.0.0.1:${PORT}`, Origin: ORIGIN, 'CF-Connecting-IP': ip }, body });
+  const outB = spawnSync(process.execPath, [BIN, 'pair', '--remote'], { env: { ...ENV2, DIBS_FAKE_CODES: 'QQQQ-RRRR-SSSS' }, encoding: 'utf8' }).stdout;
+  assert.match(outB, /^Code: QQQQ-RRRR-SSSS$/m, outB);
+  const outA = spawnSync(process.execPath, [BIN, 'pair', '--remote'], { env: { ...ENV, DIBS_FAKE_CODES: 'QQQQ-TTTT-VVVV,WWWW-XXXX-YYYY' }, encoding: 'utf8' }).stdout;
+  assert.match(outA, /^Code: WWWW-XXXX-YYYY$/m, outA);
+  assert.doesNotMatch(outA, /QQQQ|may not work/);
+  assert.equal((await pageReqAt({ r: 'WWWW' }, '192.0.2.90')).status, 200, 'A\'s fresh code is at the relay');
+  assert.equal((await pageReqAt({ r: 'QQQQ' }, '192.0.2.91')).status, 200, 'B\'s drop is still B\'s');
+  step('two Macs with the same drop name: the relay keeps the first, the second prints a fresh code that works, with no warning');
   const BARE = `http://${MCP_HOST}`;
   assert.match(dibs(['pair']).split('\n')[0], /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
   assert.match(dibs(['relay', 'mcp']), new RegExp(`remote MCP on at ${BARE.replace(/[.]/g, '\\.')}/mcp\\b`));

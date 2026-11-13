@@ -117,11 +117,12 @@ test('a used, revoked or expired link\'s drop is gone; unknown and malformed nam
   assert.equal(s.m.size, 0, 'the sweep takes expired drops and their list');
 });
 
-test('a machine can\'t take, replace or clear another\'s drop', async () => {
+test('a machine can\'t take, replace or clear another\'s drop, and is told which names another holds', async () => {
   const s = store(), book = new CodeBook(s, { perIp: 100 });
   const t = Date.now(), a = mid(), b = mid(), r = drop(), mine = box();
-  await book.setDrops(a, [{ r, b: mine, exp: t + 60e3 }], t);
-  await book.setDrops(b, [{ r, b: box(), exp: t + 60e3 }], t);
+  assert.deepEqual(await book.setDrops(a, [{ r, b: mine, exp: t + 60e3 }], t), { next: t + 60e3, ok: [r], taken: [] });
+  const other = drop();
+  assert.deepEqual(await book.setDrops(b, [{ r, b: box(), exp: t + 60e3 }, { r: other, b: box(), exp: t + 60e3 }], t), { next: t + 60e3, ok: [other], taken: [r] }, 'B hears its clash, to pick a fresh code');
   assert.equal((await book.takeDrop(r, 'ip', t)).box, mine);
   await book.setDrops(b, [], t);
   assert.equal((await book.takeDrop(r, 'ip', t)).box, mine);
