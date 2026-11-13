@@ -187,8 +187,11 @@ export async function run(o, cfg) {
   // Low and idle work can be paused for urgent work (src/preempt.mjs); say so when it happens.
   // Notices about this job and others go to their agents while it runs (src/notices.mjs).
   setInterval(noticeScan, NOTICE_EVERY).unref();
+  // Windows has no SIGUSR2: there each tick of this run reads its own lease (a plain read, no lock)
+  // and says the same things, a few seconds later at most.
   const notify = OS !== 'windows';
-  if (notify) process.on('SIGUSR2', noticeHandler(() => withStateIfRoom(s => s.leases.find(x => x.id === lease.id))));
+  const heard = noticeHandler(() => (notify ? withStateIfRoom(s => s.leases.find(x => x.id === lease.id)) : peek().leases?.find(x => x.id === lease.id)));
+  if (notify) process.on('SIGUSR2', heard);
   // The command starts only once its group is on record, so a wrapper killed
   // at any point has its job reaped with it, or the job never starts.
   // The gate shell execs the command, so its start time is the command's.
@@ -208,7 +211,7 @@ export async function run(o, cfg) {
   if (child.pid) wd.add(child.pid);
   if (child.pid && !pgstart) withStateIfRoom(note({ pgstart: starts([child.pid])?.get(child.pid) ?? null }));
   // Each tick also measures every lease on the machine, when it's this run's turn (src/measure.mjs).
-  tracker = setInterval(() => { track(); sample(); }, 3000);
+  tracker = setInterval(() => { track(); sample(); if (!notify) heard(); }, 3000);
   tracker.unref();
   child.on('error', e => { say(`couldn't start ${o.cmd[0]}: ${e.message}`); finish(127); });
   // No last track(): once the child has exited, its process groups are found by the
