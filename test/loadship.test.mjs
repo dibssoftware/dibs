@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmp, bg, until, port, answers, gitProject, board, machinesOf, SERVE_START, MACHINE, nodeWrapper, posixFile } from './helpers.mjs';
+import { tmp, bg, until, port, answers, gitProject, board, machinesOf, flat, SERVE_START, MACHINE, nodeWrapper, posixFile } from './helpers.mjs';
 
 const test = posixFile(nodeTest, "the fake boat runs the on-demand VM's Linux setup (sh, tar, a Linux worker) on this machine, and Windows can't stand in for that VM");
 import { macOnly } from '../src/remote.mjs';
@@ -145,15 +145,19 @@ test('jobs memory pressure holds pack onto boat-1 while they fit its memory, the
     const j = bg(t, h, ['run', 'test', '--mem', '3G', '-m', who, '--', ...forever], { ...hot, cwd: proj, agent: who });
     // Sent, and the coordinator has it, so the next sender sees it booked there.
     await until(() => machinesOf(h).jobs?.some(x => x.agent === who && x.machine), 60e3);
+    // Its line saying where it went was printed before the coordinator had it, but this
+    // process reads the pipe only between polls: machinesOf blocks it, and until returns
+    // right after. On Ubuntu CI (2026-11-12) the check ran before that line was read.
+    await until(() => /so it goes to /.test(flat(j.err)));
     return j;
   };
   // boat-1 has 8 GB: two 3 GB jobs fit beside each other with 1 GB for the VM itself, a third doesn't.
   const a = await sent('first');
-  assert.match(a.err, /so it goes to boat-1, /);
+  assert.match(flat(a.err), /so it goes to boat-1, /);
   const b = await sent('second');
-  assert.match(b.err, /so it goes to boat-1, /, 'it fits beside the first, so no VM is made for it');
+  assert.match(flat(b.err), /so it goes to boat-1, /, 'it fits beside the first, so no VM is made for it');
   const c = await sent('third');
-  assert.match(c.err, /so it goes to boat-1-temp, /, 'boat-1 is full');
+  assert.match(flat(c.err), /so it goes to boat-1-temp, /, 'boat-1 is full');
   for (const j of [a, b, c]) j.kill('SIGTERM');
   await Promise.all([a.done, b.done, c.done]);
   fs.writeFileSync(path.join(proj, 'stop'), '');
