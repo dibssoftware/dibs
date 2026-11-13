@@ -21,8 +21,8 @@ function place(t, { codex = false, claude = '# my rules\nbe terse\n' } = {}) {
   fs.mkdirSync(path.join(home, '.claude'));
   if (claude != null) fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'), claude);
   if (codex) fs.mkdirSync(path.join(home, '.codex'));
-  // git names the repo by its real path (/private/var/... on macOS), and so does dibs.
-  const repo = fs.realpathSync(gitProject(t, { 'CLAUDE.md': '# repo rules\n' }));
+  // git names the repo by its real path (/private/var/... on macOS, the long name on Windows), and so does dibs.
+  const repo = fs.realpathSync.native(gitProject(t, { 'CLAUDE.md': '# repo rules\n' }));
   // dibs.md goes beside the checkout these tests run from; each test takes it back out.
   t.after(() => fs.rmSync(MD, { force: true }));
   const init = (args = [], env = {}) => sync(home, ['init', ...args], { cwd: repo, env: { ...homeEnv(home), ...env } });

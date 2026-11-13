@@ -83,7 +83,9 @@ test('a listener whose session is gone leaves quietly: exit 0, no output, and of
   const w = setup(t);
   // Outside a Claude Code session its owner is whatever started it: here a Node parent, killed outright.
   // Not a shell: in Git Bash on Windows a background job's parent is a forked shell the kill doesn't reach.
-  const sh = spawn(process.execPath, ['-e', `require('node:child_process').spawn(process.execPath, [${JSON.stringify(BIN)}, 'listen'], { stdio: 'inherit' }); setInterval(() => {}, 1e9);`], { env: env(w.home, w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_LISTEN_POLL: '100' } })), stdio: ['ignore', 'pipe', 'pipe'] });
+  // Detached, since on Windows Node ends a child along with its parent (a job object), and this is
+  // about a listener that outlives what started it.
+  const sh = spawn(process.execPath, ['-e', `require('node:child_process').spawn(process.execPath, [${JSON.stringify(BIN)}, 'listen'], { stdio: 'inherit', detached: true, windowsHide: true }); setInterval(() => {}, 1e9);`], { env: env(w.home, w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_LISTEN_POLL: '100' } })), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   sh.stdout.on('data', d => (out += d));
   sh.stderr.on('data', d => (out += d));
