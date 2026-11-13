@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { tmp, sync as dibs, bg as spawnDibs, until, board, alive, wait, BIN, MACHINE, flat, posixOnly, shPid, windowsGap } from './helpers.mjs';
+import { tmp, sync as dibs, bg as spawnDibs, until, board, alive, wait, BIN, MACHINE, flat, posixOnly, shPid } from './helpers.mjs';
 
 const sync = (h, agent, args) => dibs(h, args, { agent });
 const bg = (t, h, agent, args) => spawnDibs(t, h, args, { agent });
@@ -238,7 +238,7 @@ test('memory budget makes a big job wait while a small one runs', async t => {
   assert.equal(big2.out, 'big2\n');
 });
 
-test('many agents hammering the state file never lose a lease', { skip: windowsGap('twelve dibs at once on a 4-core runner can keep one off the state lock past its 45 s limit (exit 75): each holds it longer there') }, async t => {
+test('many agents hammering the state file never lose a lease', async t => {
   const h = tmp(t);
   const runs = Array.from({ length: 12 }, (_, i) => bg(t, h, `p${i}`, [`r${i % 3}`, '--', 'true']));
   assert.deepEqual(await Promise.all(runs.map(r => r.done)), Array(12).fill(0), runs.map(r => r.err).join(''));
