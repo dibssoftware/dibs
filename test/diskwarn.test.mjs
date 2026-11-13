@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { HOME, tmp, G, bg, until, port, answers, MACHINE, SERVE_START } from './helpers.mjs';
+import { HOME, tmp, G, bg, until, port, answers, MACHINE, SERVE_START, windowsGap } from './helpers.mjs';
 
 const base = fs.mkdtempSync(path.join(fs.realpathSync(path.dirname(HOME)), 'dibs-claude-tmp-'));
 process.env.DIBS_CLAUDE_TMP = base;
@@ -70,7 +70,7 @@ test('under twice the floor, dibs clears caches and tells only the sessions with
   assert.equal(notes().length, 3, 'room again, then a new fall: told again');
 });
 
-test("a session whose own scratch folder is big hears it's low on disk, though it runs nothing", async t => {
+test("a session whose own scratch folder is big hears it's low on disk, though it runs nothing", { skip: windowsGap("Claude Code's temp folder is claude-<uid>, and Windows has no uid: src/files.mjs claudeTmp finds none") }, async t => {
   t.after(clear);
   process.env.DIBS_HOG_MIN = String(200 * 1024);
   t.after(() => delete process.env.DIBS_HOG_MIN);
@@ -84,7 +84,7 @@ test("a session whose own scratch folder is big hears it's low on disk, though i
   assert.doesNotMatch(notes()[0].text, /Free what you can of your own/, 'its files hold still: no telling it to free them again and again (e4)');
 });
 
-test("with the throttle watcher down, the coordinator sends the low-disk notes itself", async t => {
+test("with the throttle watcher down, the coordinator sends the low-disk notes itself", { skip: windowsGap("Claude Code's temp folder is claude-<uid>, and Windows has no uid: src/files.mjs claudeTmp finds none") }, async t => {
   const { watcherDown } = await import('../src/diskwarn.mjs');
   const h = tmp(t, 'coord');
   const at = await port();

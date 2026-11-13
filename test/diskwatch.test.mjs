@@ -147,7 +147,7 @@ test("a job paused for the disk tells its agent through the hook at once, with w
 });
 
 // relayreview, 2026-11-05: nothing stopped a high or non-pausable job from writing the disk to 0.
-test('under 1 GB free the watcher pauses the job writing the most, a deploy included, says so to its session and the person, and resumes it at 2 GB', async t => {
+test('under 1 GB free the watcher pauses the job writing the most, a deploy included, says so to its session and the person, and resumes it at 2 GB', { skip: posixOnly("pausing needs SIGSTOP, which Windows doesn't have") }, async t => {
   const { diskOnce } = await import('../src/cool.mjs');
   const { withState, peek } = await import('../src/state.mjs');
   const { pstart } = await import('../src/proc.mjs');

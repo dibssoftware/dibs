@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
 import { tmp, env, sync, bg, until, board, alive, HOOK, BIN } from './helpers.mjs';
 
@@ -80,8 +81,9 @@ test('a listener with no --for keeps waiting, poll after poll, until something c
 
 test('a listener whose session is gone leaves quietly: exit 0, no output, and off the list', async t => {
   const w = setup(t);
-  // Outside a Claude Code session its owner is whatever started it: here a shell, killed outright.
-  const sh = spawn('sh', ['-c', `"${process.execPath}" "${BIN}" listen & wait`], { env: env(w.home, w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_LISTEN_POLL: '100' } })), stdio: ['ignore', 'pipe', 'pipe'] });
+  // Outside a Claude Code session its owner is whatever started it: here a Node parent, killed outright.
+  // Not a shell: in Git Bash on Windows a background job's parent is a forked shell the kill doesn't reach.
+  const sh = spawn(process.execPath, ['-e', `require('node:child_process').spawn(process.execPath, [${JSON.stringify(BIN)}, 'listen'], { stdio: 'inherit' }); setInterval(() => {}, 1e9);`], { env: env(w.home, w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_LISTEN_POLL: '100' } })), stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   sh.stdout.on('data', d => (out += d));
   sh.stderr.on('data', d => (out += d));
@@ -133,7 +135,7 @@ test('a notice about the agent\'s jobs wakes a listener too', async t => {
   await until(() => listening(w));
   // dibs leaves the notice from its own process (src/notices.mjs), under the test's DIBS_HOME.
   const r = spawnSync(process.execPath, ['--input-type=module', '-e',
-    `const { notify } = await import(${JSON.stringify(path.resolve('src/talk.mjs'))}); notify({ sessionId: 'sess-a', who: 'web-app' }, 'idle:#1', 'your build has sat idle for 10 minutes');`],
+    `const { notify } = await import(${JSON.stringify(pathToFileURL(path.resolve('src/talk.mjs')).href)}); notify({ sessionId: 'sess-a', who: 'web-app' }, 'idle:#1', 'your build has sat idle for 10 minutes');`],
   { env: env(w.home, w.opts()), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(await p.done, 0, p.err);

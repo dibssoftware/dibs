@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { resCfg, machine, paths, HOME, loadConfig } from './config.mjs';
 import { identity, pstart, tag } from './proc.mjs';
 import { processes, parent, OS } from './platform.mjs';
@@ -22,7 +23,7 @@ import { noticeScan } from './notices.mjs';
 import { notify } from './talk.mjs';
 import { mayShip, loadShipTarget } from './remote.mjs';
 
-const BIN = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'dibs.mjs');
+const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'dibs.mjs');
 
 // How long dibs run waits in line outside Claude Code, where nothing moves a
 // long call to the background and the tool may kill it.

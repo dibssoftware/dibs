@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { G, MACHINE, tmp, sync, bg, until, board, gitProject } from './helpers.mjs';
+import { G, MACHINE, tmp, sync, bg, until, board, gitProject, sysPath, realPath } from './helpers.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { verdict } from '../src/schedule.mjs';
 import { projectKey } from '../src/files.mjs';
@@ -60,9 +60,10 @@ test('a config that says deploy: {slots: 1} still goes per project, and exclusiv
 
 test("a folder's project: its repo's origin URL, else the repo, else the folder itself", t => {
   const plain = tmp(t, 'plain');
-  assert.equal(projectKey(plain), plain);
+  // Written with / on Windows too, as src/files.mjs keeps every path.
+  assert.equal(projectKey(plain), sysPath(plain));
   const repo = gitProject(t);
-  assert.equal(projectKey(path.join(repo)), fs.realpathSync(repo));
+  assert.equal(projectKey(path.join(repo)), realPath(repo));
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:me/web.git'], { cwd: repo });
   fs.mkdirSync(path.join(repo, 'sub'));
   assert.equal(projectKey(path.join(repo, 'sub')), 'git@github.com:me/web.git');

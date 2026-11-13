@@ -6,12 +6,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { tmp, sync, gitProject, BIN } from './helpers.mjs';
+import { tmp, sync, gitProject, BIN, posixOnly } from './helpers.mjs';
 
 const ROOT = path.join(path.dirname(BIN), '..');
 const MD = path.join(ROOT, 'dibs.md');
 const read = f => fs.readFileSync(f, 'utf8');
 const blocks = s => (s.match(/<!-- dibs:start -->/g) || []).length;
+// The home dibs sees: os.homedir() reads USERPROFILE on Windows, HOME elsewhere.
+const homeEnv = home => ({ HOME: home, USERPROFILE: home });
 
 // A home with Claude Code (and, if asked, Codex) set up, and a repo to run in.
 function place(t, { codex = false, claude = '# my rules\nbe terse\n' } = {}) {
@@ -23,7 +25,7 @@ function place(t, { codex = false, claude = '# my rules\nbe terse\n' } = {}) {
   const repo = fs.realpathSync(gitProject(t, { 'CLAUDE.md': '# repo rules\n' }));
   // dibs.md goes beside the checkout these tests run from; each test takes it back out.
   t.after(() => fs.rmSync(MD, { force: true }));
-  const init = (args = [], env = {}) => sync(home, ['init', ...args], { cwd: repo, env: { HOME: home, ...env } });
+  const init = (args = [], env = {}) => sync(home, ['init', ...args], { cwd: repo, env: { ...homeEnv(home), ...env } });
   return { home, repo, init, claude: path.join(home, '.claude', 'CLAUDE.md'), codex: path.join(home, '.codex', 'AGENTS.md') };
 }
 
@@ -100,7 +102,7 @@ test('dibs init --remove takes out dibs.md and every note, and puts each file ba
   assert.equal(fs.existsSync(MD), false);
 });
 
-test('writes keep the file\'s mode and its symlink, leave no temp file, and a write that fails leaves the file whole', t => {
+test('writes keep the file\'s mode and its symlink, leave no temp file, and a write that fails leaves the file whole', { skip: posixOnly('Windows has no file modes: a read-only folder still takes a new file') }, t => {
   const p = place(t);
   const real = path.join(tmp(t, 'dotfiles'), 'CLAUDE.md');
   fs.writeFileSync(real, '# shared from my dotfiles\n', { mode: 0o600 });
@@ -129,11 +131,11 @@ test('an npm install writes dibs.md and the notes on its first command after an 
   // test/fake-simctl.mjs too: the test environment points dibs at it.
   for (const f of ['bin', 'src', 'skills', 'README.md', 'CHANGELOG.md', 'test/fake-simctl.mjs']) fs.cpSync(path.join(ROOT, f), path.join(pkg, f), { recursive: true });
   const cwd = tmp(t, 'somewhere');
-  const run = () => sync(home, ['mine'], { cwd, env: { HOME: home }, bin: path.join(pkg, 'bin', 'dibs.mjs') });
+  const run = () => sync(home, ['mine'], { cwd, env: homeEnv(home), bin: path.join(pkg, 'bin', 'dibs.mjs') });
   const first = run();
-  assert.match(first.err, /wrote .*node_modules\/@dibssoftware\/dibs\/dibs\.md/);
-  assert.match(read(path.join(home, '.claude', 'CLAUDE.md')), /node_modules\/@dibssoftware\/dibs\/dibs\.md before running builds/);
+  assert.match(first.err, /wrote .*node_modules[\\/]@dibssoftware[\\/]dibs[\\/]dibs\.md/);
+  assert.match(read(path.join(home, '.claude', 'CLAUDE.md')), /node_modules[\\/]@dibssoftware[\\/]dibs[\\/]dibs\.md before running builds/);
   assert.doesNotMatch(run().err, /wrote/, 'the next command writes nothing');
   // The checkout these tests run from isn't an npm install: it never writes on its own.
-  assert.doesNotMatch(sync(tmp(t, 'home2'), ['mine'], { cwd, env: { HOME: home } }).err, /wrote/);
+  assert.doesNotMatch(sync(tmp(t, 'home2'), ['mine'], { cwd, env: homeEnv(home) }).err, /wrote/);
 });

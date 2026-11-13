@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { resCfg, machine, HOME, paths, PACES, PACE_OVERLAP, paced, paceKnobs, hardware, writePace, loadConfig } from './config.mjs';
 import { logChange } from './owner.mjs';
 import { identity, isMine, tag, makeAlive } from './proc.mjs';
@@ -242,7 +243,7 @@ function requeue(s, l, cfg) {
 // Run the same dibs run again, as this same process where Node allows it
 // (process.execve keeps the pid the agent's tool call is waiting on), so it
 // waits in line like any other and picks up the place requeue() kept.
-const BIN = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'dibs.mjs');
+const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'dibs.mjs');
 let handedOn = false;
 function runAgain(o, lease, again) {
   say(again.why === 'over'

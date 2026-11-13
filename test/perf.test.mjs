@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
 import { tmp, sync, bg, until, board, HOME, MACHINE } from './helpers.mjs';
 import { history } from '../src/state.mjs';
@@ -79,7 +79,7 @@ test('one machine reading serves every dibs for 3 s, and the next takes cores in
   const stale = Date.now() - 10e3;
   fs.writeFileSync(file, JSON.stringify({ ...MACHINE, at: stale, load: 3.5, ticks: { busy: 0, total: 0 } }));
   const r = spawnSync(process.execPath, ['--input-type=module', '-e',
-    `const { machine } = await import(${JSON.stringify(CONFIG_MJS)}); console.log(JSON.stringify(machine()));`],
+    `const { machine } = await import(${JSON.stringify(pathToFileURL(CONFIG_MJS).href)}); console.log(JSON.stringify(machine()));`],
   { env: { ...process.env, DIBS_HOME: HOME }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const fresh = JSON.parse(r.stdout);
@@ -130,7 +130,7 @@ test('history.jsonl past 2 MB moves aside when a run ends, and learned sizes sti
   assert.equal(sync(h, ['run', 't', '-m', 'rotate', '--', 'true']).code, 0);
   assert.equal(fs.readFileSync(path.join(h, 'history.1.jsonl'), 'utf8'), big, 'the full file moved aside whole');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e',
-    `const { history } = await import(${JSON.stringify(STATE_MJS)}); const { readRuns } = await import(${JSON.stringify(STATS_MJS)});`
+    `const { history } = await import(${JSON.stringify(pathToFileURL(STATE_MJS).href)}); const { readRuns } = await import(${JSON.stringify(pathToFileURL(STATS_MJS).href)});`
     + ` const x = history(); console.log(JSON.stringify({ n: x.length, first: x[0].dur, last: x.at(-1).key, runs: readRuns(0).length }));`],
   { env: { ...process.env, DIBS_HOME: h }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);

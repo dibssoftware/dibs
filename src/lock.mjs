@@ -168,9 +168,12 @@ function stale(o, seen) {
 }
 
 // The command line a pid runs, for saying who dibs is stuck behind, or '' when ps can't say.
+// Windows has no ps: the process's command line comes from WMI, as src/platform.mjs reads it.
 export function commandOf(pid) {
-  if (WIN) return '';
-  const r = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
+  const r = WIN
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30e3 })
+    : spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
   return (r.stdout || '').trim().slice(0, 200);
 }
 

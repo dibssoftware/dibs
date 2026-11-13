@@ -686,7 +686,7 @@ test("a job sent from another machine stops waiting when the worker that started
 // 2026-10-20: waiters started before 0.0.134 kept judging memory by the old rules for hours after every fix went out.
 test('a waiter in Node carries on as the new dibs after a release, in the same place', async t => {
   const copy = tmp(t, 'dibs-copy');
-  for (const d of ['bin', 'src', 'test']) fs.cpSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', d), path.join(copy, d), { recursive: true });
+  for (const d of ['bin', 'src', 'test']) fs.cpSync(path.join(import.meta.dirname, '..', d), path.join(copy, d), { recursive: true });
   const bin = path.join(copy, 'bin', 'dibs.mjs');
   const h = tmp(t), cwd = tmp(t, 'job');
   const run = (agent, args, extra = {}) => {

@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { BIN, tmp, env, track, until, bg, alive } from './helpers.mjs';
+import { BIN, tmp, env, track, until, bg, alive, posixOnly } from './helpers.mjs';
 
 const STATE = pathToFileURL(path.join(import.meta.dirname, '..', 'src', 'state.mjs')).href;
 
@@ -51,7 +51,7 @@ test('5 writers making 50 changes each, and a holder killed with -9 mid-change: 
   assert.deepEqual(leftovers(home), [], 'nothing left beside it');
 });
 
-test('a holder stopped mid-change: the others go on within seconds, and once resumed its change is made again on top of theirs, not written over them', { timeout: 110e3 }, async t => {
+test('a holder stopped mid-change: the others go on within seconds, and once resumed its change is made again on top of theirs, not written over them', { timeout: 110e3, skip: posixOnly('Windows has no SIGSTOP') }, async t => {
   const home = tmp(t);
   // Stops itself inside its first change, then carries on when continued.
   const js = `import { withState } from ${JSON.stringify(STATE)};
@@ -177,8 +177,8 @@ test('a long-running dibs that gives up (exit 75) records where, with its comman
 // dibs with fs patched by a preload, to make a race happen on cue.
 function patched(t, home, patch, args) {
   const pre = path.join(home, 'patch.mjs');
-  fs.writeFileSync(pre, `import fs from 'node:fs';\nimport { spawn } from 'node:child_process';\nconst LOCK = ${JSON.stringify(path.join(home, 'lock'))};\n${patch}\n`);
-  const p = spawn(process.execPath, ['--import', pre, BIN, ...args], { env: env(home, { agent: 'a' }), stdio: ['ignore', 'pipe', 'pipe'] });
+  fs.writeFileSync(pre, `import fs from 'node:fs';\nimport path from 'node:path';\nimport { spawn } from 'node:child_process';\nconst LOCK = ${JSON.stringify(path.join(home, 'lock'))};\n${patch}\n`);
+  const p = spawn(process.execPath, ['--import', pathToFileURL(pre).href, BIN, ...args], { env: env(home, { agent: 'a' }), stdio: ['ignore', 'pipe', 'pipe'] });
   p.out = ''; p.err = '';
   p.stdout.on('data', d => (p.out += d));
   p.stderr.on('data', d => (p.err += d));
@@ -198,13 +198,13 @@ test("an older dibs's lock taken over by an older waiter just before this one cl
 const rename = fs.renameSync;
 let done = false;
 fs.renameSync = (a, b) => {
-  if (!done && a === LOCK + '/pid' && String(b).startsWith(LOCK + '/owner.')) {
+  if (!done && a === path.join(LOCK, 'pid') && String(b).startsWith(path.join(LOCK, 'owner.'))) {
     done = true;
     fs.rmSync(LOCK, { recursive: true, force: true });
     fs.mkdirSync(LOCK);
-    const old = spawn('sleep', ['4'], { stdio: 'ignore' });
+    const old = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 4000)'], { stdio: 'ignore' });
     old.unref();
-    fs.writeFileSync(LOCK + '/pid', String(old.pid));
+    fs.writeFileSync(path.join(LOCK, 'pid'), String(old.pid));
     fs.writeFileSync(${JSON.stringify(log)}, String(Date.now()));
   }
   return rename(a, b);

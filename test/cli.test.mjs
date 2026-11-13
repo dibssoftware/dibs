@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { tmp, sync as dibs, bg, until, board, allLow, BIN, MACHINE, G, env, posixOnly } from './helpers.mjs';
 import { freeDisk } from '../src/platform.mjs';
 import { VERSION } from '../src/version.mjs';
@@ -223,8 +224,8 @@ test('a lock left by a dead writer is taken over', t => {
 // dibs with fs patched by a preload, to make the lock race happen on cue (2026-11-04, exit 70 twice).
 function patched(t, h, patch, args) {
   const pre = path.join(tmp(t, 'pre'), 'patch.mjs');
-  fs.writeFileSync(pre, `import fs from 'node:fs';\nconst LOCK = ${JSON.stringify(path.join(h, 'lock'))};\n${patch}\n`);
-  const r = spawnSync(process.execPath, ['--import', pre, BIN, ...args], { env: env(h, { agent: 'a' }), encoding: 'utf8', timeout: 60e3 });
+  fs.writeFileSync(pre, `import fs from 'node:fs';\nimport path from 'node:path';\nconst LOCK = ${JSON.stringify(path.join(h, 'lock'))};\n${patch}\n`);
+  const r = spawnSync(process.execPath, ['--import', pathToFileURL(pre).href, BIN, ...args], { env: env(h, { agent: 'a' }), encoding: 'utf8', timeout: 60e3 });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 
@@ -242,14 +243,14 @@ import { spawn } from 'node:child_process';
 const rename = fs.renameSync;
 let fresh = false;
 fs.renameSync = (a, b) => {
-  if (!fresh && a === LOCK + '/pid' && String(b).startsWith(LOCK + '/owner.')) {
+  if (!fresh && a === path.join(LOCK, 'pid') && String(b).startsWith(path.join(LOCK, 'owner.'))) {
     fresh = true;
     fs.rmSync(LOCK, { recursive: true, force: true });
     fs.mkdirSync(LOCK);
-    const kid = spawn('sleep', ['4'], { stdio: 'ignore' });
+    const kid = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 4000)'], { stdio: 'ignore' });
     kid.unref();
-    fs.writeFileSync(LOCK + '/pid', String(kid.pid));
-    fs.writeFileSync(LOCK + '/owner.' + kid.pid + '.0.x', '');
+    fs.writeFileSync(path.join(LOCK, 'pid'), String(kid.pid));
+    fs.writeFileSync(path.join(LOCK, 'owner.' + kid.pid + '.0.x'), '');
     fs.writeFileSync(${JSON.stringify(log)}, String(Date.now()));
   }
   return rename(a, b);
@@ -267,7 +268,7 @@ test('a lock taken from this dibs before its pid went in: it waits its turn agai
 const write = fs.writeFileSync;
 let once = false;
 fs.writeFileSync = (p, ...rest) => {
-  if (!once && p === LOCK + '/pid') { once = true; fs.rmSync(LOCK, { recursive: true, force: true }); }
+  if (!once && p === path.join(LOCK, 'pid')) { once = true; fs.rmSync(LOCK, { recursive: true, force: true }); }
   return write(p, ...rest);
 };`, ['t', '--', 'echo', 'ran']);
   assert.equal(r.code, 0, r.err);

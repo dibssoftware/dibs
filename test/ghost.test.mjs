@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { tmp, sync, bg, until, env, track, board, BIN, PERSON } from './helpers.mjs';
+import { tmp, sync, bg, until, env, track, board, BIN, PERSON, posixOnly } from './helpers.mjs';
 
 const SRC = path.join(path.dirname(BIN), '..', 'src');
 const MIN = 60e3;
@@ -47,7 +47,7 @@ async function holder(t, h) {
   return { done: p.done, open: () => fs.writeFileSync(gate, '') };
 }
 
-test('a process that gets in line again takes back its own place: one process never has two', async t => {
+test('a process that gets in line again takes back its own place: one process never has two', { skip: posixOnly("Git Bash's exec starts a new Windows process, so a shell can't become Node under its own pid") }, async t => {
   const h = tmp(t), file = editor(t), ran = path.join(tmp(t, 'ran'), 'ran');
   const a = await holder(t, h);
   // This shell's place is already in line under its pid and start time, as a thin waiter's is when its

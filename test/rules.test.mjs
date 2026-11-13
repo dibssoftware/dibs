@@ -9,7 +9,7 @@ import './helpers.mjs';
 import { DOCS, marked } from '../src/primer.mjs';
 import { dibsMd } from '../src/notes.mjs';
 
-const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+const ROOT = path.join(import.meta.dirname, '..');
 
 test('the skill and docs/reference.md carry the primer\'s rules word for word', () => {
   for (const [f, make] of Object.entries(DOCS)) assert.ok(fs.readFileSync(path.join(ROOT, f), 'utf8').includes(marked(make())), `${f} is out of date with src/primer.mjs`);
