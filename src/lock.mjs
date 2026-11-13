@@ -278,8 +278,21 @@ export function commitAll(h, files) {
     }
     if (!h.owns()) throw new LostLock(path.dirname(files[0][0]));
   } catch (e) { for (const tmp of tmps) try { fs.rmSync(tmp, { force: true }); } catch {} throw e; }
-  files.forEach(([file], i) => fs.renameSync(tmps[i], file));
+  files.forEach(([file], i) => replace(tmps[i], file));
   return h.owns();
+}
+
+// Windows refuses to rename over a file another process has open (EPERM, EACCES or EBUSY), and
+// readers open the state without the lock, for a few milliseconds each: on 4-core CI runners a
+// writer in the five-writer lock test crashed on it in 3 of 6 runs (2026-11-13). Those clear in a moment, so the
+// rename is tried again for up to REPLACE_FOR; anything else, or past that, throws as before.
+const REPLACE_FOR = 2000, BUSY = new Set(['EPERM', 'EACCES', 'EBUSY']);
+function replace(tmp, file) {
+  for (let t0 = Date.now(), gap = 5; ; gap = Math.min(gap * 2, 100)) {
+    try { return fs.renameSync(tmp, file); }
+    catch (e) { if (!WIN || !BUSY.has(e.code) || Date.now() - t0 > REPLACE_FOR) throw e; }
+    sleepSync(gap);
+  }
 }
 
 // fn under the lock, done again from the start if the lock was lost before it wrote.
