@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { HOME, HOOK, tmp, sync, bg, until, gitProject, track, board, flat, posixOnly, realPath, sysPath } from './helpers.mjs';
+import { HOME, HOOK, tmp, sync, bg, until, gitProject, track, board, flat, posixOnly, realPath, sysPath, CLAUDE_UID } from './helpers.mjs';
 import { overlap, clash, bashWrites, fileRes, dibsCalls } from '../src/files.mjs';
 import { split, respond } from '../src/guard.mjs';
 
@@ -444,9 +444,9 @@ test('a lease taken without the guard seeing it belongs to the whole session, an
 
 // ----- other sessions' temp folders -----
 
-test("deletes and writes in another Claude Code session's temp folder are turned away; the session's own folder and reads are not", { skip: posixOnly("Claude Code's temp folder is claude-<uid>, and Windows has no uid: dibs finds no such folder there") }, t => {
+test("deletes and writes in another Claude Code session's temp folder are turned away; the session's own folder and reads are not", t => {
   // Paths only: nothing is created under the real temp folder.
-  const root = `${realPath('/tmp')}/claude-${process.getuid()}`, me = 'sess-mine', proj = '-Users-x-proj';
+  const root = `${process.platform === 'win32' ? sysPath('/tmp') : realPath('/tmp')}/claude-${CLAUDE_UID}`, me = 'sess-mine', proj = '-Users-x-proj';
   const mine = `${root}/${proj}/${me}`, theirs = `${root}/${proj}/sess-theirs`;
   const home = tmp(t);
   const as = input => hook(home, { ...input, session_id: me }).decision;
@@ -459,7 +459,7 @@ test("deletes and writes in another Claude Code session's temp folder are turned
   assert.match(why, new RegExp(`^dibs: ${theirs} is in another Claude Code session's scratch folder, so rm can't delete or write there\\. The person's rule: never delete or overwrite anything under ${root} except in your own session's folder \\(${me}\\)\\.`));
   assert.match(why, /Ask the person, or that session, instead\. Reading them is fine\.$/);
   for (const cmd of [`rm -r ${theirs}/live-smoke`, `find ${theirs} -name '*.log' -delete`, `find ${root}/${proj} -mtime +1 -exec rm -rf {} +`,
-    `rm -rf /tmp/claude-${process.getuid()}/${proj}/sess-theirs/tester.log`, `rm -rf ${root}/*`, `rm -rf ${root}/${proj}/*`, `rm -rf ${root}`, `rm -rf ${root}/${proj}`,
+    `rm -rf /tmp/claude-${CLAUDE_UID}/${proj}/sess-theirs/tester.log`, `rm -rf ${root}/*`, `rm -rf ${root}/${proj}/*`, `rm -rf ${root}`, `rm -rf ${root}/${proj}`,
     `echo x > ${theirs}/out.txt`, `truncate -s 0 ${theirs}/tester.log`, `mv ${theirs}/a ${mine}/a`, `rsync -a --delete ${mine}/ ${theirs}/`,
     `ls ${theirs} | xargs rm`, `cd ${theirs} && rm -rf build`, `rm -rf "${theirs}/$NAME"`])
     deny(bash('/', cmd));
@@ -471,9 +471,9 @@ test("deletes and writes in another Claude Code session's temp folder are turned
   assert.equal(as(edit('/', `${mine}/notes.md`, 'Write')), null);
 });
 
-test("any agent of a session may delete anything in its own scratchpad, however old and whoever made it; the scratchpad itself and the session folder stay whole", { skip: posixOnly("Claude Code's temp folder is claude-<uid>, and Windows has no uid: dibs finds no such folder there") }, t => {
+test("any agent of a session may delete anything in its own scratchpad, however old and whoever made it; the scratchpad itself and the session folder stay whole", t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
-  const folder = path.join(realPath(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
+  const folder = path.join(realPath(base), `claude-${CLAUDE_UID}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
   const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.join(dir, `f${i}`), ''); };
   // 2e on 2026-11-04: six browser profiles a teammate made before dibs's record, 850 MB at 4.9 GB free.
   for (let i = 1; i <= 6; i++) fill(path.join(pad, `r7-profile-${i}`, 'Default'), 30);
@@ -528,9 +528,9 @@ test("any agent of a session may delete anything in its own scratchpad, however 
   assert.deepEqual(fs.readdirSync(path.join(home, 'scratch')), ['sess-2']);
 });
 
-test('a folder a program made in the scratchpad is recorded as made by the agent whose command named it, so the disk watcher can name it', { skip: posixOnly("Claude Code's temp folder is claude-<uid>, and Windows has no uid: dibs finds no such folder there") }, t => {
+test('a folder a program made in the scratchpad is recorded as made by the agent whose command named it, so the disk watcher can name it', t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
-  const folder = path.join(realPath(base), `claude-${process.getuid()}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
+  const folder = path.join(realPath(base), `claude-${CLAUDE_UID}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
   fs.mkdirSync(pad, { recursive: true });
   const call = (agent, input) => {
     const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },

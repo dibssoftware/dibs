@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, tmp, sync, bg, until, board, flat, windowsGap } from './helpers.mjs';
+import { G, MACHINE, tmp, sync, bg, until, board, flat } from './helpers.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { swapWhy, loadWhy, diskSqueeze } from '../src/schedule.mjs';
 import { plainBoard, whyLines } from '../src/plain.mjs';
@@ -45,7 +45,7 @@ test('a waiter behind one that waits on memory has no start time either, and say
 // then starts if the machine has the memory: here it doesn't, so memory holds the line however
 // long the three reads below take. On 2026-11-02 that ran past the first measurement once in 3
 // suites, and the waiter had started by the third read.
-test('dibs when, dibs why and the wait agree while memory holds the line', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
+test('dibs when, dibs why and the wait agree while memory holds the line', async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ budget: '4G', cores: 10, roomyMemFree: 101 }));
   const env = { DIBS_SAMPLE_MS: '100', DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, memFree: 10 }) };

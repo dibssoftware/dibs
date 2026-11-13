@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { BIN, G, MACHINE, tmp, env, bg, track, until, posixOnly, windowsGap } from './helpers.mjs';
+import { BIN, G, MACHINE, tmp, env, bg, track, until, posixOnly } from './helpers.mjs';
 
 // dibs as an agent's shell runs it, by name; on Windows a .mjs doesn't run by name, so node runs it.
 const dibsBy = (args, o) => (process.platform === 'win32' ? spawn(process.execPath, [BIN, ...args], o) : spawn(BIN, args, o));
@@ -82,7 +82,7 @@ function job(t, home, args, opts) {
 }
 const GATED = ['sh', '-c', 'echo start; while [ ! -f gate ]; do sleep 0.1; done; echo done'];
 
-test('a job running far past its booking while swap fills the disk is stopped, and runs again booked at what it used, even as the only job', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
+test('a job running far past its booking while swap fills the disk is stopped, and runs again booked at what it used, even as the only job', async t => {
   const home = tmp(t), dir = tmp(t, 'job');
   // What the job's processes really use, as measuring reads it.
   const foot = path.join(home, 'footprint.json');

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, HOME, tmp, sync, bg, until, board, flat, windowsGap } from './helpers.mjs';
+import { G, MACHINE, HOME, tmp, sync, bg, until, board, flat } from './helpers.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { verdict, memUsed, cpuUsed } from '../src/schedule.mjs';
 import { plainBoard, STUCK_AFTER } from '../src/plain.mjs';
@@ -113,7 +113,7 @@ test('a job that used far more memory than it asked: what to pass next time', ()
   assert.equal(overAsk(lease({ mem: 4 * G, asked: 2 * G, peak: { mem: 7 * G } })).asked, 2 * G, 'asked keeps what it asked, before dibs raised it');
 });
 
-test('the real CLI: a run that uses far more than it asked hears it, and the event log has it', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
+test('the real CLI: a run that uses far more than it asked hears it, and the event log has it', async t => {
   const h = tmp(t), cwd = tmp(t, 'job');
   const foot = path.join(h, 'footprint.json');
   fs.writeFileSync(foot, '{}');

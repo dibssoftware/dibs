@@ -63,7 +63,9 @@ function sibling(l, w) {
 let tmpRoots = null;
 export function claudeTmp() {
   if (tmpRoots) return tmpRoots;
-  const uid = process.getuid?.();
+  // Claude Code names it claude-<getuid() ?? 0>: claude-0 on Windows, which has no uid, under
+  // CLAUDE_CODE_TMPDIR or /tmp, which there is \tmp on the current drive (Claude Code 2.1.323).
+  const uid = process.getuid?.() ?? (WIN ? 0 : null);
   if (uid == null) return (tmpRoots = []);
   // DIBS_CLAUDE_TMP: tests put the temp folder somewhere of their own.
   const bases = process.env.DIBS_CLAUDE_TMP ? [process.env.DIBS_CLAUDE_TMP]

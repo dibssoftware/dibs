@@ -35,6 +35,8 @@ export function nodeWrapper(dir, name, script) {
 }
 // A test that can't mean anything on Windows says why, and node --test prints the reason
 // beside SKIP: test('...', { skip: posixOnly('Windows has no SIGSTOP') }, ...).
+// The uid in Claude Code's temp folder's name, claude-<uid>: 0 on Windows, which has none (src/files.mjs claudeTmp).
+export const CLAUDE_UID = process.getuid?.() ?? 0;
 export const posixOnly = why => (process.platform === 'win32' ? why : false);
 // Not inherent, only not built on Windows yet: each one is a gap to close, so
 // these stay apart from posixOnly and grep finds them all.

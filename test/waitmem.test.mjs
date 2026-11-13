@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, BIN, tmp, bg, until, board, env, track, group, posixOnly, windowsGap } from './helpers.mjs';
+import { G, MACHINE, BIN, tmp, bg, until, board, env, track, group, posixOnly } from './helpers.mjs';
 import { DEFAULT_CONFIG } from '../src/config.mjs';
 import { verdict, forecast } from '../src/schedule.mjs';
 import { plainBoard } from '../src/plain.mjs';
@@ -68,7 +68,7 @@ test("a waiter's turn through a line of 40 reads the 1000 lines of history once,
   } finally { process.env.DIBS_FAKE_MACHINE = was; }
 });
 
-test('the real CLI: a poll that changes nothing leaves the state file alone', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
+test('the real CLI: a poll that changes nothing leaves the state file alone', async t => {
   const h = tmp(t);
   // No measuring after the first, which would write its reading.
   const quiet = { env: { DIBS_SAMPLE_MS: '3600000' } };

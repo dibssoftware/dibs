@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder and fakes the machine before any src module loads.
-import { G, MACHINE, tmp, sync, bg, until, board, flat, posixOnly, windowsGap } from './helpers.mjs';
+import { G, MACHINE, tmp, sync, bg, until, board, flat, posixOnly } from './helpers.mjs';
 import { DEFAULT_CONFIG, swapGrowth, trends, SWAP_WINDOW, HOME } from '../src/config.mjs';
 import { verdict, memUsed } from '../src/schedule.mjs';
 import { pressureVictim } from '../src/overlap.mjs';
@@ -491,7 +491,7 @@ test('the real CLI: swap growing past maxSwap holds new work back, and the wait 
   assert.equal(await first.done, 0);
 });
 
-test('the real CLI: a job that outgrew its number holds the next one back at the memory budget', { skip: windowsGap("dibs doesn't measure what jobs use there (src/measure.mjs sample)") }, async t => {
+test('the real CLI: a job that outgrew its number holds the next one back at the memory budget', async t => {
   const h = tmp(t);
   fs.writeFileSync(path.join(h, 'config.json'), JSON.stringify({ budget: '8G', roomyMemFree: 101 }));
   const foot = path.join(h, 'footprint.json');

@@ -5,7 +5,7 @@ const GB = b => gb(b).replace(/G$/, ' GB');
 // its peak goes into history with its run time, and the next run of the same
 // command is planned at what it really took.
 //
-// Memory is physical footprint (src/platform.mjs footprints), CPU is the
+// Memory is physical footprint (src/platform.mjs footprints; the working set on Windows), CPU is the
 // process table's % of a core, both summed over every process group the lease
 // spans plus, for a pool simulator, the simulator's own launchd_sim tree,
 // which runs outside the job's. Reading footprints costs a top call, so
@@ -48,7 +48,7 @@ export function treeOf(l, s, procs) {
   for (const x of s.leases || [])
     if (x.id !== l.id && x.kind === 'run' && x.pgid && x.pgid !== l.pgid && groups.has(x.pgid))
       for (const g of [x.pgid, ...(x.groups || [])]) groups.delete(g);
-  const pids = new Set(procs.filter(p => groups.has(p.pgid)).map(p => p.pid));
+  const pids = OS === 'windows' ? windowsTree(l, s, procs) : new Set(procs.filter(p => groups.has(p.pgid)).map(p => p.pid));
   const holds = new Set(s.leases.filter(h => h.kind === 'hold' && h.pid && h.pid === l.spid).map(h => h.id));
   // A hold's simulator counts in one of the runs under it, the first: two test
   // runs on one held simulator each counting it charged it twice.
@@ -74,6 +74,21 @@ export function treeOf(l, s, procs) {
   return pids;
 }
 
+// Windows has no process groups: a lease is its command's process and everything under it by
+// parent, less the trees of runs nested in it, which are measured as their own leases.
+function windowsTree(l, s, procs) {
+  const kids = new Map();
+  for (const p of procs) if (p.ppid !== p.pid) { if (!kids.has(p.ppid)) kids.set(p.ppid, []); kids.get(p.ppid).push(p.pid); }
+  const nested = new Set((s.leases || []).filter(x => x.id !== l.id && x.kind === 'run' && x.pgid && x.pgid !== l.pgid).map(x => x.pgid));
+  const pids = new Set(), stack = [l.pgid];
+  while (stack.length) {
+    const pid = stack.pop();
+    if (pids.has(pid) || nested.has(pid)) continue;
+    pids.add(pid);
+    stack.push(...(kids.get(pid) || []));
+  }
+  return pids;
+}
 // Memory in bytes and CPU in cores for a set of pids. A process top didn't
 // list (it started since) counts at its RSS.
 export function usage(pids, procs, foot) {
@@ -126,7 +141,7 @@ function shareDisk(s, got, m, t) {
 // Measure every run lease on the machine, if this process won the slot.
 // Called from each `dibs run` on its group-tracking tick. True if it measured.
 export function sample(t = now()) {
-  if (OS === 'windows' || !claim(t)) return false;
+  if (!claim(t)) return false;
   // A plain read: the state file is replaced whole, never written in place.
   let s;
   try { s = JSON.parse(fs.readFileSync(paths.state, 'utf8')); } catch { return false; }

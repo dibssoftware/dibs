@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 // helpers first: it points DIBS_HOME at a temp folder before any src module loads.
-import { HOME, tmp, G, bg, until, port, answers, MACHINE, SERVE_START, windowsGap } from './helpers.mjs';
+import { HOME, tmp, G, bg, until, port, answers, MACHINE, SERVE_START, CLAUDE_UID } from './helpers.mjs';
 
 const base = fs.mkdtempSync(path.join(fs.realpathSync(path.dirname(HOME)), 'dibs-claude-tmp-'));
 process.env.DIBS_CLAUDE_TMP = base;
@@ -70,30 +70,30 @@ test('under twice the floor, dibs clears caches and tells only the sessions with
   assert.equal(notes().length, 3, 'room again, then a new fall: told again');
 });
 
-test("a session whose own scratch folder is big hears it's low on disk, though it runs nothing", { skip: windowsGap("Claude Code's temp folder is claude-<uid>, and Windows has no uid: src/files.mjs claudeTmp finds none") }, async t => {
+test("a session whose own scratch folder is big hears it's low on disk, though it runs nothing", async t => {
   t.after(clear);
   process.env.DIBS_HOG_MIN = String(200 * 1024);
   t.after(() => delete process.env.DIBS_HOG_MIN);
-  const pad = path.join(base, `claude-${process.getuid()}`, '-Users-x', 'sess-f', 'scratchpad');
+  const pad = path.join(base, `claude-${CLAUDE_UID}`, '-Users-x', 'sess-f', 'scratchpad');
   fs.mkdirSync(pad, { recursive: true });
   fs.writeFileSync(path.join(pad, 'big.bin'), Buffer.alloc(300 * 1024));
-  t.after(() => fs.rmSync(path.join(base, `claude-${process.getuid()}`), { recursive: true, force: true }));
+  t.after(() => fs.rmSync(path.join(base, `claude-${CLAUDE_UID}`), { recursive: true, force: true }));
   fs.writeFileSync(path.join(HOME, 'state.json'), JSON.stringify({ seq: 1, leases: [], queue: [] }));
   await hogsOnce(cfg, { diskFree: 8 * G }, Date.now());
   assert.deepEqual(notes().map(m => m.session), ['sess-f']);
   assert.doesNotMatch(notes()[0].text, /Free what you can of your own/, 'its files hold still: no telling it to free them again and again (e4)');
 });
 
-test("with the throttle watcher down, the coordinator sends the low-disk notes itself", { skip: windowsGap("Claude Code's temp folder is claude-<uid>, and Windows has no uid: src/files.mjs claudeTmp finds none") }, async t => {
+test("with the throttle watcher down, the coordinator sends the low-disk notes itself", async t => {
   const { watcherDown } = await import('../src/diskwarn.mjs');
   const h = tmp(t, 'coord');
   const at = await port();
   fs.writeFileSync(path.join(h, 'state.json'), JSON.stringify({ seq: 2, leases: [], queue: [{ id: 1, res: ['test'], pid: process.pid, who: 'w', sessionId: 'sess-d', enq: Date.now() }] }));
   // sess-d has something of its own to free: a scratch folder over the line.
-  const pad = path.join(base, `claude-${process.getuid()}`, '-Users-y', 'sess-d', 'scratchpad');
+  const pad = path.join(base, `claude-${CLAUDE_UID}`, '-Users-y', 'sess-d', 'scratchpad');
   fs.mkdirSync(pad, { recursive: true });
   fs.writeFileSync(path.join(pad, 'big.bin'), Buffer.alloc(300 * 1024));
-  t.after(() => fs.rmSync(path.join(base, `claude-${process.getuid()}`), { recursive: true, force: true }));
+  t.after(() => fs.rmSync(path.join(base, `claude-${CLAUDE_UID}`), { recursive: true, force: true }));
   bg(t, h, ['serve', '--listen', String(at), '--bind', '127.0.0.1'], { env: { DIBS_BACKUP_MS: '300', DIBS_HOG_PLACES: '{}', DIBS_CLAUDE_TMP: base, DIBS_HOG_MIN: String(200 * 1024),
     DIBS_FAKE_MACHINE: JSON.stringify({ ...MACHINE, diskFree: 8 * G }) } });
   await until(async () => await answers(at), SERVE_START);

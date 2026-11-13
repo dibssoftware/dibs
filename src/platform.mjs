@@ -119,8 +119,8 @@ export function parent(pid) {
 }
 
 // Every process: pid, parent, process group, % of one core, resident bytes
-// (not on Windows), command line. The group is the pid on Windows, which has
-// no process groups.
+// (the working set on Windows), command line. The group is the pid on Windows,
+// which has no process groups.
 let procCache = null;
 export function processes() {
   if (procCache && Date.now() - procCache.at < 5000) return procCache.list;
@@ -129,12 +129,14 @@ export function processes() {
 
 function readProcesses() {
   if (WIN) {
-    // Two samples of total processor time, a second apart, give a CPU %.
+    // Two samples of total processor time, a second apart, give a CPU %; one WMI query gives
+    // parents, working sets and command lines. One PowerShell for all of it, never one per pid.
     const txt = ps(`$a = @{}; Get-Process | ForEach-Object { $a[$_.Id] = $_.TotalProcessorTime.TotalMilliseconds }; Start-Sleep -Milliseconds 1000;`
-      + ` Get-CimInstance Win32_Process | ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue;`
-      + ` if ($p -and $a[$p.Id] -ne $null) { "$($_.ProcessId)\`t$($_.ParentProcessId)\`t$([math]::Round(($p.TotalProcessorTime.TotalMilliseconds - $a[$p.Id]) / 10, 1))\`t$($_.CommandLine)" } }`);
-    return (txt ?? '').split(/\r?\n/).map(l => l.split('\t')).filter(f => f.length === 4 && f[3])
-      .map(([pid, ppid, cpu, args]) => ({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pid), cpu: Number(cpu), args }));
+      + ` $b = @{}; Get-Process | ForEach-Object { $b[$_.Id] = $_.TotalProcessorTime.TotalMilliseconds };`
+      + ` Get-CimInstance Win32_Process | ForEach-Object { $i = $_.ProcessId;`
+      + ` if ($a[$i] -ne $null -and $b[$i] -ne $null) { "$i\`t$($_.ParentProcessId)\`t$([math]::Round(($b[$i] - $a[$i]) / 10, 1))\`t$($_.WorkingSetSize)\`t$($_.CommandLine)" } }`);
+    return (txt ?? '').split(/\r?\n/).map(l => l.split('\t')).filter(f => f.length === 5 && f[4])
+      .map(([pid, ppid, cpu, rss, args]) => ({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pid), cpu: Number(cpu), rss: Number(rss) || 0, args }));
   }
   return run('ps', ['-Ao', 'pid=,ppid=,pgid=,pcpu=,rss=,args=']).split('\n')
     .map(l => l.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(.*)$/)).filter(Boolean)
