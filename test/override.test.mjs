@@ -117,7 +117,9 @@ test('boost of a running low job moves it off background priority, and back', { 
   const up = owner(h, ['boost', String(id), 'high'], shim.env);
   assert.equal(up.code, 0, up.err);
   assert.match(up.out, /low -> high, moved off background priority/);
-  assert.doesNotMatch(up.out, /couldn't be moved/);
+  // Linux lets only root raise a priority back up, so there boost says which processes stayed low and why.
+  if (process.platform === 'darwin') assert.doesNotMatch(up.out, /couldn't be moved/);
+  else if (/couldn't be moved/.test(up.out)) assert.match(up.out, /only root raise a priority/);
   // Really moved, and what it starts from now on with it. Until 2026-11-01 a run started
   // at background priority on macOS stayed there whatever boost said. Linux lets only root raise it.
   if (process.platform === 'darwin') assert.match(shim.calls(), new RegExp(`^-B -p ${pgid}$`, 'm'), `the job's shell (${pgid}) raised\n${shim.calls()}`);
