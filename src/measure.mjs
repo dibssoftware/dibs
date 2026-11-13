@@ -48,7 +48,7 @@ export function treeOf(l, s, procs) {
   for (const x of s.leases || [])
     if (x.id !== l.id && x.kind === 'run' && x.pgid && x.pgid !== l.pgid && groups.has(x.pgid))
       for (const g of [x.pgid, ...(x.groups || [])]) groups.delete(g);
-  const pids = OS === 'windows' ? windowsTree(l, s, procs) : new Set(procs.filter(p => groups.has(p.pgid)).map(p => p.pid));
+  const pids = OS === 'windows' ? windowsTree(l, groups, s, procs) : new Set(procs.filter(p => groups.has(p.pgid)).map(p => p.pid));
   const holds = new Set(s.leases.filter(h => h.kind === 'hold' && h.pid && h.pid === l.spid).map(h => h.id));
   // A hold's simulator counts in one of the runs under it, the first: two test
   // runs on one held simulator each counting it charged it twice.
@@ -74,13 +74,13 @@ export function treeOf(l, s, procs) {
   return pids;
 }
 
-// Windows has no process groups: a lease is its command's process and everything under it by
-// parent, less the trees of runs nested in it, which are measured as their own leases.
-function windowsTree(l, s, procs) {
+// Windows has no process groups (each process's group is its pid): a lease is its groups' processes
+// and everything under them by parent, less the trees of runs nested in it, measured as their own.
+function windowsTree(l, groups, s, procs) {
   const kids = new Map();
   for (const p of procs) if (p.ppid !== p.pid) { if (!kids.has(p.ppid)) kids.set(p.ppid, []); kids.get(p.ppid).push(p.pid); }
   const nested = new Set((s.leases || []).filter(x => x.id !== l.id && x.kind === 'run' && x.pgid && x.pgid !== l.pgid).map(x => x.pgid));
-  const pids = new Set(), stack = [l.pgid];
+  const pids = new Set(), stack = procs.filter(p => groups.has(p.pgid)).map(p => p.pid);
   while (stack.length) {
     const pid = stack.pop();
     if (pids.has(pid) || nested.has(pid)) continue;

@@ -471,13 +471,15 @@ test("deletes and writes in another Claude Code session's temp folder are turned
   assert.equal(as(edit('/', `${mine}/notes.md`, 'Write')), null);
 });
 
+// These paths go into shell commands, so they're written with / on Windows too, as Claude Code's
+// Git Bash commands write them (realPath gives the root that way).
 test("any agent of a session may delete anything in its own scratchpad, however old and whoever made it; the scratchpad itself and the session folder stay whole", t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
-  const folder = path.join(realPath(base), `claude-${CLAUDE_UID}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
-  const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.join(dir, `f${i}`), ''); };
+  const folder = path.posix.join(realPath(base), `claude-${CLAUDE_UID}`, '-Users-x-proj', S), pad = path.posix.join(folder, 'scratchpad');
+  const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.posix.join(dir, `f${i}`), ''); };
   // 2e on 2026-11-04: six browser profiles a teammate made before dibs's record, 850 MB at 4.9 GB free.
-  for (let i = 1; i <= 6; i++) fill(path.join(pad, `r7-profile-${i}`, 'Default'), 30);
-  fill(path.join(pad, 'old'), 25);
+  for (let i = 1; i <= 6; i++) fill(path.posix.join(pad, `r7-profile-${i}`, 'Default'), 30);
+  fill(path.posix.join(pad, 'old'), 25);
   // The hook as Claude Code runs it, for one agent of the session (none: the main thread).
   const call = (agent, input) => {
     const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },
@@ -490,8 +492,8 @@ test("any agent of a session may delete anything in its own scratchpad, however 
   assert.equal(call('a-lead', bash(pad, 'rm -rf r7-profile-*')), null, 'a teammate, a glob of them');
 
   assert.equal(call('a-smoke', bash(pad, 'mkdir -p live-smoke && echo ok > live-smoke/run.log')), null);
-  fill(path.join(pad, 'live-smoke'), 25);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'scratch', S, 'live-smoke'), 'utf8')).agent, 'a-smoke', 'the disk watcher still learns who made it');
+  fill(path.posix.join(pad, 'live-smoke'), 25);
+  assert.equal(JSON.parse(fs.readFileSync(path.posix.join(home, 'scratch', S, 'live-smoke'), 'utf8')).agent, 'a-smoke', 'the disk watcher still learns who made it');
   for (const cmd of [`rm -rf ${pad}/live-smoke`, 'find live-smoke -delete', 'rm -r ./live-smoke', 'rsync -a --delete empty/ live-smoke/', 'rm -rf live-smoke/*'])
     assert.equal(call('a-tester', bash(pad, cmd)), null, `a sibling's folder: ${cmd}`);
 
@@ -515,22 +517,22 @@ test("any agent of a session may delete anything in its own scratchpad, however 
   assert.equal(call('a-smoke', bash(pad, 'rm -rf "$S/build"')), null, 'a variable with a literal end');
 
   // Another session's scratchpad stays off limits, however small the folder.
-  const theirs = path.join(path.dirname(folder), 'sess-other', 'scratchpad', 'chrome');
+  const theirs = path.posix.join(path.dirname(folder), 'sess-other', 'scratchpad', 'chrome');
   fill(theirs, 1);
   assert.equal(call(null, bash(pad, `rm -rf ${theirs}`))?.permissionDecision, 'deny', "another session's folder");
 
   // Records go with the session's folder.
   fs.rmSync(folder, { recursive: true });
-  fs.mkdirSync(path.join(path.dirname(folder), 'sess-2', 'scratchpad'), { recursive: true });
+  fs.mkdirSync(path.posix.join(path.dirname(folder), 'sess-2', 'scratchpad'), { recursive: true });
   const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },
-    input: JSON.stringify({ ...bash('/', `mkdir ${path.join(path.dirname(folder), 'sess-2', 'scratchpad', 'x')}`), session_id: 'sess-2' }) });
+    input: JSON.stringify({ ...bash('/', `mkdir ${path.posix.join(path.dirname(folder), 'sess-2', 'scratchpad', 'x')}`), session_id: 'sess-2' }) });
   assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(fs.readdirSync(path.join(home, 'scratch')), ['sess-2']);
+  assert.deepEqual(fs.readdirSync(path.posix.join(home, 'scratch')), ['sess-2']);
 });
 
 test('a folder a program made in the scratchpad is recorded as made by the agent whose command named it, so the disk watcher can name it', t => {
   const base = tmp(t, 'claude-tmp'), home = tmp(t), S = 'sess-1';
-  const folder = path.join(realPath(base), `claude-${CLAUDE_UID}`, '-Users-x-proj', S), pad = path.join(folder, 'scratchpad');
+  const folder = path.posix.join(realPath(base), `claude-${CLAUDE_UID}`, '-Users-x-proj', S), pad = path.posix.join(folder, 'scratchpad');
   fs.mkdirSync(pad, { recursive: true });
   const call = (agent, input) => {
     const r = spawnSync(process.execPath, [HOOK], { encoding: 'utf8', env: { ...process.env, DIBS_HOME: home, DIBS_CLAUDE_TMP: base },
@@ -538,12 +540,12 @@ test('a folder a program made in the scratchpad is recorded as made by the agent
     assert.equal(r.status, 0, r.stderr);
     return r.stdout ? JSON.parse(r.stdout).hookSpecificOutput : null;
   };
-  const made = name => { try { return JSON.parse(fs.readFileSync(path.join(home, 'scratch', S, encodeURIComponent(name)), 'utf8')); } catch { return null; } };
-  const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.join(dir, `f${i}`), ''); };
+  const made = name => { try { return JSON.parse(fs.readFileSync(path.posix.join(home, 'scratch', S, encodeURIComponent(name)), 'utf8')); } catch { return null; } };
+  const fill = (dir, n) => { fs.mkdirSync(dir, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(path.posix.join(dir, `f${i}`), ''); };
   // fix-app's build on 2026-10-18: xcodebuild, not a write dibs can see, made 0.5 GB under scratchpad/dd-flip.
-  const dd = path.join(pad, 'dd-flip');
+  const dd = path.posix.join(pad, 'dd-flip');
   assert.equal(call('afix-app-12345', bash('/Users/x/app', `~/bin/dibs run xcode-build -m "flip build" -- xcodebuild -project App.xcodeproj -scheme App -derivedDataPath ${dd} build`)), null);
-  fill(path.join(dd, 'Build', 'Products'), 30);
+  fill(path.posix.join(dd, 'Build', 'Products'), 30);
   assert.deepEqual([made('dd-flip')?.agent, made('dd-flip')?.type], ['afix-app-12345', 'fix-app']);
 
   // Other ways a command names a folder before a program makes it: --flag=<path>, -o, relative to a scratchpad cwd.
@@ -555,7 +557,7 @@ test('a folder a program made in the scratchpad is recorded as made by the agent
   for (const name of ['gen-out', 'shots', 'dd-test', 'var-out', 'rel-out']) assert.equal(made(name)?.agent, 'afix-app-12345', name);
 
   // A folder that already exists isn't claimed by naming it.
-  fill(path.join(pad, 'old-run'), 25);
+  fill(path.posix.join(pad, 'old-run'), 25);
   call('atester-67890', bash(pad, `ls ${pad}/old-run`));
   assert.equal(made('old-run'), null);
 
@@ -580,7 +582,7 @@ function worktrees(t, files = { 'format/SPEC.md': 'spec\n', 'README.md': 'hi\n' 
   git(main, 'commit', '-qm', 'first');
   const dirs = { main: realPath(main) };
   for (const name of ['a', 'b']) {
-    const d = path.join(tmp(t, 'wts'), `wt-${name}`);
+    const d = path.posix.join(tmp(t, 'wts'), `wt-${name}`);
     git(main, 'worktree', 'add', '-q', d);
     dirs[name] = realPath(d);
   }

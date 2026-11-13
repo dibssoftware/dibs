@@ -131,9 +131,10 @@ function readProcesses() {
   if (WIN) {
     // Two samples of total processor time, a second apart, give a CPU %; one WMI query gives
     // parents, working sets and command lines. One PowerShell for all of it, never one per pid.
+    // WMI's ProcessId is a UInt32 and Get-Process's Id an Int32: as hashtable keys they never match uncast.
     const txt = ps(`$a = @{}; Get-Process | ForEach-Object { $a[$_.Id] = $_.TotalProcessorTime.TotalMilliseconds }; Start-Sleep -Milliseconds 1000;`
       + ` $b = @{}; Get-Process | ForEach-Object { $b[$_.Id] = $_.TotalProcessorTime.TotalMilliseconds };`
-      + ` Get-CimInstance Win32_Process | ForEach-Object { $i = $_.ProcessId;`
+      + ` Get-CimInstance Win32_Process | ForEach-Object { $i = [int]$_.ProcessId;`
       + ` if ($a[$i] -ne $null -and $b[$i] -ne $null) { "$i\`t$($_.ParentProcessId)\`t$([math]::Round(($b[$i] - $a[$i]) / 10, 1))\`t$($_.WorkingSetSize)\`t$($_.CommandLine)" } }`);
     return (txt ?? '').split(/\r?\n/).map(l => l.split('\t')).filter(f => f.length === 5 && f[4])
       .map(([pid, ppid, cpu, rss, args]) => ({ pid: Number(pid), ppid: Number(ppid), pgid: Number(pid), cpu: Number(cpu), rss: Number(rss) || 0, args }));
