@@ -29,7 +29,7 @@ function Install-Dibs {
   $ErrorActionPreference = 'Stop'
   # Release settings. DefaultVersion is set at each release; release.sh writes
   # DefaultSha256 into the copy dibs.cc serves.
-  $DefaultVersion = 'v0.0.180'
+  $DefaultVersion = 'v0.0.181'
   $DefaultSha256 = ''
   $DefaultBase = 'https://dibs.cc/releases'
   # Node 20 is the oldest that has every built-in dibs uses.

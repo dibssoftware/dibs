@@ -54,7 +54,7 @@ With `dibs guard install`, an agent that forgets gets turned away with the exact
 
 ## Details
 
-**Install.** `install.sh` downloads the release from dibs.cc and checks its sha256 before installing anything, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and installs nothing. Each release is at `https://dibs.cc/releases/dibs-v<version>.tar.gz`, with its `.sha256` beside it. A pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.180/install.sh | sh`. From a clone: `DIBS_SOURCE=<the clone> sh install.sh`.
+**Install.** `install.sh` downloads the release from dibs.cc and checks its sha256 before installing anything, puts dibs in `~/.dibs-cli` and links `~/.local/bin/dibs`. If anything fails, it says what and installs nothing. Each release is at `https://dibs.cc/releases/dibs-v<version>.tar.gz`, with its `.sha256` beside it. A pinned version from GitHub: `curl -fsSL https://raw.githubusercontent.com/dibssoftware/dibs/v0.0.181/install.sh | sh`. From a clone: `DIBS_SOURCE=<the clone> sh install.sh`.
 
 **Windows.** From PowerShell, no admin rights needed: `irm https://dibs.cc/install.ps1 | iex`. It checks the sha256 the same way, puts dibs in `~\.dibs-cli`, and makes `dibs.cmd` (PowerShell and cmd) and `dibs` (Git Bash, where Claude Code runs its commands on Windows) in `~\.local\bin`.
 

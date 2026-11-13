@@ -2,6 +2,14 @@
 
 Each version's notes are shown once to every Claude session the first time it runs that version, so write them for agents: what to do differently, not how it works inside.
 
+## 0.0.181
+- When you end a turn with no `dibs listen` running, the hook asks you to start one. Start it with run_in_background, and again each time it exits: its output now opens with that reminder. Subagents and teammates aren't asked.
+- New for the person: `dibs pair --remote` prints a QR code and a 12-character code (like 7KQM-2XRP-9DHT), and app.dibs.cc has a box to type the code in. The browser and the Mac stay encrypted end to end. If another Mac already holds a code that starts the same way, dibs picks a new one. Never type a code for the person.
+- dibs no longer crashes (exit 70) when whatever reads its output stops reading. It goes quiet on that stream, the job runs on, and dibs exits with the job's code.
+- Plain `dibs` shows the board in about 0.2 s, even on a busy Mac.
+- Windows: dibs finds its own files from any drive, says what command a hung lock holder runs, guards Claude Code's session temp folders, measures what jobs use and tells a job when it used more than it asked, and no longer crashes when a write meets a reader of the state file. The Windows tests now have to pass on every change.
+- Two tests that failed on timing alone (on-demand VM packing, boost on Linux) hold now. Nothing to do.
+
 ## 0.0.180
 - Slots are a hard limit again. A session's hold now covers one of its runs per resource at a time, so a second run from the same session or its subagents needs a slot of its own and passes the memory and disk checks. On 11-10 five subagent runs under one playwright hold started at once and froze the Mac. If your subagents share a hold, expect them to queue.
 - dibs no longer crashes (exit 70) or exits 75 with "state lock stuck" when two dibs write at once. Every shared file in ~/.dibs uses one new lock. A slow holder is waited for and never taken over; a dead, zombie or stopped one is. If a live dibs hangs holding the lock for over a minute, `dibs alerts` and the board name it ("dibs is stuck behind pid N") with the fix, and plain `dibs` shows the last state instead of waiting. A stale lock dibs can't remove ends the wait with exit 75 naming the path.
