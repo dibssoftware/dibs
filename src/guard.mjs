@@ -24,11 +24,17 @@ const LOG = path.join(DIBS_HOME, 'guard.log');
 // Who has a message from the person waiting: { session_id: [agent ids] }, or
 // no file at all. src/talk.mjs keeps it; the hook only reads it.
 const INBOX = path.join(DIBS_HOME, 'inbox.json');
-// dibs listen's list of who listens (src/talk.mjs), and the listeners already reminded about.
+// dibs listen's list of who listens (src/talk.mjs), and the sessions kept going at a stop to start one.
 const LISTENERS = path.join(DIBS_HOME, 'listeners.json');
-const REMINDED = path.join(DIBS_HOME, 'listen-reminded.json');
-// Sessions remembered in REMINDED: enough for every session a machine runs in a day or two.
+const REARMED = path.join(DIBS_HOME, 'rearm.json');
+// Sessions remembered in REARMED: enough for every session a machine runs in a day or two.
 const REMIND_KEEP = 200;
+// Stops in a row a session is kept going with no listener starting in between. A listen that
+// can't start (dibs broken, no background tasks here) would otherwise wake the agent, fail, and
+// keep it going again at every stop, for ever; after this many it's left alone until one starts.
+const REARM_MAX = 3;
+// A Bash background task running dibs listen, however dibs was named: dibs, ~/bin/dibs, dibs.mjs.
+const LISTEN_CMD = /(^|[\s;&|(/'"])dibs(\.mjs)?['"]?\s+listen\b/;
 // The threads themselves, which the hook only searches for a subagent's id.
 const MESSAGES = path.join(DIBS_HOME, 'messages.json');
 const SETTINGS = process.env.DIBS_CLAUDE_SETTINGS || path.join(os.homedir(), '.claude', 'settings.json');
@@ -441,27 +447,51 @@ function talked(input) {
   try { return fs.readFileSync(MESSAGES, 'utf8').includes(JSON.stringify(input.agent_id)); } catch { return false; }
 }
 
-// A main agent ending its turn after its dibs listen ended (it handed messages over, ran out of
-// time or was killed) is kept going once, for that listener, to start it again: without one, a
-// message sent while it waits sits until its next tool call. Only a session that listened
-// before; one that never did hears about it at its start (src/primer.mjs). One read, and one
-// small write when it reminds.
-function rearm(input) {
-  if (input?.hook_event_name !== 'Stop' || input.stop_hook_active || typeof input.session_id !== 'string') return null;
-  let l;
-  try { l = JSON.parse(fs.readFileSync(LISTENERS, 'utf8'))[`${input.session_id}|main`]; } catch { return null; }
-  if (!Number.isInteger(l?.pid)) return null;
-  try { process.kill(l.pid, 0); return null; } catch (e) { if (e.code !== 'ESRCH') return null; }
+// A main agent ending its turn with no dibs listen running is kept going to start one, so it
+// never has to remember: a message sent while it waits wakes it. Claude Code (2.1.3xx) lists the
+// session's running background tasks at a stop, which says it outright; older versions don't,
+// so then listeners.json does. Never for a subagent or teammate (agent_id: Stop is the main
+// thread's, but a stray one costs nothing to skip), never on the continuation a stop hook caused
+// (stop_hook_active: at most once a turn), never for Codex (turn_id) or the SDK and -p (their
+// background tasks die with the run), and at most REARM_MAX stops in a row with no listener
+// starting in between. Claude Code fires no Stop for an interrupt or a session that's ending.
+// Returns the line to keep the agent going with, or null.
+function rearm(input, env = process.env) {
+  if (input?.hook_event_name !== 'Stop' || input.stop_hook_active || input.agent_id || 'turn_id' in input) return null;
+  const sid = input.session_id;
+  if (typeof sid !== 'string' || !sid) return null;
+  if (/^sdk-/.test(env.CLAUDE_CODE_ENTRYPOINT || '') || /^(1|true|yes|on)$/i.test(env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS || '')) return null;
+  let l = null;
+  try { l = JSON.parse(fs.readFileSync(LISTENERS, 'utf8'))[`${sid}|main`] || null; } catch {}
+  if (Array.isArray(input.background_tasks)) {
+    if (input.background_tasks.some(t => LISTEN_CMD.test(String(t?.command || '')))) return null;
+  } else if (Number.isInteger(l?.pid)) {
+    try { process.kill(l.pid, 0); return null; } catch (e) { if (e.code !== 'ESRCH') return null; }
+  }
   let told = {};
-  try { told = JSON.parse(fs.readFileSync(REMINDED, 'utf8')); } catch {}
-  if (told[input.session_id] === l.pid) return null;
-  delete told[input.session_id];
-  told[input.session_id] = l.pid;
+  try { told = JSON.parse(fs.readFileSync(REARMED, 'utf8')); } catch {}
+  const last = told[sid];
+  // A listener that started since the last time counts the stops from zero again.
+  const n = last && !(l?.at > last.at) ? last.n : 0;
+  if (n >= REARM_MAX) return null;
+  delete told[sid];
+  told[sid] = { n: n + 1, at: Date.now() };
   const keys = Object.keys(told);
   for (const k of keys.slice(0, Math.max(0, keys.length - REMIND_KEEP))) delete told[k];
-  fs.writeFileSync(`${REMINDED}.${process.pid}`, JSON.stringify(told));
-  fs.renameSync(`${REMINDED}.${process.pid}`, REMINDED);
-  return { decision: 'block', reason: 'dibs: re-arm: your dibs listen has ended. Start it again with run_in_background (dibs listen) before you end your turn, so a message sent while you wait wakes you. dibs reminds you once each time it ends.' };
+  fs.mkdirSync(DIBS_HOME, { recursive: true });
+  fs.writeFileSync(`${REARMED}.${process.pid}`, JSON.stringify(told));
+  fs.renameSync(`${REARMED}.${process.pid}`, REARMED);
+  return 'dibs: no dibs listen is running for you, so a message sent while you wait can\'t wake you. ' +
+    'Before you end your turn, start it with the Bash tool and run_in_background: dibs listen';
+}
+
+// The re-arm line added to a stop's answer: alone, or after the messages handed over at that stop.
+// additionalContext keeps the agent going without the "blocking error" a decision: 'block' shows.
+function withRearm(input, out) {
+  const line = rearm(input);
+  if (!line) return out;
+  const prev = out?.hookSpecificOutput?.additionalContext;
+  return { ...out, hookSpecificOutput: { ...out?.hookSpecificOutput, hookEventName: 'Stop', additionalContext: [prev, line].filter(Boolean).join('\n\n') } };
 }
 
 // The hook itself: Claude Code's JSON on stdin, a decision on stdout. Any
@@ -487,7 +517,7 @@ export async function decide(input) {
     if (queuedFor(input)) out = (await import('./talk.mjs')).deliver(input, out);
     else if (input?.hook_event_name === 'SubagentStop' && talked(input)) (await import('./talk.mjs')).finished(input);
   } catch (e) { logError(e, input); }
-  try { if (!out) out = rearm(input); } catch (e) { logError(e, input); }
+  try { out = withRearm(input, out); } catch (e) { logError(e, input); }
   return out;
 }
 

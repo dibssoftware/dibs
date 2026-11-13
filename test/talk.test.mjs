@@ -36,7 +36,10 @@ function hook(w, input) {
 }
 const bash = (session, command, extra = {}) => ({ session_id: session, cwd: '/work/app', hook_event_name: 'PreToolUse', tool_name: 'Bash',
   permission_mode: 'default', tool_input: { command }, ...extra });
-const stopping = (session, extra = {}) => ({ session_id: session, cwd: '/work/app', hook_event_name: 'Stop', stop_hook_active: false, ...extra });
+// A main agent stopping with its dibs listen running in the background, so the hook's re-arm line
+// (test/listen.test.mjs) stays out of these tests of handing messages over.
+const stopping = (session, extra = {}) => ({ session_id: session, cwd: '/work/app', hook_event_name: 'Stop', stop_hook_active: false,
+  background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'dibs listen', command: 'dibs listen' }], ...extra });
 
 // A pid that was alive a moment ago and isn't now.
 function deadPid() {

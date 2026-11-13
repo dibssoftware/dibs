@@ -439,9 +439,9 @@ function writeListeners(l, h) {
   if (!Object.keys(l).length) return fs.rmSync(LISTENERS, { force: true });
   commit(h, LISTENERS, JSON.stringify(l));
 }
-// Said when it hands messages over: listening stops with this run, and the hook reminds the
-// agent at its next stop if it doesn't start again (src/guard.mjs rearm).
-const AGAIN = 'To keep listening, start dibs listen again with run_in_background.';
+// Said first when it hands something over: listening stops with this run, so the agent's first
+// move is to start it again. If it doesn't, the hook keeps it going at its stop until it does (src/guard.mjs rearm).
+const AGAIN = 'First start dibs listen again with run_in_background, so the next message wakes you too.';
 export async function listen(args) {
   const o = { for: Infinity, json: false, words: [] };
   for (let i = 0; i < args.length; i++) {
@@ -535,12 +535,12 @@ export async function listen(args) {
     const changes = since(seenBy(th.seenKey) || VERSION, r.updated);
     markSeen(th.seenKey, r.updated);
     if (o.json) return console.log(JSON.stringify({ updated: r.updated, changes, again: AGAIN }));
-    return console.log(`dibs was updated to ${r.updated}. What changed for you:\n\n${changes.map(c => `${c.version}\n${c.body}`).join('\n\n') || '(no notes)'}\n\n${AGAIN}`);
+    return console.log(`${AGAIN}\n\ndibs was updated to ${r.updated}. What changed for you:\n\n${changes.map(c => `${c.version}\n${c.body}`).join('\n\n') || '(no notes)'}`);
   }
   if (r.release) {
     toldRelease(th.key, r.release);
     if (o.json) return console.log(JSON.stringify({ release: r.release, have: VERSION, upgrade: UPGRADE, again: AGAIN }));
-    return console.log(`dibs ${r.release} is out (you have ${VERSION}). The person upgrades with: ${UPGRADE}\nDon't upgrade it yourself; mention it to the person if it matters to your work.\n\n${AGAIN}`);
+    return console.log(`${AGAIN}\n\ndibs ${r.release} is out (you have ${VERSION}). The person upgrades with: ${UPGRADE}\nDon't upgrade it yourself; mention it to the person if it matters to your work.`);
   }
   if (r.timeout) {
     if (o.json) console.log(JSON.stringify({ timeout: true, messages: [] }));
@@ -548,7 +548,7 @@ export async function listen(args) {
     process.exit(LISTEN_TIMEOUT);
   }
   if (o.json) return console.log(JSON.stringify({ messages: r.got.map(m => ({ from: m.kind === 'notice' ? 'dibs' : m.by ? 'agent' : 'person', ...(m.by && { by: m.by }), kind: m.kind, text: m.text, at: m.at })), again: AGAIN }));
-  console.log(`${texts(r.got)}\n\n${AGAIN}`);
+  console.log(`${AGAIN}\n\n${texts(r.got)}`);
 }
 
 // The pids of every dibs listen on record, for the board to check with the state's in one ps.

@@ -56,9 +56,9 @@ dibs run test -- sh -c 'npm run build && npm test'                  # a shell li
 - dibs on this machine was updated: it prints what changed since your last version, once
 - a newer dibs is out on dibs.cc ("dibs X is out (you have Y)"): the person upgrades it; don't upgrade it yourself. Asked at most every 6 hours per machine, never from a git checkout, off with `"updateCheck": false` in config.json.
 
-Exit 0 ends with "To keep listening, start dibs listen again with run_in_background." It has no time limit: it waits until something comes, and when your session ends it exits quietly on its own. `--for 30m` sets a limit; then exit 3 means nothing came in that time, and you start it again. `--json` gives `{ messages }`, `{ updated, changes }` or `{ release }`.
+Exit 0 starts with "First start dibs listen again with run_in_background": do that before anything else. It has no time limit: it waits until something comes, and when your session ends it exits quietly on its own. `--for 30m` sets a limit; then exit 3 means nothing came in that time, and you start it again. `--json` gives `{ messages }`, `{ updated, changes }` or `{ release }`.
 
-One listener per agent: the main agent of a session, and each subagent, separately. A newer one replaces the older, which exits 0 saying another took over. Messages that arrive while you work come with your next tool call instead; none is lost or handed over twice. If you end a turn after your listener exited, the hook keeps you going once with "re-arm: your dibs listen has ended". The board, `dibs threads` and `dibs tell` say who is listening.
+One listener per agent: the main agent of a session, and each subagent, separately. A newer one replaces the older, which exits 0 saying another took over. Messages that arrive while you work come with your next tool call instead; none is lost or handed over twice. If the main agent of a session ends a turn with no listener running, the hook keeps it going to start one ("no dibs listen is running for you"), once a turn and at most 3 turns in a row without one starting. Subagents are never kept going for it. The board, `dibs threads` and `dibs tell` say who is listening.
 
 ### Holding across tool calls
 

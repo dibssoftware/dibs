@@ -38,7 +38,7 @@ test('dibs listen waits for a message, prints it as the hook would, marks it del
   const r = w.tell('the staging database is back');
   assert.match(r.out, /it's listening \(dibs listen\), so it gets it within seconds/);
   assert.equal(await p.done, 0, p.err);
-  assert.match(p.out, /^dibs: a message for you, sent with `dibs tell`\..*\nMessage from the person: the staging database is back\nTo answer them, run: dibs say/);
+  assert.match(p.out, /^First start dibs listen again with run_in_background, so the next message wakes you too\.\n\ndibs: a message for you, sent with `dibs tell`\..*\nMessage from the person: the staging database is back\nTo answer them, run: dibs say/);
   const th = w.threads().find(x => x.to === 'web-app');
   assert.deepEqual(th.messages.filter(m => m.kind !== 'note').map(m => [m.from, m.kind, m.state, m.text]).slice(-2),
     [['person', 'message', 'delivered', 'the staging database is back'], ['agent', 'delivered', null, 'got it while listening']]);
@@ -147,7 +147,7 @@ test('three messages in a burst arrive once each, between the listener, the next
   await until(() => listening(w));
   for (const n of [1, 2, 3]) w.tell(`burst ${n}`);
   assert.equal(await p.done, 0, p.err);
-  assert.match(p.out, /To keep listening, start dibs listen again with run_in_background\.$/m);
+  assert.match(p.out, /^First start dibs listen again with run_in_background, so the next message wakes you too\.\n\n/, 'the first thing it says is to listen again');
   // The agent works: its next tool call brings whatever came after the listener's batch.
   const hooked = w.hook(bash('ls'))?.hookSpecificOutput?.additionalContext || '';
   const next = w.listen(['--for', '1s']);
@@ -159,23 +159,65 @@ test('three messages in a burst arrive once each, between the listener, the next
   assert.equal(th.messages.filter(m => m.kind === 'delivered').length, 3);
 });
 
-test('a session whose listener ended is kept going once at its stop to start it again; one listening, or never listening, is not', async t => {
+// The owner (2026-11-11): re-arming should be automatic. The hook keeps a main agent going at its
+// stop until a dibs listen runs, from Claude Code's list of the session's background tasks.
+const stop = (o = {}) => ({ session_id: 'sess-a', transcript_path: '/t.jsonl', cwd: '/work/app', hook_event_name: 'Stop', stop_hook_active: false, background_tasks: [], ...o });
+const rearmed = out => out?.hookSpecificOutput?.hookEventName === 'Stop' && /no dibs listen is running for you[\s\S]*run_in_background: dibs listen$/.test(out.hookSpecificOutput.additionalContext);
+const shell = command => ({ id: 'b1', type: 'shell', status: 'running', description: command, command });
+
+test('a main agent ending its turn with no listener is kept going once to start one, without a blocking error', t => {
   const w = setup(t);
-  const stop = { session_id: 'sess-a', cwd: '/work/app', hook_event_name: 'Stop', stop_hook_active: false };
-  assert.equal(w.hook(stop), null, 'never listened: no reminder at a stop');
+  const out = w.hook(stop());
+  assert.ok(rearmed(out), JSON.stringify(out));
+  assert.equal(out.decision, undefined, 'feedback, not a "Stop hook blocking error"');
+  assert.equal(w.hook(stop({ stop_hook_active: true })), null, 'not on the continuation it caused: no loop inside a turn');
+});
+
+test('a listener already running as a background task: nothing to say, however dibs was named', t => {
+  const w = setup(t);
+  for (const c of ['dibs listen', '~/bin/dibs listen --json', 'node /x/bin/dibs.mjs listen', 'cd /w && dibs listen'])
+    assert.equal(w.hook(stop({ background_tasks: [shell('npm run dev'), shell(c)] })), null, c);
+  assert.ok(rearmed(w.hook(stop({ background_tasks: [shell('npm run dev'), shell('echo dibs listened')] }))), 'other background work is not a listener');
+});
+
+test('a subagent, a teammate, Codex, the SDK and a session without background tasks are never kept going', t => {
+  const w = setup(t);
+  assert.equal(w.hook(stop({ hook_event_name: 'SubagentStop', agent_id: 'a1', agent_type: 'general-purpose', agent_transcript_path: '/a.jsonl' })), null, 'a subagent that ends');
+  assert.equal(w.hook(stop({ agent_id: 'teammate-1' })), null, 'anything with an agent id');
+  assert.equal(w.hook(stop({ turn_id: 't1', background_tasks: undefined })), null, 'Codex: nothing in the background can wake it');
+  const quiet = e => spawnSync(process.execPath, [HOOK], { input: JSON.stringify(stop()), env: env(w.home, w.opts({ env: e })), encoding: 'utf8', timeout: 15000 }).stdout.trim();
+  assert.equal(quiet({ CLAUDE_CODE_ENTRYPOINT: 'sdk-cli' }), '', 'claude -p: its background tasks die with the run');
+  assert.equal(quiet({ CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' }), '', 'no background tasks to start it in');
+  assert.ok(!fs.existsSync(path.join(w.home, 'rearm.json')), 'none of them counted toward the limit');
+});
+
+test('no loop across turns: at most 3 stops in a row with no listener, and a listener starting counts from zero', async t => {
+  const w = setup(t);
+  for (const n of [1, 2, 3]) assert.ok(rearmed(w.hook(stop())), `stop ${n}`);
+  assert.equal(w.hook(stop()), null, 'a listen that never starts is not asked for a fourth time');
   const p = w.listen(['--for', '1s']);
   assert.equal(await p.done, 3);
-  const out = w.hook(stop);
-  assert.equal(out.decision, 'block');
-  assert.match(out.reason, /re-arm: your dibs listen has ended\. Start it again with run_in_background/);
-  assert.equal(w.hook({ ...stop, stop_hook_active: true }), null, 'not on the continuation it caused');
-  assert.equal(w.hook(stop), null, 'once per listener, never a nag');
-  const again = w.listen();
+  assert.ok(rearmed(w.hook(stop())), 'it listened since: kept going again');
+});
+
+test('Claude Code without the background task list: listeners.json says whether one is up', async t => {
+  const w = setup(t);
+  const old = stop({ background_tasks: undefined });
+  const p = w.listen();
   await until(() => listening(w));
-  assert.equal(w.hook(stop), null, 'listening again: nothing to say');
-  again.kill('SIGTERM');
-  await again.done;
-  assert.ok(!listening(w), 'a killed listener leaves the board');
+  assert.equal(w.hook(old), null, 'listening: nothing to say');
+  w.tell('done yet?');
+  assert.equal(await p.done, 0, p.err);
+  assert.ok(rearmed(w.hook(old)), 'its listener handed a message over and ended');
+});
+
+test('a message handed over at a stop comes with the line to start listening, since that stop is the turn\'s one chance', t => {
+  const w = setup(t);
+  w.tell('the staging database is back');
+  const out = w.hook(stop());
+  const text = out.hookSpecificOutput.additionalContext;
+  assert.match(text, /Message from the person: the staging database is back[\s\S]*\n\ndibs: no dibs listen is running for you/);
+  assert.equal(w.hook(stop({ stop_hook_active: true })), null);
 });
 
 test('a new session is told to start dibs listen at once; a subagent is not', t => {
@@ -199,8 +241,7 @@ test('dibs updated under a listener wakes it once with what changed, and the wha
   await until(() => listening(w));
   fs.writeFileSync(file, "export const VERSION = '99.0.0';\n");
   assert.equal(await p.done, 0, p.err);
-  assert.match(p.out, /^dibs was updated to 99\.0\.0\. What changed for you:/);
-  assert.match(p.out, /To keep listening, start dibs listen again with run_in_background\.$/m);
+  assert.match(p.out, /^First start dibs listen again with run_in_background[^\n]*\n\ndibs was updated to 99\.0\.0\. What changed for you:/);
   const again = run(['--for', '1s']);
   assert.equal(await again.done, 3, 'told once: the next listener only listens');
   const seen = JSON.parse(fs.readFileSync(path.join(w.home, 'seen.json'), 'utf8'));
@@ -224,7 +265,7 @@ test('a newer release on dibs.cc is told to each listener once, and the machine 
   const run = args => bg(t, w.home, ['listen', ...args], w.opts({ agent: 'web-app', env: { CLAUDE_CODE_SESSION_ID: 'sess-a', DIBS_UPDATE_URL: f.url } }));
   const p = run(['--for', '20s']);
   assert.equal(await p.done, 0, p.err);
-  assert.equal(p.out.split('\n')[0], `dibs 99.9.9 is out (you have ${VERSION}). The person upgrades with: curl -fsSL https://dibs.cc/install.sh | sh`);
+  assert.equal(p.out.split('\n')[2], `dibs 99.9.9 is out (you have ${VERSION}). The person upgrades with: curl -fsSL https://dibs.cc/install.sh | sh`);
   assert.match(p.out, /Don't upgrade it yourself/);
   const again = run(['--for', '1s']);
   assert.equal(await again.done, 3, 'once per listener and version');
