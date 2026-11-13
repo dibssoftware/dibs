@@ -20,7 +20,7 @@ In order:
    - a custom domain `app.dibs.cc` (Cloudflare creates the DNS record and certificate; there must be no existing `app` record in the dibs.cc zone),
    - two routes on zone dibs.cc, `dibs.cc/app` and `dibs.cc/app/*` (exactly these: `dibs.cc/app*` would also take `/apple-touch-icon.png` from the waitlist), which take precedence over the `dibs-waitlist` Worker's custom domain for those paths only and answer with a 301 to app.dibs.cc. The waitlist Worker, its domains and its D1 database aren't touched. Skip the route if the link should only ever be app.dibs.cc (`dibs pair --remote` prints app.dibs.cc anyway),
    - a custom domain `mcp.dibs.cc` for remote MCP (no existing `mcp` record in the zone either), with var `MCP_HOST`,
-   - Durable Object classes `Machine` (SQLite-backed, migration `v1`; it stores nothing) and `CodeIndex` (migration `v2`; sign-in code hashes and machine ids, ten minutes at most),
+   - Durable Object classes `Machine` (SQLite-backed, migration `v1`; it stores nothing) and `CodeIndex` (migration `v2`; sign-in code hashes and machine ids, and typed pairing codes' sealed boxes, ten minutes at most),
    - rate limiting bindings, namespaces `7423` (connections) and `7424` (MCP requests); the waitlist uses `7422`,
    - `workers_dev` and preview URLs off, observability and logpush off.
 3. Accounts need two more things before they work:

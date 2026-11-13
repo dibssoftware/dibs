@@ -325,12 +325,15 @@ test('a frame before the handshake, or garbage, closes the channel', async () =>
   assert.match(w2.kicked.join(), /malformed/);
 });
 
-test('dibs pair --remote prints a one-time link and a QR code; keys are private to this user', () => {
+test('dibs pair --remote prints a QR code, a code to type and the link; keys are private to this user', () => {
   const r = sync(HOME, ['pair', '--remote']);
   assert.equal(r.code, 0, r.err);
   const link = r.out.match(/https:\/\/app\.dibs\.cc\/#p=\S+/)?.[0];
   assert.ok(B.parseLink(new URL(link).hash), r.out);
   assert.match(r.out, /▀|▄|█/);
+  assert.match(r.out, /^Code: [0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/m);
+  assert.match(r.out, /type the code at app\.dibs\.cc/);
+  assert.doesNotMatch(r.out, /whoever opens it first/);
   // Windows keeps no POSIX mode bits: there the files are private by their folder's ACL, not by 0600.
   if (process.platform !== 'win32') for (const f of ['relay-keys.json', 'relay.json']) assert.equal(fs.statSync(path.join(HOME, f)).mode & 0o777, 0o600, f);
   // The secret itself is never stored, only what's derived from it.
@@ -575,4 +578,72 @@ test('the QR code grows with the link and has the standard\'s shape', () => {
   assert.equal(m[0][0], true);
   assert.equal(m[7][7], false);
   assert.equal(qr('hi').length, 21);
+});
+
+// What app.dibs.cc does with a typed code (web/transport.js codeLink), against the relay's drop
+// as the Mac fills it: fetch the box by its first 4 characters, open it with the other 8.
+function dropRelay() {
+  const fetched = [];
+  return {
+    fetched,
+    fetch: async (url, opts) => {
+      const r = JSON.parse(opts.body).r;
+      fetched.push(r);
+      const d = relay.relayDrops().d.find(x => x.r === r);
+      return { status: d ? 200 : 404, json: async () => (d ? { box: d.b } : { error: 'no' }) };
+    },
+  };
+}
+
+test('a typed code opens the same link the QR code holds, and pairs; the relay holds only a box it can\'t open', async () => {
+  relay.revoke('all');
+  const p = relay.newPairing();
+  const link = linkFrom(p.link);
+  const raw = relay.normCode(p.code);
+  assert.ok(relay.isCode(raw), p.code);
+  const drops = relay.relayDrops();
+  assert.deepEqual(drops.d.map(x => x.r), [raw.slice(0, 4)]);
+  const sent = JSON.stringify(drops) + fs.readFileSync(path.join(HOME, 'relay.json'), 'utf8');
+  assert.ok(!sent.includes(raw.slice(4)), 'the 8 secret characters are never stored or sent');
+  assert.ok(!sent.includes(B.b64u(link.secret)), 'nor is the link\'s secret');
+  const net = dropRelay();
+  // Typed the way people type: lower case, spaces, an O for a zero.
+  const typed = p.code.toLowerCase().replace(/-/g, ' ').replace(/0/g, 'o');
+  const got = await B.codeLink(typed, net.fetch);
+  assert.equal(got.mid, link.mid);
+  assert.equal(got.fp, link.fp);
+  assert.equal(B.b64u(got.secret), B.b64u(link.secret));
+  await B.pair(wire().chan, got, 'Typed phone', memStore());
+  assert.deepEqual(relay.relayDrops().d, [], 'a used link\'s box is gone');
+  assert.ok(relay.devices().some(d => d.name === 'Typed phone'));
+});
+
+test('a code with the wrong last 8 fails in the browser and fetches the box once; unknown and malformed codes say what to do', async () => {
+  relay.revoke('all');
+  const p = relay.newPairing();
+  const raw = relay.normCode(p.code);
+  const net = dropRelay();
+  const wrong = raw.slice(0, 4) + (raw[4] === '2' ? '3' : '2') + raw.slice(5);
+  await assert.rejects(B.codeLink(wrong, net.fetch), e => e.code === 'wrong' && /check/i.test(e.message));
+  await assert.rejects(B.codeLink(wrong, net.fetch), { code: 'wrong' });
+  const got = await B.codeLink(raw, net.fetch);
+  assert.equal(got.mid, linkFrom(p.link).mid);
+  assert.deepEqual(net.fetched, [raw.slice(0, 4)], 'one fetch for three tries with the same first 4');
+  await assert.rejects(B.codeLink('ZZZZ-ZZZZ-ZZZZ', net.fetch), e => e.code === 'unknown' && /dibs pair --remote/.test(e.message));
+  await assert.rejects(B.codeLink('7KQM-2XRP', net.fetch), e => e.code === 'format' && /12/.test(e.message));
+  await assert.rejects(B.codeLink('UUUU-UUUU-UUUU', net.fetch), { code: 'format' });
+  const limited = async () => ({ status: 429, json: async () => ({}) });
+  await assert.rejects(B.codeLink('ABCD-EFGH-JKMN', limited), e => e.code === 'limited' && /minute/.test(e.message));
+  relay.revoke('all');
+  assert.deepEqual(relay.relayDrops().d, [], 'revoke all takes the boxes off the relay');
+});
+
+test('an expired link\'s box leaves the relay, and account links carry no code', () => {
+  relay.revoke('all');
+  relay.newPairing();
+  assert.equal(relay.relayDrops(undefined, Date.now() + 11 * 60e3).d.length, 0);
+  const a = relay.newPairing({ account: true });
+  assert.equal(a.code, undefined);
+  assert.equal(relay.relayDrops().d.length, 1);
+  relay.revoke('all');
 });

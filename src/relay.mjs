@@ -112,6 +112,35 @@ export const tokenHash = rt => b64u(sha(Buffer.concat([utf8('dibs-relay-token-v1
 const MAX_HASHES = 56;
 // Sign-in codes the relay's index takes from one machine at once (relay/src/index.js MAX_CODES).
 const MAX_CODES = 10;
+
+// The pairing code shown beside the QR code, for typing at app.dibs.cc instead of scanning:
+// 12 Crockford base32 characters, 7KQM-2XRP-9DHT. The first 4 (R) name a drop at the relay; the
+// other 8 (K, 40 bits) never leave this Mac and the person's eyes. The drop holds the link's
+// fragment (mid, secret, fingerprint) sealed with AES-256-GCM under
+// PBKDF2-SHA256(K, salt "dibs-code-v1" || R, 600,000 iterations). The page fetches the drop by R,
+// derives the key from K and opens it, then pairs exactly as the link does, so the relay never
+// learns the secret. Someone who gets the box (the relay itself, or a guesser who hit a live R)
+// has 2^40 keys to try at 600,000 PBKDF2 rounds each: 3.3e17 HMAC-SHA256 calls on average. A
+// top-end GPU does about 9e9 a second, so finding K inside the link's ten minutes takes some
+// 60,000 of them, and the secret inside is worthless after those ten minutes or once the link is
+// used. The relay hands out each box at most 3 times (relay/src/codebook.js), limits fetches per
+// address, and drops the box when the link is used, revoked or expires.
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+export const CODE_ITERATIONS = 600000;
+const CODE_SALT = 'dibs-code-v1';
+// What people type: lower case, spaces and dashes are fine, and O, I and L read as 0, 1 and 1.
+export const normCode = s => String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+export const isCode = s => /^[0-9A-HJKMNP-TV-Z]{12}$/.test(s);
+const randomCrockford = n => Array.from({ length: n }, () => CROCKFORD[crypto.randomInt(32)]).join('');
+export const showCode = c => `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8, 12)}`;
+const codeKey = (k, r) => crypto.pbkdf2Sync(utf8(k), utf8(CODE_SALT + r), CODE_ITERATIONS, 32, 'sha256');
+// iv (12) || ciphertext || tag (16), base64url, with the salt as associated data.
+export function sealCode(frag, r, k) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', codeKey(k, r), iv);
+  c.setAAD(utf8(CODE_SALT + r));
+  return b64u(Buffer.concat([iv, c.update(utf8(frag)), c.final(), c.getAuthTag()]));
+}
 function openBox(key, box) {
   if (box.length !== BOX_LEN) return null;
   try {
@@ -176,12 +205,18 @@ function locked(fn) {
 export function newPairing({ act = false, account = false } = {}) {
   const k = keys();
   const secret = crypto.randomBytes(32);
+  const frag = `${k.mid}.${b64u(secret)}.${k.fp}`;
+  // A browser link gets a code to type as well. The account link opens on /account, which has
+  // its own sign-in, so it has none.
+  let code = null;
+  // Two open links of this Mac never share a drop name.
+  if (!account) do code = randomCrockford(12); while (load().pairs.some(p => p.cr === code.slice(0, 4)));
+  const box = code && sealCode(frag, code.slice(0, 4), code.slice(4));
   locked(w => {
-    w.pairs.push({ pid: b64u(pairId(secret)), key: b64u(pairKey(secret)), nk: b64u(nameKey(secret)), th: tokenHash(pairTicket(secret)), exp: now() + PAIR_LIFE, fails: 0, ...(act ? { act: true } : {}), ...(account ? { acct: true } : {}) });
+    w.pairs.push({ pid: b64u(pairId(secret)), key: b64u(pairKey(secret)), nk: b64u(nameKey(secret)), th: tokenHash(pairTicket(secret)), exp: now() + PAIR_LIFE, fails: 0, ...(act ? { act: true } : {}), ...(account ? { acct: true } : {}), ...(code ? { cr: code.slice(0, 4), cb: box } : {}) });
     w.pairs = w.pairs.slice(-MAX_PAIRS);
   });
-  const frag = `${k.mid}.${b64u(secret)}.${k.fp}`;
-  return { link: account ? `${PAGE}account#join=${frag}` : `${PAGE}#p=${frag}`, mid: k.mid, fp: k.fp, life: PAIR_LIFE, exp: now() + PAIR_LIFE, act };
+  return { link: account ? `${PAGE}account#join=${frag}` : `${PAGE}#p=${frag}`, ...(code ? { code: showCode(code) } : {}), mid: k.mid, fp: k.fp, life: PAIR_LIFE, exp: now() + PAIR_LIFE, act };
 }
 
 export const devices = () => Object.entries(load().devices).map(([id, d]) => ({ id, ...d }));
@@ -550,6 +585,12 @@ export function relayTokens(w = load(), t = now()) {
   return { t: 'tokens', h, p: w.pairs.filter(p => p.exp > t && typeof p.th === 'string').map(p => p.th), c: w.mcp ? mcpCodes().slice(-MAX_CODES) : [] };
 }
 
+// The sealed boxes of open links' codes, by drop name, for the relay to hand to whoever types
+// the code (see CROCKFORD above). Sent apart from the tokens, which have a size limit of their own.
+export function relayDrops(w = load(), t = now()) {
+  return { t: 'drops', d: w.pairs.filter(p => p.exp > t && typeof p.cr === 'string' && typeof p.cb === 'string').map(p => ({ r: p.cr, b: p.cb, exp: p.exp })) };
+}
+
 function status(state, extra = {}) {
   try {
     const tmp = `${STATUS}.${process.pid}`;
@@ -657,13 +698,15 @@ export function connectOnce(base, k, call) {
     let ws;
     try { ws = new WebSocket(url); } catch (e) { return resolve(e.message); }
     ws.binaryType = 'arraybuffer';
-    let authed = false, lastHeard = now(), done = false, sentTokens = '';
+    let authed = false, lastHeard = now(), done = false, sentTokens = '', sentDrops = '';
     const finish = why => { if (done) return; done = true; clearInterval(beat); clearInterval(watch); clearInterval(approvals); peer.closeAll(); try { ws.close(); } catch {} resolve(why); };
     // The relay's list of who may connect follows relay.json within a second: a new link opens
     // the pairing pool, a pairing adds a hash, a revoke removes one (and its open sessions end).
     const syncTokens = () => {
       if (!authed || ws.readyState !== 1) return;
-      const t = JSON.stringify(relayTokens());
+      const w = load();
+      const t = JSON.stringify(relayTokens(w)), d = JSON.stringify(relayDrops(w));
+      if (d !== sentDrops) { sentDrops = d; ws.send(d); }
       if (t === sentTokens) return;
       sentTokens = t;
       ws.send(t);
@@ -731,9 +774,10 @@ const ago = t => (t ? `${dur(now() - t)} ago` : 'never');
 export function pairRemote({ act = false } = {}) {
   const p = newPairing({ act });
   logChange('pair remote', { actions: act });
-  console.log(`${render(qr(p.link))}\n${p.link}\n`);
-  console.log(`Scan the code with the phone you want to use, or open the link in that browser. Don't paste it into a chat: whoever opens it first gets in.`);
-  console.log(`One use, until ${clockOf(p.exp)} (${p.life / MIN} minutes). That browser checks it reached this Mac by its fingerprint ${p.fp.slice(0, 16)}...`);
+  console.log(`${render(qr(p.link))}\nCode: ${p.code}\n`);
+  console.log(`Scan the QR code with your phone, or type the code at ${PAGE.replace(/^https?:\/\//, '').replace(/\/$/, '')}.`);
+  console.log(`It works once, until ${clockOf(p.exp)} (${p.life / MIN} minutes). That browser checks it reached this Mac by its fingerprint ${p.fp.slice(0, 16)}...`);
+  console.log(`The QR code as a link:\n${p.link}\n`);
   console.log(act ? 'It can act: boost, pause, resume and stop jobs, cap an agent, set the pace, cancel scheduled runs. Never message agents, answer their questions, or change the hook or your hours. Revoke it if the device is lost.'
     : 'It can only look. To let a browser change things too: dibs pair --remote --allow-actions');
   const s = statusLine();

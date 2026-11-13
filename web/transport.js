@@ -114,6 +114,38 @@
     return secret && unb64u(m[1], 16) && unb64u(m[3], 32) ? { mid: m[1], secret, fp: m[3] } : null;
   }
 
+  // The code dibs pair --remote shows beside its QR code, typed here instead of scanning
+  // (src/relay.mjs CROCKFORD says how it works and why guessing it is out of reach). The first 4
+  // characters fetch a sealed box from the relay; the other 8 open it, here and nowhere else, into
+  // the same link the QR code holds. A wrong code fails here, without asking the relay again: the
+  // box is kept for the next try, since the relay hands each one out only 3 times.
+  const CODE_SALT = 'dibs-code-v1', CODE_ITERATIONS = 600000;
+  const normCode = s => String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  const boxes = new Map();
+  const codeFail = (code, message) => Object.assign(new Error(message), { code });
+  async function codeLink(typed, fetchFn = (u, o) => root.fetch(u, o)) {
+    const c = normCode(typed);
+    if (!/^[0-9A-HJKMNP-TV-Z]{12}$/.test(c)) throw codeFail('format', 'The code is 12 letters and numbers, like 7KQM-2XRP-9DHT.');
+    const r = c.slice(0, 4), k = c.slice(4);
+    if (!boxes.has(r)) {
+      let res;
+      try { res = await fetchFn('/pair/code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ r }) }); }
+      catch { throw codeFail('network', 'Couldn\'t reach the relay. Check your connection and try again.'); }
+      if (res.status === 429) throw codeFail('limited', 'Too many tries from this network. Wait a minute and try again.');
+      const j = res.status === 200 ? await res.json().catch(() => null) : null;
+      const box = typeof j?.box === 'string' ? unb64u(j.box) : null;
+      if (!box || box.length < 29) throw codeFail('unknown', 'No Mac has that code open. It may have expired or been used: run dibs pair --remote for a new one.');
+      boxes.set(r, box);
+    }
+    const box = boxes.get(r), salt = enc.encode(CODE_SALT + r);
+    const base = await subtle.importKey('raw', enc.encode(k), 'PBKDF2', false, ['deriveKey']);
+    const key = await subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: CODE_ITERATIONS }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    let link = null;
+    try { link = parseLink(`#p=${dec.decode(await subtle.decrypt({ name: 'AES-GCM', iv: box.subarray(0, 12), additionalData: salt, tagLength: 128 }, key, box.subarray(12)))}`); } catch {}
+    if (!link) throw codeFail('wrong', 'That code doesn\'t match. Check the last 8 characters against your Mac.');
+    return link;
+  }
+
   // chan: { send(Uint8Array), recv(): Promise<Uint8Array>, close(why) }, one browser
   // tab's connection to the Mac through the relay. store: get(mid), put(record), all().
   // keys: a device key pair to pair with instead of a new one (a dibs account's, from its keyring).
@@ -400,6 +432,16 @@
       },
       onState(f) { listeners.add(f); f(state); return () => listeners.delete(f); },
       get state() { return state; },
+      // A link from a typed code (codeLink): pair with it now, as if the page had opened with it.
+      pairWith(l) {
+        link = l;
+        pairTries = 0;
+        wait = BACKOFF_MIN;
+        session?.close();
+        session = null;
+        connecting = null;
+        return ensure();
+      },
       forget: async () => { for (const r of await store.all()) await store.remove(r.mid); session?.close(); session = null; set('unpaired'); },
     };
   }
@@ -431,7 +473,7 @@
     };
   }
 
-  const internals = { parseLink, pairTicket, pair, open, tx, b64u, unb64u, fingerprint, pad, unpad, deviceName, remote, local, socketChan, idbStore };
+  const internals = { parseLink, codeLink, normCode, pairTicket, pair, open, tx, b64u, unb64u, fingerprint, pad, unpad, deviceName, remote, local, socketChan, idbStore };
   if (root.document) {
     // The relay's copy of the page says so (relay/build.mjs); the one dibs web serves doesn't.
     const isLocal = root.document.querySelector('meta[name="dibs-transport"]')?.content !== 'relay';

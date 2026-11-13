@@ -267,6 +267,11 @@ struct PhonePairing: View {
                     HStack(spacing: Space.l) {
                         QRCode(text: p.link).frame(width: 140, height: 140)
                         VStack(alignment: .leading, spacing: Space.s) {
+                            if let code = p.code {
+                                Text(code).font(.system(size: 24, weight: .bold, design: .monospaced)).foregroundStyle(Palette.ink).copyable(code)
+                                Text("Scan it with your phone, or type the code at app.dibs.cc.").foregroundStyle(Palette.ink2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             Text(p.act ? "It can act: boost, pause, resume and stop jobs, cap agents, set the speed, cancel runs for later." : "It can only look.")
                                 .foregroundStyle(Palette.ink2)
                                 .fixedSize(horizontal: false, vertical: true)

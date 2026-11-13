@@ -332,11 +332,12 @@ test('Machines on the page: this Mac\'s limits, its simulator pool and services,
   assert.ok(m.pool.room['sim-own'], 'the private simulator pool');
 });
 
-test('the page pairs a phone through the relay: a link and its QR code, and the device lands on the list', async t => {
+test('the page pairs a phone through the relay: a link, its QR code and a code to type, and the device lands on the list', async t => {
   const w = await server(t);
   const r = await w.post('/api/pair/remote', { act: false });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.match(r.json.link, /^https:\/\//);
+  assert.match(r.json.code, /^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
   assert.ok(r.json.qr.length >= 21 && r.json.qr.every(row => row.length === r.json.qr.length), 'a square QR grid');
   assert.equal(overrides(w.home, 'pair remote').length, 1);
 });

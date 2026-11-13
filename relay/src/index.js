@@ -11,6 +11,8 @@
 //                 for that machine id. The key grants nothing beyond that. Once in,
 //                 it tells the relay the hashes of its paired browsers' relay tokens
 //                 and whether a pairing link is open.
+//   /pair/code    a typed pairing code's sealed box, by the code's first 4 characters, from the
+//                 code index; the box opens only with the other 8, in the page (src/relay.mjs CROCKFORD).
 //   /ws/b/<mid>   a browser tab. It gets a slot only by proving it's paired: its first
 //                 message carries its relay token, and the relay admits it if the
 //                 token's hash is one the Mac registered. A tab may instead ask to pair
@@ -18,7 +20,7 @@
 //                 Then binary messages go to the Mac tagged with the tab's channel id;
 //                 the relay's own notes ({t:'mac', up}) are text.
 import { DurableObject } from 'cloudflare:workers';
-import { CodeBook, MAX_CODES } from './codebook.js';
+import { CodeBook, MAX_CODES, MAX_DROPS } from './codebook.js';
 import { accountRoute } from './accounts.js';
 export { Accounts } from './accounts.js';
 
@@ -326,6 +328,28 @@ async function mcp(req, env, url) {
   return r.offline ? mcpJson(r.status, r.text) : answer(r);
 }
 
+// A typed pairing code's box. Only the page itself asks (same origin); the answer is the same for
+// a name nobody holds, one that expired, and one handed out its 3 times. Each address gets the
+// Worker's per-address limit and the code index's own count a minute.
+async function pairCode(req, env, url) {
+  if (req.method !== 'POST') return json(405, { error: 'POST only' });
+  if (req.headers.get('Origin') !== url.origin) return json(403, { error: 'cross-site request refused' });
+  const ip = req.headers.get('CF-Connecting-IP') || 'local';
+  const limited = json(429, { error: 'Too many tries from this network. Wait a minute and try again.' });
+  if (env.RL) {
+    const { success } = await env.RL.limit({ key: `code:${ip}` });
+    if (!success) return limited;
+  }
+  if (Number(req.headers.get('content-length') || 0) > 256) return json(413, { error: 'too big' });
+  const body = await req.text();
+  let r = null;
+  try { r = body.length <= 256 ? JSON.parse(body).r : null; } catch {}
+  const found = await env.INDEX.get(env.INDEX.idFromName('index')).fetch('https://index.internal/take', { method: 'POST', body: JSON.stringify({ r, ip }) }).then(x => x.json());
+  if (found.limited) return limited;
+  if (!found.box) return json(404, { error: 'No Mac has that code open. Run dibs pair --remote for a new one.' });
+  return json(200, { box: found.box });
+}
+
 function withHeaders(res, extra) {
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(extra)) headers.set(k, v);
@@ -361,6 +385,13 @@ export default {
       return env.MACHINE.get(env.MACHINE.idFromName(ws[2])).fetch(req);
     }
 
+    if (url.pathname === '/pair/code') {
+      const r = await pairCode(req, env, url);
+      const headers = new Headers(r.headers);
+      for (const [k, v] of Object.entries(pageHeaders(host))) headers.set(k, v);
+      headers.set('Cache-Control', 'no-store');
+      return new Response(r.body, { status: r.status, headers });
+    }
     if (url.pathname.startsWith('/account/')) {
       const r = await accountRoute(req, env, url);
       const headers = new Headers(r.headers);
@@ -609,6 +640,16 @@ export class Machine extends DurableObject {
           await this.env.INDEX.get(this.env.INDEX.idFromName('index')).fetch('https://index.internal/set', { method: 'POST', body: JSON.stringify({ mid: a.mid, codes }) });
         }
       }
+      // Open links' pairing code drops, the whole list each time, to the code index.
+      if (m?.t === 'drops' && Array.isArray(m.d)) {
+        const drops = m.d.filter(x => typeof x?.r === 'string' && typeof x.b === 'string' && Number.isFinite(x.exp)).slice(0, MAX_DROPS).map(x => ({ r: x.r, b: x.b, exp: x.exp }));
+        const key = JSON.stringify(drops);
+        if (key !== this.sentDrops) {
+          this.sentDrops = key;
+          await this.env.INDEX.get(this.env.INDEX.idFromName('index')).fetch('https://index.internal/drops', { method: 'POST', body: JSON.stringify({ mid: a.mid, drops }) });
+        }
+        return;
+      }
       // A tab that just paired becomes a paired tab: the Mac saw its pairing succeed and registered its token.
       if (m?.t === 'admit' && typeof m.ch === 'string' && typeof m.h === 'string' && registered(a.hashes, m.h)) {
         for (const b of this.ctx.getWebSockets(`ch:${m.ch}`)) {
@@ -668,7 +709,8 @@ export class Machine extends DurableObject {
 }
 
 // The code index: one object for everyone, mapping the hash of a live sign-in code to the
-// machine id it belongs to, so https://mcp.dibs.cc/authorize can send the code to that Mac.
+// machine id it belongs to, so https://mcp.dibs.cc/authorize can send the code to that Mac, and
+// holding open pairing code drops for app.dibs.cc/pair/code.
 // The bookkeeping (what's stored, for how long, the lookup limits) is codebook.js.
 export class CodeIndex extends DurableObject {
   constructor(ctx, env) {
@@ -685,6 +727,14 @@ export class CodeIndex extends DurableObject {
       if (next && !(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(next);
       return new Response('ok');
     }
+    if (url.pathname === '/drops') {
+      const next = await this.book.setDrops(j.mid, j.drops);
+      if (next === null) return new Response('bad', { status: 400 });
+      const due = await this.ctx.storage.getAlarm();
+      if (next && (!due || next < due)) await this.ctx.storage.setAlarm(next);
+      return new Response('ok');
+    }
+    if (url.pathname === '/take') return Response.json(await this.book.takeDrop(j.r, j.ip));
     if (url.pathname === '/find') return Response.json(await this.book.find(j.h, j.ip));
     if (url.pathname === '/drop') { await this.book.drop(j.h, j.mid); return new Response('ok'); }
     return new Response('not here', { status: 404 });

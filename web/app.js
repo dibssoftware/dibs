@@ -271,16 +271,29 @@
     forgetReports();
     cache.clear();
     if (!T.remote) return $('code').focus();
-    // Away from this Mac there's no code to type: a browser pairs by opening the link dibs pair --remote prints.
-    $('signin-form').querySelector('h1').textContent = 'Pair this browser';
-    $('signin-form').querySelector('p').textContent = detail || 'Run dibs pair --remote in a terminal on your Mac and open the link it prints here, or scan its code with your phone. Each link works once, for ten minutes.';
-    for (const x of $('signin-form').querySelectorAll('label, input, button')) x.hidden = true;
+    // Away from this Mac: the code dibs pair --remote shows beside its QR code, typed here.
+    const f = $('signin-form');
+    f.querySelector('h1').textContent = 'Pair this browser';
+    f.querySelector('p').replaceChildren('Run ', el('code', null, 'dibs pair --remote'), ' on your Mac. Scan its QR code with your phone, or type its code here.');
+    f.querySelector('label').textContent = 'Type the code from your Mac';
+    $('code').placeholder = '7KQM-2XRP-9DHT';
+    f.querySelector('button').textContent = 'Pair';
+    $('signin-error').textContent = detail ? `${detail[0].toUpperCase()}${detail.slice(1)}${/[.?)]$/.test(detail) ? '' : '.'}` : '';
+    $('account-way').hidden = false;
+    $('code').focus();
   }
+  // The code as it's typed or pasted: 7KQM-2XRP-9DHT, grouped by fours.
+  $('code').addEventListener('input', e => {
+    if (!T.remote) return;
+    const x = e.target, raw = x.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 12);
+    const shown = raw.replace(/(.{4})(?=.)/g, '$1-');
+    if (shown !== x.value) x.value = shown;
+  });
   T.onState(({ state, detail }) => {
     if (state === 'unpaired' || state === 'error') return signin(true, detail);
     if (!['offline', 'connecting', 'pairing', 'ready'].includes(state)) return;
-    // A paired Mac was found: the app shows at once, saying what it waits on.
-    if ($('app').hidden && $('signin').hidden) signin(false);
+    // A paired Mac was found, or a typed code is pairing: the app shows at once, saying what it waits on.
+    if ($('app').hidden && ($('signin').hidden || state === 'pairing')) signin(false);
     if (state === 'ready') {
       if (!data) say('Loading the board from your Mac.', true);
       // The first load is usually under way already, its call sent with the handshake.
@@ -2476,7 +2489,7 @@
       out.push(row);
       // A phone, or a browser anywhere: dibs pair --remote's link, and its QR code to scan.
       const far = el('div', 'hookrow');
-      far.append(el('p', 'prose', 'A phone or a browser away from this Mac pairs through the encrypted relay at app.dibs.cc. Scan the code or open the link there; it works once, for ten minutes. It can only look unless you let it act.'));
+      far.append(el('p', 'prose', 'A phone or a browser away from this Mac pairs through the encrypted relay at app.dibs.cc. Each code works once, for ten minutes, and can only look unless you let it act.'));
       const acts = el('div', 'btn-row');
       for (const [act, label] of [[false, 'Pair a phone to look'], [true, 'Pair a phone that can act']]) {
         const b2 = button(`btn${act ? '' : ' primary'}`, label, async () => {
@@ -2496,6 +2509,8 @@
         link.target = '_blank';
         link.rel = 'noreferrer';
         const words = el('div', 'qr-text');
+        // A dibs from before typed codes prints none: then the QR code and the link alone.
+        if (remotePair.code) words.append(el('span', 'code-big', remotePair.code), el('span', 'code-note', 'Scan it with your phone, or type the code at app.dibs.cc.'));
         words.append(el('span', 'code-note', `${remotePair.act ? 'It can act: boost, pause, resume and stop jobs, cap agents, set the speed, cancel runs for later.' : 'It can only look.'} Good until ${clock(remotePair.at + 10 * 6e4)}.`), link);
         t.append(qrSvg(remotePair.qr), el('i', 'perf'), words);
         wrap.append(t);
@@ -2641,6 +2656,19 @@
     $('signin-error').textContent = '';
     btn.disabled = true;
     btn.textContent = 'Checking';
+    if (T.remote) {
+      try {
+        const link = await T._internals.codeLink($('code').value);
+        $('code').value = '';
+        T.pairWith(link).catch(() => {});
+      } catch (x) {
+        $('signin-error').textContent = x.message;
+        $('code').select();
+      }
+      btn.disabled = false;
+      btn.textContent = 'Pair';
+      return;
+    }
     try {
       const r = await T.fetchApi('POST', '/api/login', { code: $('code').value });
       if (r.status !== 200) throw new Error(r.json?.error || 'That did not work.');

@@ -148,7 +148,7 @@ the person's page and MCP server
   dibs pair --list | --revoke <id|all>     what's signed in (MCP clients: can act or look only; on the coordinator, its machines)
   dibs pair --machine [--name x]           on the coordinator: a one-time code another machine joins with (10 minutes, one use);
                                            dibs pair --revoke <machine> removes one that joined
-  dibs pair --remote [--allow-actions]     a one-time link and QR code to pair a phone or any browser with https://app.dibs.cc,
+  dibs pair --remote [--allow-actions]     a one-time QR code, and a code to type, to pair a phone or any browser with https://app.dibs.cc,
                                            end-to-end encrypted through the relay (dibs service install relay keeps it connected).
                                            It can only look unless --allow-actions; the hook and hours never change remotely
   dibs relay [--url wss://app.dibs.cc]     the relay connection itself, in the foreground

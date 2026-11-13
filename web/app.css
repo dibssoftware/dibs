@@ -189,6 +189,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .signin-card button:disabled { filter: grayscale(0.6); opacity: 0.7; cursor: default; }
 .error { color: var(--red-ink) !important; min-height: 1.5em; margin: 8px 0 4px !important; font-size: 14px; }
 .dest { font-size: 13px; overflow-wrap: anywhere; }
+.signin-card .sub { margin: 18px 0 0; font-size: 13.5px; color: var(--ink-3); text-align: center; }
+.signin-card .sub a { color: var(--ink-2); text-underline-offset: 2px; }
 
 /* The app: rail and panel. */
 .shell {
@@ -907,6 +909,8 @@ button.prog { cursor: pointer; }
 .l-main > .dot { display: inline-block; vertical-align: 1px; margin-right: 4px; }
 .hookrow + .hookrow { margin-top: 14px; }
 .qr-text { display: grid; gap: 8px; width: min(380px, 60vw); }
+.qr-text .code-big { font-size: 24px; }
+.qr-text .code-link { color: var(--ink-3); }
 .prose.sub { color: var(--ink-3); font-size: 13.5px; margin: 6px 0 0; }
 /* dibs accounts: browsers waiting for this Mac's key, on the red wash the app gives them. */
 .list.wants { background: var(--red-wash); margin-bottom: 12px; }

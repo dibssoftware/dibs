@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { CodeBook, CODE_LIFE } from '../src/codebook.js';
+import { CodeBook, CODE_LIFE, DROP_FETCHES } from '../src/codebook.js';
 
 function store() {
   const m = new Map();
@@ -83,4 +83,56 @@ test('lookups: per address, and the global cap never stops an address\'s first t
   for (let i = 0; i < 20; i++) assert.ok(!(await book.find(h(), `fresh${i}`, t)).limited, 'every address\'s first try gets an answer');
   assert.ok((await book.find(h(), 'fresh0', t)).limited, 'but not its second');
   assert.ok(!(await book.find(h(), 'a', t + 61e3)).limited, 'a minute later it all resets');
+});
+
+// Pairing code drops: what dibs pair --remote's typed code fetches (src/relay.mjs CROCKFORD).
+const box = () => crypto.randomBytes(140).toString('base64url');
+const CROCK = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const drop = () => Array.from({ length: 4 }, () => CROCK[crypto.randomInt(32)]).join('');
+
+test('a drop is handed out 3 times at most, and listing it again earns no more', async () => {
+  const s = store(), book = new CodeBook(s, { perIp: 100 });
+  const t = Date.now(), a = mid(), r = drop(), b = box();
+  await book.setDrops(a, [{ r, b, exp: t + 60e3 }], t);
+  const got = [];
+  for (let i = 0; i < DROP_FETCHES; i++) got.push((await book.takeDrop(r, 'ip', t)).box);
+  assert.deepEqual(got, Array(DROP_FETCHES).fill(b));
+  await book.setDrops(a, [{ r, b, exp: t + 60e3 }], t);
+  assert.deepEqual(await book.takeDrop(r, 'ip', t), { box: null });
+});
+
+test('a used, revoked or expired link\'s drop is gone; unknown and malformed names get the same answer', async () => {
+  const s = store(), book = new CodeBook(s, { perIp: 100 });
+  const t = Date.now(), a = mid(), r1 = drop(), r2 = drop();
+  await book.setDrops(a, [{ r: r1, b: box(), exp: t + 60e3 }, { r: r2, b: box(), exp: t + 24 * 3600e3 }], t);
+  assert.equal(s.m.get(`r:${r2}`).exp, t + CODE_LIFE, 'never past ten minutes');
+  await book.setDrops(a, [{ r: r2, b: s.m.get(`r:${r2}`).b, exp: t + 60e3 }], t);
+  assert.deepEqual(await book.takeDrop(r1, 'ip', t), { box: null }, 'the link was used: the Mac stopped listing it');
+  assert.deepEqual(await book.takeDrop(r2, 'ip', t + CODE_LIFE + 1), { box: null });
+  for (const x of ['', 'UUUU', 'ABC', 'abcd', null, '../x']) assert.deepEqual(await book.takeDrop(x, 'ip', t), { box: null }, String(x));
+  await book.setDrops(a, [], t);
+  assert.equal([...s.m.keys()].filter(k => k.startsWith('r')).length, 0, 'an empty list clears the machine\'s drops');
+  await book.setDrops(a, [{ r: r1, b: box(), exp: t + 60e3 }], t);
+  assert.equal(await book.sweep(t + 2 * 60e3), 0);
+  assert.equal(s.m.size, 0, 'the sweep takes expired drops and their list');
+});
+
+test('a machine can\'t take, replace or clear another\'s drop', async () => {
+  const s = store(), book = new CodeBook(s, { perIp: 100 });
+  const t = Date.now(), a = mid(), b = mid(), r = drop(), mine = box();
+  await book.setDrops(a, [{ r, b: mine, exp: t + 60e3 }], t);
+  await book.setDrops(b, [{ r, b: box(), exp: t + 60e3 }], t);
+  assert.equal((await book.takeDrop(r, 'ip', t)).box, mine);
+  await book.setDrops(b, [], t);
+  assert.equal((await book.takeDrop(r, 'ip', t)).box, mine);
+  assert.ok(!s.m.has(`rm:${b}`));
+});
+
+test('drop fetches are limited per address apart from code lookups', async () => {
+  const book = new CodeBook(store(), { perIp: 3, global: 5 });
+  const t = Date.now();
+  const r = [];
+  for (let i = 0; i < 4; i++) r.push(await book.takeDrop(drop(), 'a', t));
+  assert.deepEqual(r.map(x => !!x.limited), [false, false, false, true]);
+  assert.ok(!(await book.find(h(), 'a', t)).limited, 'sign-in code lookups keep their own budget');
 });

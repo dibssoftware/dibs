@@ -350,6 +350,40 @@ async function main() {
   assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('dibs:/api/'))), [], 'the kept reports go with the pairing');
   step('after dibs pair --revoke all the page is refused, shows how to pair again, and the kept reports are gone');
 
+  // The code dibs pair --remote shows beside the QR code, typed into the pair card.
+  assert.equal(await page.isVisible('#code'), true, 'the pair card has a code box');
+  assert.match(await page.textContent('label[for="code"]'), /Type the code from your Mac/);
+  const pageReq = (body, headers = {}) => mcpReq('POST', '/pair/code', { headers: { Host: `127.0.0.1:${PORT}`, Origin: ORIGIN, ...headers }, body });
+  const typedOut = dibs(['pair', '--remote']);
+  const typed = typedOut.match(/^Code: (\S+)$/m)[1];
+  await wait(1500);   // the Mac tells the relay about a new link within a second (src/relay.mjs TOKEN_SYNC)
+  const wrongK = typed.slice(0, 5) + (typed[5] === '2' ? '3' : '2') + typed.slice(6);
+  await page.fill('#code', wrongK.replace(/-/g, '').toLowerCase());
+  assert.equal(await page.inputValue('#code'), wrongK, 'typing groups the code by fours');
+  await page.click('#signin-form button');
+  await until(async () => /doesn't match/.test(await page.textContent('#signin-error')), 30e3, 'a wrong code to be refused in the page');
+  await page.fill('#code', 'ZZZZ-ZZZZ-ZZZZ');
+  await page.click('#signin-form button');
+  await until(async () => /No Mac has that code open/.test(await page.textContent('#signin-error')), 30e3, 'an unknown code to be refused');
+  await page.fill('#code', typed);
+  await page.click('#signin-form button');
+  await page.waitForSelector('#app:not([hidden])', { timeout: 30e3 });
+  await until(() => page.evaluate(() => dibsTransport.state.state === 'ready'), 30e3, 'the board after a typed code');
+  await until(async () => (await pageReq({ r: typed.slice(0, 4) }, { 'CF-Connecting-IP': '192.0.2.50' })).status === 404, 10e3, 'a used link\'s box to leave the relay');
+  step('a typed code pairs: a wrong last 8 and an unknown code are refused in the page with what to do, the right one pairs, and the box is gone once used');
+
+  const capped = dibs(['pair', '--remote']).match(/^Code: (\S+)$/m)[1];
+  await wait(1500);
+  const takes = [];
+  for (let i = 0; i < 4; i++) takes.push((await pageReq({ r: capped.slice(0, 4) }, { 'CF-Connecting-IP': `192.0.2.${60 + i}` })).status);
+  assert.deepEqual(takes, [200, 200, 200, 404]);
+  assert.equal((await pageReq({ r: 'ZZZZ' }, { Origin: 'https://evil.example' })).status, 403);
+  const fromOne = [];
+  for (let i = 0; i < 6; i++) fromOne.push((await pageReq({ r: 'ZZZZ' }, { 'CF-Connecting-IP': '192.0.2.77' })).status);
+  assert.deepEqual(fromOne, [404, 404, 404, 404, 404, 429]);
+  dibs(['pair', '--revoke', 'all']);
+  step('a code\'s box is handed out 3 times at most, only to the page\'s own origin, and fetches are limited per address');
+
   // Remote MCP through mcp.dibs.cc (mcp.localhost here): off by default, then the whole sign-in.
   const B = `http://${MCP_HOST}/${mid}`;
   assert.equal((await mcpReq('GET', `/${mid}/.well-known/oauth-authorization-server`)).status, 404);

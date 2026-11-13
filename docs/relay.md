@@ -6,7 +6,7 @@ Turn it on:
 
 ```bash
 dibs service install relay     # keeps the outbound connection up, with backoff; off until you do this
-dibs pair --remote             # prints a one-time link and a QR code; open it on the phone. That browser can only look
+dibs pair --remote             # shows a QR code and a code; scan it with the phone or type the code at app.dibs.cc. That browser can only look
 dibs pair --remote --allow-actions   # the same, and that browser may also boost, pause, resume and stop jobs, cap an agent, set the pace and cancel scheduled runs
 dibs pair --list               # local sign-ins and remote devices
 dibs pair --revoke <id|all>    # a revoked device's open session ends within 25 seconds
@@ -45,6 +45,16 @@ The fragment never goes in a request, and the page removes it from the address b
 
 So pairing needs the secret (256 bits, one use, ten minutes; there's nothing to brute force), and a relay that swaps either key is caught: the device key by the HMAC and the device's own signature, the Mac's key by the fingerprint and the HMAC.
 
+### The typed code
+
+Beside the QR code, `dibs pair --remote` shows a code to type at app.dibs.cc instead, like `7KQM-2XRP-9DHT`: 12 Crockford base32 characters (no I, L, O or U; the page reads O as 0 and I and L as 1). The first 4 are a drop name `R`, the other 8 are `K`, 40 random bits that never leave the Mac or the person's eyes.
+
+The Mac seals the link's fragment, `<mid>.<secret>.<fp>`, with AES-256-GCM under PBKDF2-SHA256(`K`, salt "dibs-code-v1" ‖ `R`, 600,000 iterations), a random 12-byte nonce and the salt as associated data, and sends the box to the relay as `{t: "drops", d: [{r, b, exp}]}` over its authenticated socket, the whole list of its open links' boxes each time it changes. The relay's code index keeps each box under `R` for the machine that sent it (a name another machine holds stays theirs), until the link's ten minutes run out or the Mac stops listing it: when the link is used, revoked, or replaced past five open links.
+
+The page sends `R` to `POST /pair/code`, same origin only, and gets the box back, at most 3 times per box. A name nobody holds, an expired box and one already handed out 3 times all get the same 404. It derives the key from `K`, opens the box, and pairs with the link inside exactly as if the QR code had been scanned. A wrong `K` fails in the page, which keeps the box, so retyping never fetches again.
+
+The relay never sees `K`. Whoever holds a box (the relay, or someone who guessed a live `R` out of 1,048,576 within the per-address limits) has 2^40 keys to try at 600,000 PBKDF2 rounds each: 3.3e17 HMAC-SHA256 calls on average. A top-end GPU does about 9e9 a second, so opening one box inside its ten minutes takes some 60,000 of them, and what's inside is worthless once those ten minutes are up or the link is used. The worst a guesser can do cheaply is spend a live box's 3 fetches; the person then runs `dibs pair --remote` again.
+
 ## A session
 
 Every connection, including the first right after pairing:
@@ -80,8 +90,9 @@ Errors before a session exists (`{t: "err", code}`) are unauthenticated, so the 
 
 | path | who | what the relay does |
 |---|---|---|
-| `wss://app.dibs.cc/ws/m/<mid>` | the Mac (also sends `{t: "tokens", h, p}`: the hashes of its paired browsers' relay tokens and of its open links' pairing tickets, within a second of any change in `relay.json`) | sends a 32-byte challenge; the Mac answers with its relay public key and `Sign_R(tx("dibs-relay-auth-v1", mid, challenge, host))`. The relay checks that the key hashes to `<mid>` and the signature; then routes. The newest authenticated connection replaces the old one |
+| `wss://app.dibs.cc/ws/m/<mid>` | the Mac (also sends `{t: "tokens", h, p}`: the hashes of its paired browsers' relay tokens and of its open links' pairing tickets, and `{t: "drops", d}`, its open links' sealed code boxes, within a second of any change in `relay.json`) | sends a 32-byte challenge; the Mac answers with its relay public key and `Sign_R(tx("dibs-relay-auth-v1", mid, challenge, host))`. The relay checks that the key hashes to `<mid>` and the signature; then routes. The newest authenticated connection replaces the old one |
 | `wss://app.dibs.cc/ws/b/<mid>` | a browser tab | only from the page's own Origin. A tab gets a slot only by proving it's paired: its first message is `{t: "hello", rt}`, and the relay admits it if the hash of `rt` is one the Mac registered (compared in constant time), or `{t: "pair", ticket}` with a ticket whose hash the Mac registered for an open link, into a pool of 2 with a 30 s deadline that ends when the Mac admits it. A wrong ticket and no open link get the same answer, so the relay's answers say nothing about whether a link is open, and nobody without the link can take the pairing pool. Anything else (a byte, a made-up token, silence for 5 s) closes it. An admitted tab gets a random channel id; its binary messages go to the Mac prefixed with the id, and the Mac's go back by id. Text from the relay: `{t: "mac", up}`, and `{t: "refused", why: "unpaired" or "no-pairing"}`, which the page turns into its own words |
+| `https://app.dibs.cc/pair/code` | the page (`POST {r}`, same Origin only) | a typed code's sealed box by its drop name (see "The typed code"), 3 times per box at most; the Worker's limit of 20 a minute per address and the code index's own count apply |
 | `https://app.dibs.cc/` | anyone | the page, with the headers below |
 | `https://dibs.cc/app`, `https://dibs.cc/app/*` | anyone | a 301 to `https://app.dibs.cc/`, which keeps the fragment. Exactly these two route patterns, so `/apple-touch-icon.png` and the like stay the waitlist's |
 

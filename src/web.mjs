@@ -591,7 +591,8 @@ export async function api({ method = 'GET', path: where = '/', body = null, sess
       const r = await act(['pair', '--remote', ...(a.act === true ? ['--allow-actions'] : [])]);
       const link = r.status === 200 ? r.json.said.split('\n').find(l => /^https:\/\//.test(l.trim()))?.trim() : null;
       if (!link) return r.status === 200 ? { status: 502, json: { error: 'dibs pair --remote printed no link' } } : r;
-      return ok({ link, qr: qr(link).map(row => row.map(Boolean)), act: a.act === true });
+      const code = /^Code: ([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})$/m.exec(r.json.said)?.[1] || null;
+      return ok({ link, code, qr: qr(link).map(row => row.map(Boolean)), act: a.act === true });
     }
     // A machine joins the group with this code: dibs pair --machine. Local only, never through the relay:
     // whoever joins can run commands on every machine in the group.

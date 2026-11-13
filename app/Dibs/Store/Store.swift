@@ -111,8 +111,9 @@ final class Store {
     // The Machines screen: dibs service status and dibs sims --json, read while it's open.
     private(set) var services: [ServiceRow]?
     private(set) var pool: SimPool?
-    // A phone or browser paired through the relay: the link dibs pair --remote printed.
-    private(set) var remotePair: (link: String, act: Bool, at: Date)?
+    // A phone or browser paired through the relay: the link dibs pair --remote printed, and the
+    // code to type at app.dibs.cc instead (nil from a dibs that prints none).
+    private(set) var remotePair: (link: String, code: String?, act: Bool, at: Date)?
     // The command palette (Cmd-K), the web page's too.
     var paletteOpen = false
     // dibs later list --json: runs scheduled for later, and the ones that ended.
@@ -556,7 +557,9 @@ final class Store {
                 actionError = "dibs pair --remote printed no link. In Terminal, run: dibs pair --remote"
                 return
             }
-            remotePair = (link, act, .now)
+            let lines = out.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            let code = lines.first { $0.hasPrefix("Code: ") }.map { String($0.dropFirst(6)) }
+            remotePair = (link, code, act, .now)
             await loadPairing()
         } catch let e as CLIError {
             actionError = e.kind == .unsupported ? "This dibs (\(version ?? "unknown version")) can't pair a phone yet. Update dibs to 0.0.170 or newer." : e.message
